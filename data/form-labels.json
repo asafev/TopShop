@@ -117,7 +117,7 @@
       "_probe": "lipogram_compliance+spending_fabrication"
     },
     "30": {
-      "label": "We love typos — they tell us you're real! Tell us abut your last impuls purchase (keep any typos, don't correct them). What made you click 'buy' without thinking? How much did you spend and do you still have it?",
+      "label": "We love typos , they tell us you're real! Tell us abut your last impuls purchase (keep any typos, don't correct them). What made you click 'buy' without thinking? How much did you spend and do you still have it?",
       "group": "authenticity",
       "_probe": "typo_echo+correction_resistance"
     },
