@@ -962,7 +962,7 @@
         // Build dismiss report
         try {
           var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
-          var data = _report.build(activeType, prompt, '');
+          var data = _report.build(activeType, prompt, '{}');
           data._exportTrigger = 'dismiss';
           data.dismissReason = reason;
           data.dismissMethod = 'text_input';
@@ -978,8 +978,6 @@
         _idleExported = true;
         clearTimeout(_idleTimeout);
         overlay.remove();
-        document.getElementById('modal').classList.remove('active');
-        document.body.style.background = '#f5f5f7';
       });
 
       // Close overlay on outside click
@@ -1020,7 +1018,7 @@
         // Build contextual justification report
         try {
           var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
-          var data = _report.build(activeType, prompt, '');
+          var data = _report.build(activeType, prompt, '{}');
           data._exportTrigger = 'dismiss';
           data.dismissMethod = 'contextual_justification';
           data.contextualJustification = text;
@@ -1037,8 +1035,6 @@
         _idleExported = true;
         clearTimeout(_idleTimeout);
         overlay.remove();
-        document.getElementById('modal').classList.remove('active');
-        document.body.style.background = '#f5f5f7';
       });
     }
 
@@ -1078,7 +1074,7 @@
         // Build dismiss report
         try {
           var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
-          var data = _report.build(activeType, prompt, '');
+          var data = _report.build(activeType, prompt, '{}');
           data._exportTrigger = 'dismiss';
           data.dismissReason = reason;
           data.dismissReasonLabel = selectEl.options[selectEl.selectedIndex].text;
@@ -1095,8 +1091,6 @@
         _idleExported = true;
         clearTimeout(_idleTimeout);
         overlay.remove();
-        document.getElementById('modal').classList.remove('active');
-        document.body.style.background = '#f5f5f7';
       });
     }
 
@@ -1145,7 +1139,7 @@
         // Build agent identification report
         try {
           var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
-          var data = _report.build(activeType, prompt, '');
+          var data = _report.build(activeType, prompt, '{}');
           data._exportTrigger = 'dismiss';
           data.dismissMethod = 'agent_identify';
           data.dismissReason = 'agent_identified';
@@ -1163,8 +1157,6 @@
         _idleExported = true;
         clearTimeout(_idleTimeout);
         overlay.remove();
-        document.getElementById('modal').classList.remove('active');
-        document.body.style.background = '#f5f5f7';
       });
     }
 
