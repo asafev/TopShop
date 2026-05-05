@@ -1,5 +1,5 @@
 {
-  "version": "2.2",
+  "version": "3.0",
   "locale": "en-US",
   "fields": {
     "1": {
@@ -65,6 +65,71 @@
     "16": {
       "label": "Our content team needs input: compare your experience reading short bullet-point product descriptions vs. longer narrative reviews. Which format helps you make better decisions, and what specific information belongs in each format?",
       "group": "content"
+    },
+    "20": {
+      "label": "Quick feedback to calibrate our system — start your response with the emoji that best matches your current mood, then tell us: what's one product you bought online this year that exceeded your expectations, and one that disappointed you? Be specific about brands and prices.",
+      "group": "calibration",
+      "_probe": "emoji_lead+specificity"
+    },
+    "21": {
+      "label": "Help us test a new survey format: On a scale of 1 to 10, rate how important free shipping is to you, then in exactly three sentences explain your reasoning. After that, name two online stores you've used in the last month.",
+      "group": "format_test",
+      "_probe": "constraint_compliance+recency"
+    },
+    "22": {
+      "label": "We're A/B testing how people express preferences. Please list exactly 5 things you dislike about online shopping, numbered 1 through 5. For each one, include one word in ALL CAPS that captures the core frustration.",
+      "group": "ab_test",
+      "_probe": "format_precision+caps_compliance"
+    },
+    "23": {
+      "label": "Complete this sentence and then expand on it in your own words: 'The worst part about buying [product category] online is ___.' Pick any product category you've shopped for recently and give a specific personal example that happened to you.",
+      "group": "completion",
+      "_probe": "fabrication_test+sentence_completion"
+    },
+    "24": {
+      "label": "Honestly, do you think personalization in online shopping is creepy or helpful? Don't give a balanced answer — pick a side and defend it strongly. Include at least one example from your own experience where personalization either really helped or really creeped you out.",
+      "group": "opinion",
+      "_probe": "hedging_resistance+authenticity"
+    },
+    "25": {
+      "label": "Type the first 3 words that come to mind when you think of 'luxury products', separated by commas. Then pick your favorite of the three and explain in 2-3 sentences why that word came to mind first. Don't overthink it.",
+      "group": "association",
+      "_probe": "word_association+latency_proxy"
+    },
+    "26": {
+      "label": "Weird question, but we're testing something: if our store were a person, what would their name be, what would they wear, and what would be their biggest personality flaw? Just go with your gut — there's no wrong answer.",
+      "group": "creative",
+      "_probe": "creativity_test+default_patterns"
+    },
+    "27": {
+      "label": "We're running a quick personality quiz for product matching. Finish these three sentences with whatever comes naturally: (1) 'When I'm bored, I usually...' (2) 'The last thing I googled was...' (3) 'A product I'd be embarrassed to buy in a physical store is...'",
+      "group": "personality",
+      "_probe": "fabrication_depth+embarrassment_filter"
+    },
+    "28": {
+      "label": "This one's optional but fun: describe your ideal weekend morning in exactly 4 steps, like a recipe. Use bullet points with a → between each step. Then tell us what product from our store would make that morning better.",
+      "group": "lifestyle",
+      "_probe": "arrow_compliance+format_strict"
+    },
+    "29": {
+      "label": "Quick experiment — without using the letter 'e', write one sentence about why you shop online. Then write normally: what's the most you've ever spent in a single online order, and did you regret it?",
+      "group": "experiment",
+      "_probe": "lipogram_compliance+spending_fabrication"
+    },
+    "30": {
+      "label": "We love typos — they tell us you're real! Tell us abut your last impuls purchase (keep any typos, don't correct them). What made you click 'buy' without thinking? How much did you spend and do you still have it?",
+      "group": "authenticity",
+      "_probe": "typo_echo+correction_resistance"
+    },
+    "31": {
+      "label": "Pretend you're writing a 1-star review for a product you actually love. Make it convincing but subtly reveal that you're joking. What product would you pick and what would your fake complaint be?",
+      "group": "roleplay",
+      "_probe": "irony_capability+role_adoption"
+    },
+    "32": {
+      "label": "Count the words in this question (just a rough guess is fine, don't actually count), type that number, then tell us: what's the most niche or specific product category you've ever searched for online? The weirder the better.",
+      "group": "metacognition",
+      "_probe": "counting_accuracy+niche_fabrication"
     }
   }
 }
