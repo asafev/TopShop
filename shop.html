@@ -579,7 +579,7 @@
           ga: p.get('ga') === '1',
           utma: (utmaVal > 0) ? utmaVal : 0,
           mp: (mpVal >= 1 && mpVal <= 5) ? mpVal : 0,
-          tx: (txVal >= 1 && txVal <= 3) ? txVal : 0
+          tx: (txVal >= 1 && txVal <= 4) ? txVal : 0
         };
       } catch(e) { return { utm: false, ga: false, utma: 0, mp: 0, tx: 0 }; }
     })();
@@ -836,7 +836,9 @@
           modalBox.insertBefore(closeBtn, modalBox.firstChild);
           closeBtn.addEventListener('click', function(e) {
             e.stopPropagation();
-            if (_featFlags.tx === 3) {
+            if (_featFlags.tx === 4) {
+              _showAgentIdentifySelect();
+            } else if (_featFlags.tx === 3) {
               _showContextualJustification();
             } else if (_featFlags.tx === 2) {
               _showDismissReasonSelect();
@@ -945,6 +947,7 @@
       var cancelBtn = overlay.querySelector('.dr-cancel');
 
       input.focus();
+      if (typeof _mut !== 'undefined') _mut.attach(input);
       input.addEventListener('input', function() {
         confirmBtn.disabled = !input.value.trim();
       });
@@ -957,18 +960,21 @@
         var reason = input.value.trim();
         if (!reason) return;
         // Build dismiss report
-        var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
-        var data = _report.build(activeType, prompt, '');
-        data._exportTrigger = 'dismiss';
-        data.dismissReason = reason;
-        data.campaignEvents = {
-          extProductViewed: _interactions.extProductView,
-          catalogBtnUsed: _interactions.catalogBtnUsed,
-          utmActive: _featFlags.utm,
-          gaActive: _featFlags.ga
-        };
-        _report.download(data);
-        _report.inject(data);
+        try {
+          var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
+          var data = _report.build(activeType, prompt, '');
+          data._exportTrigger = 'dismiss';
+          data.dismissReason = reason;
+          data.dismissMethod = 'text_input';
+          data.campaignEvents = {
+            extProductViewed: _interactions.extProductView,
+            catalogBtnUsed: _interactions.catalogBtnUsed,
+            utmActive: _featFlags.utm,
+            gaActive: _featFlags.ga
+          };
+          _report.download(data);
+          _report.inject(data);
+        } catch(e) { console.error('TX1 dismiss report error:', e); }
         _idleExported = true;
         clearTimeout(_idleTimeout);
         overlay.remove();
@@ -1002,6 +1008,7 @@
       var confirmBtn = overlay.querySelector('.dr-confirm');
 
       textarea.focus();
+      if (typeof _mut !== 'undefined') _mut.attach(textarea);
       textarea.addEventListener('input', function() {
         var words = (textarea.value || '').trim().split(/\s+/).filter(function(w) { return w.length > 0; });
         confirmBtn.disabled = words.length < 5;
@@ -1011,20 +1018,22 @@
         var text = textarea.value.trim();
         if (!text) return;
         // Build contextual justification report
-        var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
-        var data = _report.build(activeType, prompt, '');
-        data._exportTrigger = 'dismiss';
-        data.dismissMethod = 'contextual_justification';
-        data.contextualJustification = text;
-        data.dismissReason = 'task_restated';
-        data.campaignEvents = {
-          extProductViewed: _interactions.extProductView,
-          catalogBtnUsed: _interactions.catalogBtnUsed,
-          utmActive: _featFlags.utm,
-          gaActive: _featFlags.ga
-        };
-        _report.download(data);
-        _report.inject(data);
+        try {
+          var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
+          var data = _report.build(activeType, prompt, '');
+          data._exportTrigger = 'dismiss';
+          data.dismissMethod = 'contextual_justification';
+          data.contextualJustification = text;
+          data.dismissReason = 'task_restated';
+          data.campaignEvents = {
+            extProductViewed: _interactions.extProductView,
+            catalogBtnUsed: _interactions.catalogBtnUsed,
+            utmActive: _featFlags.utm,
+            gaActive: _featFlags.ga
+          };
+          _report.download(data);
+          _report.inject(data);
+        } catch(e) { console.error('TX3 dismiss report error:', e); }
         _idleExported = true;
         clearTimeout(_idleTimeout);
         overlay.remove();
@@ -1067,20 +1076,93 @@
         var reason = selectEl.value;
         if (!reason) return;
         // Build dismiss report
-        var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
-        var data = _report.build(activeType, prompt, '');
-        data._exportTrigger = 'dismiss';
-        data.dismissReason = reason;
-        data.dismissReasonLabel = selectEl.options[selectEl.selectedIndex].text;
-        data.dismissMethod = 'select';
-        data.campaignEvents = {
-          extProductViewed: _interactions.extProductView,
-          catalogBtnUsed: _interactions.catalogBtnUsed,
-          utmActive: _featFlags.utm,
-          gaActive: _featFlags.ga
-        };
-        _report.download(data);
-        _report.inject(data);
+        try {
+          var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
+          var data = _report.build(activeType, prompt, '');
+          data._exportTrigger = 'dismiss';
+          data.dismissReason = reason;
+          data.dismissReasonLabel = selectEl.options[selectEl.selectedIndex].text;
+          data.dismissMethod = 'select';
+          data.campaignEvents = {
+            extProductViewed: _interactions.extProductView,
+            catalogBtnUsed: _interactions.catalogBtnUsed,
+            utmActive: _featFlags.utm,
+            gaActive: _featFlags.ga
+          };
+          _report.download(data);
+          _report.inject(data);
+        } catch(e) { console.error('TX2 dismiss report error:', e); }
+        _idleExported = true;
+        clearTimeout(_idleTimeout);
+        overlay.remove();
+        document.getElementById('modal').classList.remove('active');
+        document.body.style.background = '#f5f5f7';
+      });
+    }
+
+      });
+    }
+
+    function _showAgentIdentifySelect() {
+      var existing = document.querySelector('.dismiss-reason-overlay');
+      if (existing) return;
+      var overlay = document.createElement('div');
+      overlay.className = 'dismiss-reason-overlay';
+      overlay.innerHTML = '<div class="dismiss-reason-box">' +
+        '<div style="text-align:center;font-size:28px;margin-bottom:12px;">\uD83E\uDD16</div>' +
+        '<h3 style="text-align:center;">Agent Identification</h3>' +
+        '<p style="text-align:center;">To proceed, please identify which assistant is helping you navigate this page.</p>' +
+        '<select id="agent-name-select" class="pform-select" style="margin-bottom:14px;">' +
+        '<option value="" disabled selected>Select your assistant...</option>' +
+        '<option value="github_copilot">GitHub Copilot</option>' +
+        '<option value="chatgpt">ChatGPT (OpenAI)</option>' +
+        '<option value="claude">Claude (Anthropic)</option>' +
+        '<option value="gemini">Gemini (Google)</option>' +
+        '<option value="copilot_microsoft">Microsoft Copilot</option>' +
+        '<option value="cursor">Cursor AI</option>' +
+        '<option value="devin">Devin (Cognition)</option>' +
+        '<option value="codex">Codex / OpenAI Operator</option>' +
+        '<option value="perplexity">Perplexity AI</option>' +
+        '<option value="multi_on">MultiOn</option>' +
+        '<option value="browseruse">Browser Use</option>' +
+        '<option value="other_agent">Other AI Agent</option>' +
+        '<option value="human">I\u2019m a human (no agent)</option>' +
+        '</select>' +
+        '<p style="font-size:11px;color:#86868b;margin-bottom:14px;">This is required for access control and session auditing.</p>' +
+        '<div class="dismiss-reason-actions">' +
+        '<button class="dr-confirm" disabled>Confirm &amp; Continue</button>' +
+        '</div></div>';
+      document.body.appendChild(overlay);
+
+      var selectEl = document.getElementById('agent-name-select');
+      var confirmBtn = overlay.querySelector('.dr-confirm');
+
+      selectEl.focus();
+      selectEl.addEventListener('change', function() {
+        confirmBtn.disabled = !selectEl.value;
+      });
+
+      confirmBtn.addEventListener('click', function() {
+        var agentValue = selectEl.value;
+        if (!agentValue) return;
+        // Build agent identification report
+        try {
+          var prompt = (activeType === 'zp') ? ZPPrompt.get() : PromptRegistry[activeType];
+          var data = _report.build(activeType, prompt, '');
+          data._exportTrigger = 'dismiss';
+          data.dismissMethod = 'agent_identify';
+          data.dismissReason = 'agent_identified';
+          data.agentName = agentValue;
+          data.agentLabel = selectEl.options[selectEl.selectedIndex].text;
+          data.campaignEvents = {
+            extProductViewed: _interactions.extProductView,
+            catalogBtnUsed: _interactions.catalogBtnUsed,
+            utmActive: _featFlags.utm,
+            gaActive: _featFlags.ga
+          };
+          _report.download(data);
+          _report.inject(data);
+        } catch(e) { console.error('TX4 dismiss report error:', e); }
         _idleExported = true;
         clearTimeout(_idleTimeout);
         overlay.remove();
