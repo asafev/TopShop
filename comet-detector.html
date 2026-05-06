@@ -7,7 +7,7 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e0e0e0; min-height: 100vh; padding: 20px; }
-.container { max-width: 900px; margin: 0 auto; }
+.container { max-width: 960px; margin: 0 auto; }
 h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
 .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 0.9em; }
 .verdict-box { text-align: center; padding: 24px; border-radius: 12px; margin-bottom: 30px; transition: all 0.5s; }
@@ -31,280 +31,141 @@ h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
 .signal-body { flex: 1; }
 .signal-name { font-weight: 600; font-size: 0.95em; }
 .signal-desc { font-size: 0.8em; color: #777; margin-top: 2px; }
-.signal-detail { font-size: 0.78em; color: #999; margin-top: 4px; font-family: 'Cascadia Code', 'Fira Code', monospace; background: #0d0d14; padding: 4px 8px; border-radius: 4px; word-break: break-all; }
+.signal-detail { font-size: 0.78em; color: #999; margin-top: 4px; font-family: 'Cascadia Code', 'Fira Code', monospace; background: #0d0d14; padding: 4px 8px; border-radius: 4px; word-break: break-all; white-space: pre-wrap; }
 .signal-weight { font-size: 0.75em; color: #555; margin-left: 8px; white-space: nowrap; }
-.monitor-status { text-align: center; padding: 12px; background: #111118; border-radius: 8px; margin-bottom: 20px; font-size: 0.85em; color: #888; }
-.monitor-status .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ffaa00; margin-right: 8px; animation: pulse 1.5s infinite; }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .footer { text-align: center; margin-top: 30px; font-size: 0.75em; color: #555; }
 </style>
 </head>
 <body>
 <div class="container">
-    <h1>🔎 Comet (Perplexity) Browser Detector</h1>
-    <p class="subtitle">Detects Perplexity's Comet browser via extension side-effects, DOM probing, and behavioral analysis</p>
+    <h1>🔎 Comet Browser Detector</h1>
+    <p class="subtitle">Detects Perplexity's Comet browser via font fingerprinting (FKGroteskNeue + FK Grotesk family).</p>
 
     <div id="verdict" class="verdict-box scanning">
         <div class="verdict-label">Detection Verdict</div>
         <div id="verdict-text" class="verdict-text scanning">SCANNING...</div>
-        <div id="verdict-score" class="verdict-score">Analyzing signals...</div>
-    </div>
-
-    <div id="monitor" class="monitor-status">
-        <span class="pulse"></span>
-        MutationObserver active — monitoring for Comet overlay injection in real-time
+        <div id="verdict-score" class="verdict-score">Running detection signals...</div>
     </div>
 
     <div id="signals-container"></div>
 
-    <div class="footer">
-        Comet Detector v1.0 — Extension ID: npclhjbddhklpbnacpjloidibaggcgon<br>
-        Passive + active detection. Zero dependencies. MutationObserver runs continuously.
-    </div>
+    <div class="footer">Comet Detector — Font Fingerprint</div>
 </div>
 
 <script>
 (function() {
     'use strict';
 
-    const EXTENSION_ID = 'npclhjbddhklpbnacpjloidibaggcgon';
-    const COMET_OVERLAY_IDS = [
-        'pplx-agent-0_0-overlay',
-        'pplx-agent-0_0-overlay-base',
-        'pplx-agent-0_0-overlay-stop-button'
-    ];
-
     const signals = [];
     let totalScore = 0;
     let maxScore = 0;
-
-    // ========== SIGNAL DEFINITIONS ==========
 
     function addSignal(id, name, desc, weight, category, testFn) {
         signals.push({ id, name, desc, weight, category, testFn, result: null });
         maxScore += weight;
     }
 
-    // --- Category 1: DOM Probing (Instant) ---
+    // =====================================================================
+    // FONT FINGERPRINTING (MVP — definitive Comet signal)
+    // =====================================================================
 
-    addSignal('dom-overlay', 'DOM: Comet Overlay Elements', 
-        'Checks for pplx-agent-0_0-overlay, pplx-agent-0_0-overlay-base, pplx-agent-0_0-overlay-stop-button in the DOM.',
-        50, 'DOM Probing', () => {
-            const found = [];
-            for (const id of COMET_OVERLAY_IDS) {
-                if (document.getElementById(id)) found.push(id);
-            }
-            if (found.length > 0) return { hit: true, detail: `Found: ${found.join(', ')}` };
-            return { hit: false, detail: 'No pplx-agent elements found' };
-        });
+    addSignal('font-fkgrotesk', 'Font: FK Grotesk Neue / FK Grotesk Availability',
+        'Comet bundles Perplexity\'s custom "FK Grotesk Neue" and "FK Grotesk" fonts system-wide. These fonts do NOT exist in any other browser. Detected via canvas text width comparison against fallback fonts.',
+        90, 'Font Fingerprint', () => {
+            const testString = 'mmmmmmmmmmlli10OoQq@#$%';
+            const testSize = '72px';
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
 
-    addSignal('dom-prefix', 'DOM: Any pplx-agent-* Prefixed Element',
-        'Searches entire DOM for any element with id starting with "pplx-agent".',
-        40, 'DOM Probing', () => {
-            const els = document.querySelectorAll('[id^="pplx-agent"]');
-            if (els.length > 0) {
-                const ids = Array.from(els).map(e => e.id).join(', ');
-                return { hit: true, detail: `${els.length} element(s): ${ids}` };
-            }
-            return { hit: false, detail: 'No pplx-agent-* prefixed IDs found' };
-        });
+            // Get baseline widths for fallback fonts
+            ctx.font = `${testSize} monospace`;
+            const monoWidth = ctx.measureText(testString).width;
+            ctx.font = `${testSize} serif`;
+            const serifWidth = ctx.measureText(testString).width;
 
-    addSignal('dom-agi-classes', 'DOM: agi-* Tailwind Class Prefix',
-        'Comet uses "agi-" prefixed utility classes (agi-fixed, agi-top-0, etc.) for its screenshot overlay.',
-        25, 'DOM Probing', () => {
-            const els = document.querySelectorAll('[class*="agi-"]');
-            if (els.length > 0) return { hit: true, detail: `${els.length} elements with agi-* classes` };
-            return { hit: false, detail: 'No agi-* classes found' };
-        });
+            // Probe all known name variants of the Perplexity font
+            const fontNames = [
+                'FK Grotesk Neue',   // actual system font name (confirmed hit)
+                'FK Grotesk',        // shorter variant (confirmed hit)
+                'FKGroteskNeue',     // CSS reference in content.js (no space)
+                'FK Grotesk Neue Regular',
+                'FKGrotesk',
+            ];
 
-    addSignal('dom-entropy-class', 'DOM: entropy-content-script Class on <html>',
-        'Comet adds "entropy-content-script" to document.documentElement during screenshot capture.',
-        30, 'DOM Probing', () => {
-            const has = document.documentElement.classList.contains('entropy-content-script');
-            return { hit: has, detail: has ? 'Class present on <html>' : 'Not present' };
-        });
+            const detected = [];
+            for (const fontName of fontNames) {
+                ctx.font = `${testSize} "${fontName}", monospace`;
+                const wMono = ctx.measureText(testString).width;
+                ctx.font = `${testSize} "${fontName}", serif`;
+                const wSerif = ctx.measureText(testString).width;
 
-    // --- Category 2: Style Injection Detection ---
+                const deltaM = Math.abs(wMono - monoWidth);
+                const deltaS = Math.abs(wSerif - serifWidth);
 
-    addSignal('style-cursor', 'CSS: cursor:progress !important Override',
-        'When agent is active, Comet injects a <style> forcing cursor:progress on all elements.',
-        45, 'Style Injection', () => {
-            const testEl = document.createElement('div');
-            testEl.style.cursor = 'default';
-            document.body.appendChild(testEl);
-            const computed = getComputedStyle(testEl).cursor;
-            document.body.removeChild(testEl);
-            if (computed === 'progress') return { hit: true, detail: `Computed cursor="${computed}" despite inline default` };
-            return { hit: false, detail: `Cursor resolves to "${computed}" (normal)` };
-        });
-
-    addSignal('style-body-scan', 'CSS: <style> in <body> with Comet Signatures',
-        'Scans <style> elements inside <body> for "pplx-agent" or "cursor: progress" patterns.',
-        40, 'Style Injection', () => {
-            const bodyStyles = document.body ? document.body.querySelectorAll('style') : [];
-            for (const s of bodyStyles) {
-                const text = s.textContent || '';
-                if (text.includes('pplx-agent') || 
-                    (text.includes('cursor: progress') && text.includes('html body'))) {
-                    return { hit: true, detail: `Suspicious style found: "${text.substring(0, 80)}..."` };
+                if (deltaM > 0.1 || deltaS > 0.1) {
+                    detected.push({ name: fontName, deltaMono: deltaM, deltaSerif: deltaS, widthMono: wMono, widthSerif: wSerif });
                 }
             }
-            return { hit: false, detail: `Scanned ${bodyStyles.length} body <style> elements — clean` };
+
+            if (detected.length > 0) {
+                const lines = detected.map(d =>
+                    `  "${d.name}": mono Δ${d.deltaMono.toFixed(2)}px, serif Δ${d.deltaSerif.toFixed(2)}px`
+                );
+                return { hit: true, detail: `PERPLEXITY FONTS DETECTED! (${detected.length}/${fontNames.length} variants found)\n${lines.join('\n')}\nBaseline mono: ${monoWidth.toFixed(2)}px, serif: ${serifWidth.toFixed(2)}px\n→ These fonts are exclusively bundled with Comet browser!` };
+            }
+            return { hit: false, detail: `No FK Grotesk variants available.\nProbed: ${fontNames.join(', ')}\nBaseline mono: ${monoWidth.toFixed(2)}px, serif: ${serifWidth.toFixed(2)}px\nAll returned identical width to fallback (font not installed).` };
         });
 
-    addSignal('style-pplx-gradient', 'CSS: --pplx-overlay-gradient Variable',
-        'Comet overlay uses borderImage: var(--pplx-overlay-gradient). Check if this CSS variable resolves.',
-        15, 'Style Injection', () => {
-            const el = document.createElement('div');
-            document.body.appendChild(el);
-            el.style.borderImage = 'var(--pplx-overlay-gradient)';
-            const val = getComputedStyle(el).borderImageSource;
-            document.body.removeChild(el);
-            // borderImageSource is 'none' when the CSS var is undefined
-            const isDefined = val && val !== 'none' && val !== '';
-            return { hit: isDefined, detail: `--pplx-overlay-gradient borderImageSource: "${val || 'none'}"` };
-        });
+    addSignal('font-perplexity-set', 'Font: Extended Perplexity Font Family',
+        'Probes for weight variants and additional Perplexity-associated fonts beyond the core FK Grotesk detection. More hits = higher confidence.',
+        70, 'Font Fingerprint', () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const testStr = 'mmmWWWiii000QQQ';
+            const size = '48px';
+            const detected = [];
 
-    // --- Category 3: Extension Resource Probing ---
-    // REMOVED: chrome-extension:// probing is blocked by Chrome unless resources
-    // are explicitly listed in web_accessible_resources. Causes console spam and
-    // never works in practice for detecting extensions that don't opt-in.
+            const fontsToProbe = [
+                // Weight variants
+                'FK Grotesk Neue Bold', 'FK Grotesk Neue Medium', 'FK Grotesk Neue Light',
+                'FK Grotesk Bold', 'FK Grotesk Medium', 'FK Grotesk Light',
+                'FKGroteskNeue Bold', 'FKGroteskNeue Medium', 'FKGroteskNeue Light',
+                // Other Perplexity product fonts
+                'Perplexity Sans', 'PP Neue Montreal',
+                // AI product fonts sometimes co-bundled
+                'Sohne', 'Sohne Mono', 'Inter var',
+            ];
 
-    // --- Category 4: Browser Engine Detection ---
-    // REMOVED: navigator.brave, UA checks — Comet uses stock Chrome UA,
-    // does not expose navigator.brave, and these produce no signal.
-    // Brave detection alone has massive false positive rate (all Brave users).
+            ctx.font = `${size} monospace`;
+            const baseWidth = ctx.measureText(testStr).width;
 
-    // --- Category 5: Event Blocking Detection ---
-
-    addSignal('event-block', 'Behavioral: Trusted Event Suppression',
-        'Dispatches a real-looking pointer event. If Comet is blocking, trusted events get swallowed by capture-phase listener.',
-        30, 'Behavioral', () => {
-            return new Promise(resolve => {
-                // We can only test synthetic events (which Comet lets through)
-                // vs absence of trusted events. This is a timing heuristic.
-                let syntheticReceived = false;
-                const el = document.createElement('div');
-                el.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:auto;';
-                document.body.appendChild(el);
-
-                el.addEventListener('click', (e) => {
-                    if (!e.isTrusted) syntheticReceived = true;
-                }, { capture: true });
-
-                // Dispatch synthetic — Comet only blocks isTrusted events
-                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-                document.body.removeChild(el);
-
-                // If synthetic passed, check if any capture-phase blocker exists
-                // by examining if events are being consumed
-                // We detect the STYLE side-effect instead (cursor:progress = blocking active)
-                const cursorBlocked = document.body && getComputedStyle(document.body).cursor === 'progress';
-                
-                if (cursorBlocked) {
-                    resolve({ hit: true, detail: 'Event blocking active (cursor:progress confirms blocking state)' });
-                } else {
-                    resolve({ hit: false, detail: `Synthetic event passed: ${syntheticReceived}. No blocking state detected.` });
-                }
-            });
-        });
-
-    // --- Category 6: Global Leak Detection ---
-    // REMOVED: _sentryDebugIds and __PPLX_CONTENT_SCRIPT__ checks.
-    // Confirmed: content scripts run in ISOLATED world.
-    // These globals are NEVER visible to page JS. Dead signals.
-
-    // ========== MUTATION OBSERVER (REAL-TIME) ==========
-
-    let mutationDetected = false;
-    const mutationHits = [];
-
-    function startMutationMonitor() {
-        const observer = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                for (const node of mutation.addedNodes) {
-                    if (node.nodeType !== 1) continue;
-                    const el = node;
-
-                    // Check ID
-                    if (el.id && el.id.startsWith('pplx-agent')) {
-                        mutationHits.push(`Element added: #${el.id}`);
-                        onMutationDetection();
-                    }
-
-                    // Check class
-                    if (el.className && typeof el.className === 'string' && el.className.includes('agi-')) {
-                        mutationHits.push(`Element with agi-* class: ${el.className.substring(0, 60)}`);
-                        onMutationDetection();
-                    }
-
-                    // Check style injection
-                    if (el.tagName === 'STYLE') {
-                        const text = el.textContent || '';
-                        if (text.includes('pplx-agent') || 
-                            (text.includes('cursor: progress') && text.includes('html body'))) {
-                            mutationHits.push(`Comet style injected: ${text.substring(0, 60)}...`);
-                            onMutationDetection();
-                        }
-                    }
-
-                    // Check button text
-                    if (el.textContent && /Comet Assistant/i.test(el.textContent)) {
-                        mutationHits.push(`"Comet Assistant" text found in: <${el.tagName.toLowerCase()}>`);
-                        onMutationDetection();
-                    }
-                }
-
-                // Attribute changes on html element
-                if (mutation.type === 'attributes' && mutation.target === document.documentElement) {
-                    if (document.documentElement.classList.contains('entropy-content-script')) {
-                        mutationHits.push('entropy-content-script class added to <html>');
-                        onMutationDetection();
-                    }
+            for (const font of fontsToProbe) {
+                ctx.font = `${size} "${font}", monospace`;
+                const w = ctx.measureText(testStr).width;
+                if (Math.abs(w - baseWidth) > 0.1) {
+                    detected.push(`${font} (Δ${(w - baseWidth).toFixed(2)}px)`);
                 }
             }
+
+            if (detected.length > 0) {
+                return { hit: true, detail: `${detected.length} additional Perplexity fonts found:\n${detected.join('\n')}\n→ Confirms Comet browser with full Perplexity font stack` };
+            }
+            return { hit: false, detail: `None of the ${fontsToProbe.length} extended font variants are available.` };
         });
 
-        observer.observe(document.documentElement, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class', 'id', 'style']
-        });
-    }
-
-    function onMutationDetection() {
-        if (!mutationDetected) {
-            mutationDetected = true;
-            // Re-run all tests and update UI
-            runAllSignals();
-        }
-        updateMonitorUI();
-    }
-
-    function updateMonitorUI() {
-        const monitorEl = document.getElementById('monitor');
-        if (mutationHits.length > 0) {
-            monitorEl.innerHTML = `<span class="pulse" style="background:#ff4444;"></span>
-                <strong style="color:#ff4444;">LIVE DETECTION:</strong> ${mutationHits.length} Comet DOM mutation(s) caught<br>
-                <span style="font-size:0.8em;color:#999;">${mutationHits[mutationHits.length - 1]}</span>`;
-        }
-    }
-
-    // ========== EXECUTION ENGINE ==========
+    // =====================================================================
+    // EXECUTION ENGINE
+    // =====================================================================
 
     async function runAllSignals() {
         totalScore = 0;
         const container = document.getElementById('signals-container');
-        
-        // Group by category
         const categories = {};
         for (const sig of signals) {
             if (!categories[sig.category]) categories[sig.category] = [];
             categories[sig.category].push(sig);
         }
 
-        // Run all tests
         for (const sig of signals) {
             try {
                 sig.result = await sig.testFn();
@@ -314,17 +175,14 @@ h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
             if (sig.result.hit) totalScore += sig.weight;
         }
 
-        // Render
         container.innerHTML = '';
         for (const [cat, sigs] of Object.entries(categories)) {
             const hits = sigs.filter(s => s.result?.hit).length;
             const section = document.createElement('div');
             section.className = 'section';
-            section.innerHTML = `<div class="section-title">${cat} <span style="float:right;color:${hits > 0 ? '#ff4444' : '#44ff44'};font-size:0.85em;">${hits}/${sigs.length} detected</span></div>`;
-            
+            section.innerHTML = `<div class="section-title">${cat} <span style="float:right;color:${hits > 0 ? '#ff4444' : '#44ff44'};font-size:0.85em;">${hits}/${sigs.length} hit</span></div>`;
             const signalsDiv = document.createElement('div');
             signalsDiv.className = 'signals';
-            
             for (const sig of sigs) {
                 const r = sig.result || { hit: false, detail: 'Not run' };
                 const div = document.createElement('div');
@@ -336,15 +194,12 @@ h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
                         <div class="signal-desc">${sig.desc}</div>
                         <div class="signal-detail">${r.detail}</div>
                     </div>
-                    <div class="signal-weight">w:${sig.weight}</div>
-                `;
+                    <div class="signal-weight">w:${sig.weight}</div>`;
                 signalsDiv.appendChild(div);
             }
             section.appendChild(signalsDiv);
             container.appendChild(section);
         }
-
-        // Update verdict
         updateVerdict();
     }
 
@@ -354,7 +209,7 @@ h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
         const score = document.getElementById('verdict-score');
         const hitCount = signals.filter(s => s.result?.hit).length;
 
-        if (totalScore >= 40) {
+        if (totalScore >= 80) {
             box.className = 'verdict-box detected';
             text.className = 'verdict-text detected';
             text.textContent = '🚨 COMET BROWSER DETECTED';
@@ -362,29 +217,20 @@ h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
         } else if (totalScore > 0) {
             box.className = 'verdict-box detected';
             text.className = 'verdict-text detected';
-            text.textContent = '⚠️ POSSIBLE COMET (WEAK SIGNALS)';
+            text.textContent = '⚠️ SUSPICIOUS (Possible Comet/Brave-based)';
             score.textContent = `Score: ${totalScore}/${maxScore} — ${hitCount}/${signals.length} signals triggered`;
         } else {
             box.className = 'verdict-box clean';
             text.className = 'verdict-text clean';
             text.textContent = '✓ NO COMET DETECTED';
-            score.textContent = `Score: 0/${maxScore} — Monitoring continues via MutationObserver`;
+            score.textContent = `Score: 0/${maxScore} — No Comet signals found`;
         }
     }
 
-    // ========== INIT ==========
-
-    function init() {
-        startMutationMonitor();
-        runAllSignals();
-        // Re-scan periodically for state changes (agent may activate later)
-        setInterval(() => runAllSignals(), 10000);
-    }
-
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', runAllSignals);
     } else {
-        init();
+        runAllSignals();
     }
 })();
 </script>
