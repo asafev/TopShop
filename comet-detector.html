@@ -211,126 +211,11 @@ h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
             return { hit: false, detail: `document.fonts.size = 0 (clean — no injected @font-face rules)` };
         });
 
-    addSignal('fontfaceset-load', 'FontFaceSet: FK Grotesk Loadable',
-        'Attempts document.fonts.load() for FK Grotesk. Returns results only if a @font-face for it exists (injected by Comet).',
-        75, 'FontFaceSet API', async () => {
-            try {
-                const results = await Promise.allSettled([
-                    document.fonts.load('16px "FKGroteskNeue"'),
-                    document.fonts.load('16px "FK Grotesk Neue"'),
-                    document.fonts.load('16px "FK Grotesk"')
-                ]);
-                const loaded = [];
-                const names = ['FKGroteskNeue', 'FK Grotesk Neue', 'FK Grotesk'];
-                results.forEach((r, i) => {
-                    if (r.status === 'fulfilled' && r.value.length > 0) {
-                        loaded.push(`${names[i]} (${r.value.length} face(s))`);
-                    }
-                });
-                if (loaded.length > 0) {
-                    return { hit: true, detail: `fonts.load() found loadable FK Grotesk!\n${loaded.join('\n')}\n→ @font-face declared by Comet injection` };
-                }
-                return { hit: false, detail: 'fonts.load() returned empty for all FK Grotesk variants (not in FontFaceSet).' };
-            } catch(e) {
-                return { hit: false, detail: `Error: ${e.message}` };
-            }
-        });
 
-    // =====================================================================
-    // STYLESHEET INSPECTION (Mac+Windows — HIGH CONFIDENCE)
-    // =====================================================================
 
-    addSignal('stylesheet-fontface-src', 'Stylesheet: @font-face with Perplexity CDN URL',
-        'Inspects all stylesheet rules for @font-face declarations with src URLs pointing to frontend-cdn.perplexity.ai.',
-        90, 'Stylesheet Inspection', async () => {
-            await new Promise(r => setTimeout(r, 800));
-            const matches = [];
-            for (let i = 0; i < document.styleSheets.length; i++) {
-                try {
-                    const sheet = document.styleSheets[i];
-                    for (const rule of sheet.cssRules) {
-                        if (rule instanceof CSSFontFaceRule) {
-                            const src = rule.style.getPropertyValue('src') || '';
-                            const family = rule.style.getPropertyValue('font-family') || '';
-                            if (src.indexOf('perplexity') !== -1 ||
-                                src.indexOf('FKGrotesk') !== -1 ||
-                                family.toLowerCase().indexOf('fkgrotesk') !== -1 ||
-                                family.toLowerCase().indexOf('fk grotesk') !== -1) {
-                                matches.push({ family, src: src.substring(0, 200), sheetIdx: i });
-                            }
-                        }
-                    }
-                } catch(e) { /* CORS blocked */ }
-            }
-            if (matches.length > 0) {
-                const lines = matches.map(m => `  "${m.family}" → ${m.src}`);
-                return { hit: true, detail: `@font-face rules with Perplexity CDN found!\n${lines.join('\n')}\n→ DEFINITIVE CSS injection by Comet` };
-            }
-            return { hit: false, detail: `Scanned ${document.styleSheets.length} stylesheet(s) — no @font-face rules reference Perplexity.` };
-        });
 
-    addSignal('stylesheet-fkgrotesk-text', 'Stylesheet: <style> elements mentioning FK Grotesk',
-        'Searches all <style> element textContent for FK Grotesk / perplexity references.',
-        85, 'Stylesheet Inspection', async () => {
-            await new Promise(r => setTimeout(r, 800));
-            const styleEls = document.querySelectorAll('style');
-            const findings = [];
-            for (const el of styleEls) {
-                const text = el.textContent || '';
-                if (text.indexOf('FKGrotesk') !== -1 ||
-                    text.indexOf('FK Grotesk') !== -1 ||
-                    text.indexOf('perplexity.ai') !== -1 ||
-                    text.indexOf('frontend-cdn.perplexity') !== -1) {
-                    findings.push({
-                        snippet: text.substring(0, 300),
-                        parent: el.parentElement ? el.parentElement.tagName : 'unknown',
-                        hasId: !!el.id
-                    });
-                }
-            }
-            if (findings.length > 0) {
-                return { hit: true, detail: `${findings.length} <style> element(s) contain FK Grotesk/Perplexity references:\n${findings.map(f => f.snippet).join('\n---\n')}` };
-            }
-            return { hit: false, detail: `${styleEls.length} <style> element(s) checked — none reference FK Grotesk or Perplexity.` };
-        });
 
-    addSignal('stylesheet-count', 'Stylesheet: Count Anomaly',
-        'Our page has exactly 1 <style>. Extra stylesheets indicate injection (weak signal — many extensions do this).',
-        20, 'Stylesheet Inspection', async () => {
-            await new Promise(r => setTimeout(r, 500));
-            const expected = 1; // our single <style> block
-            const actual = document.styleSheets.length;
-            if (actual > expected) {
-                const extras = [];
-                for (let i = expected; i < actual; i++) {
-                    const s = document.styleSheets[i];
-                    extras.push(`  [${i}] href=${s.href || 'inline'} owner=${s.ownerNode ? s.ownerNode.tagName : '?'}`);
-                }
-                return { hit: true, detail: `Expected ${expected} stylesheet, found ${actual} (+${actual - expected} injected):\n${extras.join('\n')}` };
-            }
-            return { hit: false, detail: `Stylesheet count = ${actual} (matches expected ${expected})` };
-        });
 
-    // =====================================================================
-    // PERFORMANCE RESOURCE TIMING (Mac+Windows — HIGH CONFIDENCE)
-    // =====================================================================
-
-    addSignal('perf-resource-perplexity', 'Performance: Resource Timing from Perplexity Domains',
-        'Checks performance.getEntriesByType("resource") for any requests to perplexity.ai domains we did not initiate.',
-        80, 'Network/Resource Detection', async () => {
-            await new Promise(r => setTimeout(r, 1200));
-            const entries = performance.getEntriesByType('resource');
-            const pplx = entries.filter(e =>
-                e.name.indexOf('perplexity.ai') !== -1 ||
-                e.name.indexOf('FKGrotesk') !== -1 ||
-                e.name.indexOf('fkgrotesk') !== -1
-            );
-            if (pplx.length > 0) {
-                const lines = pplx.map(e => `  ${e.initiatorType}: ${e.name} (${e.duration.toFixed(0)}ms)`);
-                return { hit: true, detail: `${pplx.length} resource(s) loaded from Perplexity domains:\n${lines.join('\n')}\n→ Comet fetched resources into our page context` };
-            }
-            return { hit: false, detail: `${entries.length} resource entries — none from perplexity.ai (likely blocked by CSP if Comet is present)` };
-        });
 
     // =====================================================================
     // FONT LOADING EVENTS (Mac+Windows)
@@ -352,21 +237,7 @@ h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
             return { hit: false, detail: 'No font loading events fired (expected — we have no @font-face).' };
         });
 
-    // =====================================================================
-    // MUTATION OBSERVER RESULTS (Mac+Windows)
-    // =====================================================================
 
-    addSignal('mutation-perplexity-style', 'MutationObserver: Perplexity Style Injection',
-        'A MutationObserver running since page start catches <style>/<link> elements injected with Perplexity content.',
-        85, 'CSS Injection Detection', async () => {
-            await new Promise(r => setTimeout(r, 1200));
-            // Check if our early observer caught anything
-            if (window.__cometMutations && window.__cometMutations.length > 0) {
-                const lines = window.__cometMutations.map(m => `  ${m.type}: ${m.content.substring(0, 150)}`);
-                return { hit: true, detail: `MutationObserver caught ${window.__cometMutations.length} Perplexity injection(s):\n${lines.join('\n')}` };
-            }
-            return { hit: false, detail: 'MutationObserver: No Perplexity-related DOM injections observed.' };
-        });
 
     // =====================================================================
     // FONT FINGERPRINTING (MVP — definitive Comet signal on Windows, works on Mac after font loads)
