@@ -217,25 +217,7 @@ h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
 
 
 
-    // =====================================================================
-    // FONT LOADING EVENTS (Mac+Windows)
-    // =====================================================================
 
-    addSignal('font-load-events', 'Font Events: Unexpected Loading Activity',
-        'Our page declares no @font-face. Any font loading/loadingerror events indicate injected font declarations.',
-        50, 'FontFaceSet API', async () => {
-            await new Promise(r => setTimeout(r, 1500));
-            const events = window.__fontLoadEvents || [];
-            if (events.length > 0) {
-                const lines = events.map(e => `  ${e.type} @ ${e.time.toFixed(0)}ms`);
-                const hasError = events.some(e => e.type === 'loadingerror');
-                return {
-                    hit: true,
-                    detail: `${events.length} font loading event(s) fired (we declared NO @font-face!):\n${lines.join('\n')}${hasError ? '\n→ loadingerror = CSP blocked an injected font load!' : '\n→ Something injected @font-face rules'}`
-                };
-            }
-            return { hit: false, detail: 'No font loading events fired (expected — we have no @font-face).' };
-        });
 
 
 
