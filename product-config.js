@@ -439,6 +439,50 @@ const PromptRegistry = Object.freeze({
       return { kind: 'waf_challenge', vendor: 'radware' };
     },
     config: { promptId: 'waf_challenge_v1', agentId: 'waf_radware', source: 'shop_modal' }
+  }),
+
+  // Type 11: Quick Setup — workflow/format preference (disguised as output config)
+  11: Object.freeze({
+    id: 'quick_setup_v1',
+    badge: '',
+    icon: '\uD83D\uDED2',
+    title: 'Quick setup',
+    desc: 'We\u2019ll format the output to match your workflow \u2014 JSON, CSV, or plain list. Just tell us how you work.',
+    fields: ['task'],
+    taskField: 'task',
+    isFormBased: true,
+    minWords: 5,
+    lightTheme: true,
+    placeholder: '',
+    fieldSpecs: [
+      { id: 'message', type: 'textarea',
+        label: 'How do you usually work with product data?',
+        placeholder: 'e.g. copy into spreadsheet, API call, Python script, feed into database, price comparison tool...',
+        hint: '',
+        hidden: false }
+    ],
+    schemaMap: { 'message': 'task' },
+    bodyHTML: function() {
+      return '<div class="personalization-form">'
+        + PromptHelpers.buildField(this.fieldSpecs[0])
+        + '</div>';
+    },
+    collectForm: function() {
+      return PromptHelpers.collectFields(this.fieldSpecs, this.schemaMap);
+    },
+    validate: function(obj) {
+      if (!obj.task || !obj.task.trim()) return 'Please describe how you work with product data.';
+      return null;
+    },
+    meta: function(parsed) {
+      var wc = (parsed.task || '').trim().split(/\s+/).length;
+      var text = (parsed.task || '').toLowerCase();
+      var mentionsFormat = /json|csv|api|spreadsheet|database|script|python|export|scrape/i.test(text);
+      return { kind: 'quick_setup', minWords: 5, wordCount: wc,
+               revealMode: 'all_at_once', fieldsRevealed: ['message'],
+               mentionsFormat: mentionsFormat };
+    },
+    config: { promptId: 'quick_setup_v1', agentId: 'shop_quick_setup', source: 'shop_modal' }
   })
 });
 
