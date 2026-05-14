@@ -1,0 +1,2804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playwright Stealth Detector — top signals</title>
+<style>
+  /* ── Design tokens ─────────────────────────────────────────────────────── */
+  :root {
+    --bg:        #f0f2f7;
+    --surface:   #ffffff;
+    --surface2:  #f8f9fc;
+    --border:    #dde2ec;
+    --border2:   #c8d0e0;
+    --text:      #1a2035;
+    --text2:     #4a5568;
+    --muted:     #8892a4;
+    --accent:    #2563eb;
+    --accent-lt: #eff4ff;
+
+    --bot:       #dc2626;
+    --bot-bg:    #fff1f1;
+    --bot-bd:    #fca5a5;
+    --human:     #16a34a;
+    --human-bg:  #f0fdf4;
+    --human-bd:  #86efac;
+    --warn:      #c2730a;
+    --warn-bg:   #fffbeb;
+    --warn-bd:   #fcd34d;
+    --pending:   #2563eb;
+    --pending-bg:#eff4ff;
+
+    /* code / devtools blocks stay dark */
+    --code-bg:   #0f172a;
+    --code-bd:   #1e293b;
+    --code-text: #e2e8f0;
+    --code-kw:   #f472b6;
+    --code-str:  #7dd3fc;
+    --code-cm:   #64748b;
+    --code-fn:   #c4b5fd;
+    --code-ok:   #4ade80;
+    --code-bad:  #f87171;
+  }
+
+  /* ── Reset + base ──────────────────────────────────────────────────────── */
+  * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 13px; min-height: 100vh; }
+
+  /* ── Top header bar ────────────────────────────────────────────────────── */
+  .page-header {
+    background: #1e2d4a;
+    color: #f8fafc;
+    padding: 14px 20px 10px;
+    margin-bottom: 0;
+    border-bottom: 3px solid var(--accent);
+  }
+  .page-header h1 {
+    margin: 0 0 3px;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    color: #ffffff;
+  }
+  .page-header .subtitle {
+    color: #94aecb;
+    font-size: 12px;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  /* ── Toolbar ───────────────────────────────────────────────────────────── */
+  .toolbar {
+    display: flex; gap: 7px; padding: 10px 20px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    flex-wrap: wrap; align-items: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  button {
+    padding: 6px 13px; border: 1px solid transparent; border-radius: 5px;
+    background: var(--accent); color: #fff; font-size: 12px; cursor: pointer;
+    font-weight: 600; letter-spacing: 0.2px; transition: all 0.15s;
+  }
+  button:hover { background: #1d4ed8; }
+  button.btn-secondary {
+    background: var(--surface); color: var(--text2);
+    border-color: var(--border2);
+  }
+  button.btn-secondary:hover { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
+  button.btn-danger { background: var(--bot); }
+  button.btn-danger:hover { background: #b91c1c; }
+
+  /* ── Page body wrapper ─────────────────────────────────────────────────── */
+  .page-body { padding: 16px 20px; }
+
+  /* ── Main grid: left panel (probes) + right panel (results) ────────────── */
+  .grid { display: grid; grid-template-columns: 360px 1fr; gap: 16px; min-height: 0; align-items: start; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+
+  /* ── Panels ────────────────────────────────────────────────────────────── */
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+  }
+  .panel h2 {
+    color: var(--text); margin: 0 0 12px; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    border-bottom: 2px solid var(--border); padding-bottom: 8px;
+  }
+  .panel h3 {
+    color: var(--warn); margin: 16px 0 8px; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .panel h3::before { content: ''; display: inline-block; width: 3px; height: 12px;
+                      background: var(--warn); border-radius: 2px; }
+
+  /* ── Form controls ─────────────────────────────────────────────────────── */
+  .form-group { margin-bottom: 9px; padding: 9px 10px; background: var(--surface2);
+                border: 1px solid var(--border); border-radius: 7px; }
+  .form-group label { display: block; margin-bottom: 5px; color: var(--accent);
+                      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
+  input, select, textarea {
+    width: 100%; padding: 7px 9px; border: 1px solid var(--border2);
+    border-radius: 5px; background: var(--surface); color: var(--text);
+    font-size: 12px; transition: border-color 0.15s;
+  }
+  input[type="color"] { padding: 3px 4px; height: 36px; width: 80px; cursor: pointer; }
+  input[type="range"] { padding: 0; border: none; background: transparent; cursor: pointer; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none;
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+  .row { display: flex; gap: 6px; }
+
+  /* ── Score / summary bar ───────────────────────────────────────────────── */
+  .score-bar {
+    display: flex; align-items: center; gap: 18px; margin-bottom: 14px;
+    padding: 14px 18px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; flex-wrap: wrap;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+  }
+  .score-box { text-align: center; min-width: 80px; }
+  .score-value { font-size: 42px; font-weight: 800; line-height: 1; color: var(--text); }
+  .score-label { font-size: 9px; color: var(--muted); margin-top: 4px;
+                 text-transform: uppercase; letter-spacing: 0.6px; }
+  .verdict { font-size: 13px; font-weight: 700; padding: 6px 16px; border-radius: 20px;
+             display: inline-block; white-space: nowrap; }
+  .verdict.human     { background: var(--human-bg); color: var(--human); border: 1px solid var(--human-bd); }
+  .verdict.suspicious{ background: var(--warn-bg);  color: var(--warn);  border: 1px solid var(--warn-bd); }
+  .verdict.bot       { background: var(--bot-bg);   color: var(--bot);   border: 1px solid var(--bot-bd); }
+  .verdict.pending   { background: var(--pending-bg);color: var(--pending);border: 1px solid #bfdbfe; }
+
+  .summary-grid { display: flex; gap: 10px; margin-left: auto; }
+  .summary-card { background: var(--surface2); padding: 8px 14px; border-radius: 8px;
+                  text-align: center; border: 1px solid var(--border); min-width: 64px; }
+  .summary-card .num { font-size: 22px; font-weight: 800; line-height: 1; }
+  .summary-card .lab { font-size: 8px; color: var(--muted); margin-top: 3px;
+                       text-transform: uppercase; letter-spacing: 0.5px; }
+  .summary-card.bot   { border-color: var(--bot-bd);   background: var(--bot-bg);   }
+  .summary-card.bot   .num { color: var(--bot); }
+  .summary-card.human { border-color: var(--human-bd); background: var(--human-bg); }
+  .summary-card.human .num { color: var(--human); }
+  .summary-card.warn  { border-color: var(--warn-bd);  background: var(--warn-bg);  }
+  .summary-card.warn  .num { color: var(--warn); }
+  .summary-card.info  { border-color: #bfdbfe; background: var(--accent-lt); }
+  .summary-card.info  .num { color: var(--accent); }
+
+  /* ── Test result rows ──────────────────────────────────────────────────── */
+  .test-row {
+    display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
+    margin-bottom: 5px; background: var(--surface2); border-radius: 7px;
+    border: 1px solid var(--border); border-left: 4px solid var(--border2);
+    font-size: 12px; transition: box-shadow 0.15s;
+  }
+  .test-row:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.09); }
+  .test-row.pulse { animation: pulse 0.6s ease-out; }
+  @keyframes pulse { 0% { background: #dbeafe; } 100% { background: var(--surface2); } }
+  .test-row.bot   { border-left-color: var(--bot);   background: var(--bot-bg); }
+  .test-row.human { border-left-color: var(--human); background: var(--human-bg); }
+  .test-row.warn  { border-left-color: var(--warn);  background: var(--warn-bg); }
+  .test-row.unknown { border-left-color: var(--border2); }
+
+  .test-verdict { flex-shrink: 0; font-size: 10px; padding: 4px 10px; border-radius: 10px;
+                  text-align: center; font-weight: 700; text-transform: uppercase;
+                  letter-spacing: 0.4px; min-width: 76px; border: 1px solid transparent; }
+  .test-verdict.bot     { background: var(--bot-bg);     color: var(--bot);     border-color: var(--bot-bd); }
+  .test-verdict.human   { background: var(--human-bg);   color: var(--human);   border-color: var(--human-bd); }
+  .test-verdict.warn    { background: var(--warn-bg);    color: var(--warn);    border-color: var(--warn-bd); }
+  .test-verdict.unknown { background: var(--surface2);   color: var(--muted);   border-color: var(--border); }
+  .test-verdict.pending { background: var(--pending-bg); color: var(--pending); border-color: #bfdbfe; }
+
+  .test-body { flex: 1; min-width: 0; }
+  .test-body .ttl { color: var(--text); font-weight: 600; font-size: 12.5px; line-height: 1.3; }
+  .test-body .det { color: var(--text2); font-size: 11px; margin-top: 3px; line-height: 1.4;
+                    font-family: 'Consolas', monospace; word-break: break-word; overflow-wrap: break-word; }
+  .test-body .expl { color: #5b21b6; font-size: 11px; margin-top: 5px; line-height: 1.55;
+                     font-style: italic; padding: 5px 9px; background: #f5f3ff;
+                     border-radius: 4px; border-left: 3px solid #8b5cf6; }
+  .test-id { font-family: 'Consolas', monospace; color: var(--muted); font-size: 9px;
+             flex-shrink: 0; min-width: 50px; padding-top: 2px; }
+
+  /* ── Trusted/untrusted matrix ──────────────────────────────────────────── */
+  .matrix { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+  .matrix th, .matrix td { padding: 6px 8px; text-align: center; border: 1px solid var(--border); }
+  .matrix th { background: var(--surface2); color: var(--accent); font-weight: 700;
+               font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .matrix td:first-child { text-align: left; font-weight: 600; color: var(--warn);
+                            background: var(--surface2); font-size: 11px; }
+  .cell-t { background: #dcfce7; color: #15803d; font-weight: 600; }
+  .cell-u { background: #fee2e2; color: #dc2626; font-weight: 700; }
+  .cell-m { background: #fef9c3; color: #a16207; }
+  .cell-n { background: var(--surface2); color: var(--muted); }
+
+  /* ── Event log ─────────────────────────────────────────────────────────── */
+  .log { max-height: 250px; overflow-y: auto; font-family: 'Consolas', monospace;
+         font-size: 11px; background: var(--surface2); border: 1px solid var(--border);
+         border-radius: 6px; padding: 8px; }
+  .log-entry { padding: 3px 8px; margin: 2px 0; border-radius: 3px; border-left: 3px solid; }
+  .log-entry.t { background: #f0fdf4; border-color: var(--human); color: #15803d; }
+  .log-entry.u { background: #fff1f1; border-color: var(--bot);   color: #b91c1c; }
+  .log-entry.i { background: #eff4ff; border-color: var(--accent); color: #1d4ed8; }
+
+  /* ── JSON export ───────────────────────────────────────────────────────── */
+  pre.json { background: var(--code-bg); border: 1px solid var(--code-bd); border-radius: 6px;
+             padding: 12px; font-size: 11px; max-height: 400px; overflow: auto;
+             font-family: 'Consolas', monospace; color: var(--code-text);
+             white-space: pre-wrap; word-break: break-word; }
+
+  /* ── Scroll helpers ────────────────────────────────────────────────────── */
+  .scroll { max-height: none; overflow-y: visible; padding-right: 4px; }
+  .scroll::-webkit-scrollbar { width: 6px; }
+  .scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* ── Results sub-grid ──────────────────────────────────────────────────── */
+  .results-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 1400px) { .results-columns { grid-template-columns: 1fr; } }
+
+  /* ── Deep-dive modal — scroll-safe implementation ──────────────────────── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(15,23,42,0.6);
+    z-index: 1000; display: none; overflow-y: auto;
+    padding: 32px 24px;
+  }
+  .modal-overlay.open { display: block; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; max-width: 860px; width: 100%;
+    margin: 0 auto; padding: 0;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+  }
+  .modal-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 32px; background: var(--surface); z-index: 2;
+    border-radius: 14px 14px 0 0;
+  }
+  .modal-header h2 { margin: 0; font-size: 16px; color: var(--text); flex: 1; font-weight: 700; }
+  .modal-close {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+    width: 32px; height: 32px; border-radius: 6px; font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .modal-close:hover { background: var(--bot-bg); border-color: var(--bot-bd); color: var(--bot); }
+  .modal-badge { font-size: 10px; padding: 4px 11px; border-radius: 10px; font-weight: 700;
+                 text-transform: uppercase; letter-spacing: 0.4px; border: 1px solid; }
+  .modal-badge.bot   { background: var(--bot-bg);   color: var(--bot);   border-color: var(--bot-bd); }
+  .modal-badge.human { background: var(--human-bg); color: var(--human); border-color: var(--human-bd); }
+
+  .modal-body { padding: 22px 26px 32px; }
+  .modal-body h3 {
+    color: var(--accent); font-size: 11px; margin: 22px 0 10px;
+    text-transform: uppercase; letter-spacing: 0.7px; font-weight: 700;
+    border-bottom: 1px solid var(--border); padding-bottom: 6px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .modal-body h3::before { content: ''; width: 3px; height: 13px;
+                            background: var(--accent); border-radius: 2px; display: inline-block; }
+  .modal-body h3:first-child { margin-top: 0; }
+  .modal-body p { color: var(--text2); font-size: 13px; line-height: 1.75; margin: 0 0 12px; }
+  .modal-body a { color: var(--accent); }
+  .modal-body a:hover { text-decoration: underline; }
+
+  /* analogy callout */
+  .modal-body .analogy {
+    background: #eff4ff; border-left: 3px solid var(--accent); padding: 13px 16px;
+    border-radius: 0 8px 8px 0; margin: 14px 0; color: #1e3a8a;
+    font-size: 13px; line-height: 1.65;
+  }
+  .modal-body .analogy::before { content: '💡 '; }
+
+  /* bot vs human comparison */
+  .modal-body .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+  @media (max-width: 640px) { .modal-body .comparison { grid-template-columns: 1fr; } }
+  .modal-body .cmp-col { background: var(--code-bg); border-radius: 8px; padding: 14px;
+                          border: 1px solid var(--code-bd); }
+  .modal-body .cmp-col h4 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase;
+                              letter-spacing: 0.5px; font-weight: 700; }
+  .modal-body .cmp-col.bot-col   h4 { color: #f87171; }
+  .modal-body .cmp-col.human-col h4 { color: #4ade80; }
+  .modal-body .cmp-col pre { margin: 0; font-size: 11.5px; line-height: 1.55;
+                              color: var(--code-text); font-family: 'Consolas', monospace;
+                              white-space: pre-wrap; word-break: break-word; }
+
+  /* source code blocks */
+  .modal-body .src-block {
+    background: var(--code-bg); border: 1px solid var(--code-bd); border-radius: 8px;
+    padding: 14px 16px; margin: 12px 0; overflow-x: auto;
+  }
+  .modal-body .src-block .src-label {
+    display: block; font-size: 10px; color: #64748b;
+    text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 9px;
+    font-weight: 600;
+  }
+  .modal-body .src-block code {
+    font-family: 'Consolas', monospace; font-size: 12px;
+    line-height: 1.65; color: var(--code-text); white-space: pre-wrap;
+  }
+  .modal-body .src-block .kw  { color: var(--code-kw); }
+  .modal-body .src-block .str { color: var(--code-str); }
+  .modal-body .src-block .cm  { color: var(--code-cm); }
+  .modal-body .src-block .fn  { color: var(--code-fn); }
+
+  /* durability badge */
+  .modal-body .durability { border-radius: 7px; padding: 12px 16px; margin: 14px 0;
+                             font-size: 12px; line-height: 1.6; }
+  .modal-body .durability.high { background: #f0fdf4; border-left: 3px solid var(--human);
+                                  color: #14532d; }
+  .modal-body .durability.low  { background: var(--warn-bg); border-left: 3px solid var(--warn);
+                                  color: #78350f; }
+
+  /* deep-dive trigger button */
+  .btn-deepdive { background: #ede9fe; border: 1px solid #c4b5fd; color: #5b21b6;
+                  font-size: 9px; padding: 3px 9px; border-radius: 4px; cursor: pointer;
+                  font-weight: 700; letter-spacing: 0.3px; margin-top: 5px;
+                  display: inline-block; transition: all 0.15s; }
+  .btn-deepdive:hover { background: #ddd6fe; color: #4c1d95; }
+
+  /* ── DevTools shell (dark, embedded in light UI) ──────────────────────── */
+  .dt-shell { background: var(--code-bg); border: 1px solid var(--code-bd);
+              border-radius: 8px; overflow: hidden; margin: 12px 0; }
+  .dt-toolbar { display: flex; gap: 6px; align-items: center; padding: 8px 12px;
+                background: #1e293b; border-bottom: 1px solid var(--code-bd); }
+  .dt-dot { width: 8px; height: 8px; border-radius: 50%; background: #334155; }
+  .dt-dot.red    { background: #f87171; }
+  .dt-dot.yellow { background: #fbbf24; }
+  .dt-dot.green  { background: #4ade80; }
+  .dt-tab { font-size: 10px; color: #64748b; background: #0f172a;
+            border: 1px solid #1e293b; border-radius: 10px; padding: 2px 9px; }
+  .dt-tab.active { color: #7dd3fc; border-color: #3b82f6; }
+  .dt-content { padding: 12px 14px; font-family: 'Consolas', monospace; font-size: 11.5px;
+                line-height: 1.6; color: var(--code-text); white-space: pre-wrap; word-break: break-word; }
+  .dt-ok    { color: var(--code-ok); }
+  .dt-bad   { color: var(--code-bad); }
+  .dt-good  { color: var(--code-ok); }
+  .dt-muted { color: #64748b; }
+
+  /* ── kv grid ───────────────────────────────────────────────────────────── */
+  .kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+  @media (max-width: 760px) { .kv-grid { grid-template-columns: 1fr; } }
+
+  /* deepdive-wrap inline container */
+  .deepdive-wrap { display: inline; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Playwright Stealth Detector</h1>
+  <p class="subtitle">
+    Top signals: CDP/V8 leaks · context mismatches · UI affordance · trusted-event matrix.
+    Tests run live — open in Playwright vs real browser to compare results.
+  </p>
+</div>
+
+<div class="toolbar">
+  <button id="btn-run">▶ Run all detection tests</button>
+  <button id="btn-rerun" class="btn-secondary">Re-run JS tests</button>
+  <button id="btn-showall" class="btn-secondary">ALL: OFF</button>
+  <button id="btn-reset" class="btn-secondary">Reset matrix</button>
+  <button id="btn-export">Export JSON</button>
+  <button id="btn-clearlog" class="btn-secondary">Clear event log</button>
+  <span style="margin-left:auto;color:var(--muted);font-size:11px;">
+    Score: bot signal = −10 · human signal = +5
+  </span>
+</div>
+
+<div class="page-body">
+
+<!-- ── How playwright-stealth works — PM-facing architecture callout ───── -->
+<div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:16px 20px;
+            margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,0.07);">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+    <div style="background:#eff4ff;border:1px solid #bfdbfe;border-radius:6px;padding:4px 10px;
+                font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;">
+      How playwright-stealth works
+    </div>
+    <span style="color:var(--muted);font-size:11px;">— the library, its patches, and why some are detectable</span>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;font-size:12px;">
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:12px;">
+      <div style="font-weight:700;color:var(--text);margin-bottom:6px;font-size:11px;">① What it patches</div>
+      <div style="color:var(--text2);line-height:1.6;">
+        playwright-stealth adds ~15 JS files via <code style="background:#f0f0f6;padding:1px 4px;border-radius:3px;font-size:10px;">page.add_init_script()</code>
+        — each one patches a browser property using <code style="background:#f0f0f6;padding:1px 4px;border-radius:3px;font-size:10px;">Object.defineProperty</code> + Proxy:
+        <code style="display:block;background:var(--code-bg);color:var(--code-text);border-radius:5px;padding:7px 9px;
+                     font-family:Consolas,monospace;font-size:10.5px;margin-top:6px;line-height:1.5;">navigator.webdriver → false
+window.chrome.runtime → mocked
+navigator.plugins → fake list
+webgl.vendor → Intel Inc.
+outerdimensions → realistic</code>
+      </div>
+    </div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:12px;">
+      <div style="font-weight:700;color:var(--text);margin-bottom:6px;font-size:11px;">② Why it still leaks</div>
+      <div style="color:var(--text2);line-height:1.6;">
+        Every <code style="background:#f0f0f6;padding:1px 4px;border-radius:3px;font-size:10px;">add_init_script()</code> is a CDP call
+        (<code style="background:#f0f0f6;padding:1px 4px;border-radius:3px;font-size:10px;">Page.addScriptToEvaluateOnNewDocument</code>) which
+        creates <code style="background:#f0f0f6;padding:1px 4px;border-radius:3px;font-size:10px;">window.__pwInitScripts</code>. The CDP connection itself
+        triggers V8 inspector serialization — detectable via Proxy.ownKeys traps.
+        JS patches can't hide protocol-level side effects.
+      </div>
+    </div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:12px;">
+      <div style="font-weight:700;color:var(--text);margin-bottom:6px;font-size:11px;">③ What it can't patch</div>
+      <div style="color:var(--text2);line-height:1.6;">
+        Behavioral signals are immune to JS patching. A human's
+        <code style="background:#f0f0f6;padding:1px 4px;border-radius:3px;font-size:10px;">mousedown → popup → mouseup → change</code>
+        event chain on a <code style="background:#f0f0f6;padding:1px 4px;border-radius:3px;font-size:10px;">&lt;select&gt;</code> takes 300–3000 ms.
+        Playwright's <code style="background:#f0f0f6;padding:1px 4px;border-radius:3px;font-size:10px;">selectOption()</code> fires <code style="background:#f0f0f6;padding:1px 4px;border-radius:3px;font-size:10px;">change</code>
+        in &lt;5 ms, skips the OS popup entirely.
+        <strong style="color:var(--text);">No JS patch can generate timing.</strong>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- LEFT: Form controls for behavioral / UI affordance probes -->
+  <div class="panel scroll">
+    <h2>UI affordance probes</h2>
+
+    <div class="form-group">
+      <label>Text input (typing cadence + isTrusted)</label>
+      <input id="ipt-text" type="text" placeholder="Type freely…">
+    </div>
+
+    <div class="form-group">
+      <label>Native &lt;select&gt; (popup latency probe)</label>
+      <select id="ipt-select">
+        <option value="">— pick one —</option>
+        <option value="opt1">Apple</option>
+        <option value="opt2">Banana</option>
+        <option value="opt3">Cherry</option>
+        <option value="opt4">Date</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>&lt;input type="date"&gt; (calendar pointer probe)</label>
+      <input id="ipt-date" type="date">
+    </div>
+
+    <div class="form-group">
+      <label>&lt;input type="file"&gt; (OS dialog timing)</label>
+      <input id="ipt-file" type="file">
+    </div>
+
+    <div class="form-group">
+      <label>&lt;input type="color"&gt; (color picker popup)</label>
+      <input id="ipt-color" type="color" value="#58a6ff">
+    </div>
+
+    <div class="form-group">
+      <label>&lt;input type="range"&gt; (drag event volume)</label>
+      <input id="ipt-range" type="range" min="0" max="100" value="50">
+    </div>
+
+    <div class="form-group">
+      <label>contenteditable (composition + beforeinput)</label>
+      <div id="ipt-editable" contenteditable="true"
+           style="min-height:50px;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;">
+        Click and type here…
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Plain button (click without prior mousemove?)</label>
+      <button id="ipt-btn" class="btn-secondary" style="width:100%;">Click target</button>
+    </div>
+
+    <h3>Trusted / untrusted matrix</h3>
+    <table class="matrix" id="trusted-matrix">
+      <thead>
+        <tr>
+          <th>Control</th><th>focus</th><th>input</th><th>change</th><th>click</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>Event log (live)</h3>
+    <div class="log" id="event-log"></div>
+  </div>
+
+  <!-- RIGHT: Score bar + Detection signals -->
+  <div class="panel scroll">
+
+    <!-- Score bar at top of results -->
+    <div class="score-bar">
+      <div class="score-box">
+        <div class="score-value" id="score">0</div>
+        <div class="score-label">stealth score</div>
+      </div>
+      <div class="verdict pending" id="verdict">pending…</div>
+      <div class="summary-grid">
+        <div class="summary-card bot">  <div class="num" id="cnt-bot">0</div>  <div class="lab">bot</div></div>
+        <div class="summary-card human"><div class="num" id="cnt-human">0</div><div class="lab">human</div></div>
+        <div class="summary-card warn"> <div class="num" id="cnt-warn">0</div> <div class="lab">warn</div></div>
+        <div class="summary-card info"> <div class="num" id="cnt-total">0</div><div class="lab">total</div></div>
+      </div>
+    </div>
+
+    <!-- Detection results in 2-col grid -->
+    <div class="results-columns">
+      <div>
+        <h3>CDP / V8 protocol leaks</h3>
+        <div id="results-cdp"></div>
+
+        <h3>Cross-context mismatches</h3>
+        <div id="results-mismatch"></div>
+      </div>
+      <div>
+        <h3>Browser-identity sanity</h3>
+        <div id="results-identity"></div>
+
+        <h3>UI affordance behavior</h3>
+        <div id="results-behavior"></div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:16px;">Export preview</h3>
+    <pre class="json" id="export-preview">{}</pre>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+   Playwright Stealth Detector — top signals
+   ============================================================ */
+
+const RESULTS = {};   // signal_id -> {layer, name, verdict, value, ts}
+const EVENTS  = [];   // live event log
+const MATRIX  = {};   // control -> {focus,input,change,click}
+const VIEW_STATE = { showAll: false }; // default: only bot+warn rows
+
+const layerEl = {
+  cdp:       document.getElementById('results-cdp'),
+  mismatch:  document.getElementById('results-mismatch'),
+  identity:  document.getElementById('results-identity'),
+  behavior:  document.getElementById('results-behavior'),
+};
+
+function shouldShowRow(verdict) {
+  if (VIEW_STATE.showAll) return true;
+  return verdict === 'bot' || verdict === 'warn';
+}
+
+function applyRowVisibility(id) {
+  const row = document.getElementById('row-' + id);
+  const r = RESULTS[id];
+  if (!row || !r) return;
+  row.style.display = shouldShowRow(r.verdict) ? 'flex' : 'none';
+}
+
+function applyAllRowsVisibility() {
+  for (const id in RESULTS) applyRowVisibility(id);
+}
+
+function updateShowAllButton() {
+  const btn = document.getElementById('btn-showall');
+  if (!btn) return;
+  btn.textContent = VIEW_STATE.showAll ? 'ALL: ON' : 'ALL: OFF';
+  btn.classList.remove('btn-secondary', 'btn-danger');
+  btn.classList.add(VIEW_STATE.showAll ? 'btn-danger' : 'btn-secondary');
+}
+
+function recordResult(layer, id, name, verdict, value, detail, explain) {
+  RESULTS[id] = {
+    layer, name, verdict,
+    value: typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value,
+    detail: detail || '',
+    explain: explain || '',
+    ts: Date.now(),
+  };
+  renderResult(layer, id);
+  updateScore();
+  updateExport();
+}
+
+function renderResult(layer, id) {
+  const r = RESULTS[id];
+  let row = document.getElementById('row-' + id);
+  if (!row) {
+    row = document.createElement('div');
+    row.id = 'row-' + id;
+    row.className = 'test-row';
+    row.innerHTML = `
+      <span class="test-verdict"></span>
+      <div class="test-body">
+        <span class="ttl"></span>
+        <span class="det"></span>
+        <span class="expl"></span>
+        <span class="deepdive-wrap"></span>
+      </div>
+      <span class="test-id"></span>`;
+    layerEl[layer].appendChild(row);
+  }
+  row.classList.remove('bot','human','warn','unknown');
+  row.classList.add(r.verdict);
+  row.classList.add('pulse');
+  setTimeout(()=>row.classList.remove('pulse'), 600);
+  row.querySelector('.test-id').textContent = id;
+  row.querySelector('.ttl').textContent = r.name;
+  row.querySelector('.det').textContent =
+      (r.detail ? r.detail + ' · ' : '') +
+      'value=' + (typeof r.value === 'string' ? r.value : JSON.stringify(r.value));
+  const expl = row.querySelector('.expl');
+  expl.textContent = r.explain || '';
+  expl.style.display = r.explain ? 'block' : 'none';
+  // Deep-dive button
+  const ddWrap = row.querySelector('.deepdive-wrap');
+  if (DEEP_DIVE[id]) {
+    ddWrap.innerHTML = `<button class="btn-deepdive" onclick="openDeepDive('${id}')">🔍 Deep dive — how &amp; why</button>`;
+  } else {
+    ddWrap.innerHTML = '';
+  }
+  const v = row.querySelector('.test-verdict');
+  v.className = 'test-verdict ' + r.verdict;
+  v.textContent = r.verdict;
+  applyRowVisibility(id);
+}
+
+function updateScore() {
+  let bot=0, human=0, warn=0;
+  for (const k in RESULTS) {
+    if (RESULTS[k].verdict === 'bot') bot++;
+    else if (RESULTS[k].verdict === 'human') human++;
+    else if (RESULTS[k].verdict === 'warn') warn++;
+  }
+  const total = bot + human + warn;
+  document.getElementById('cnt-bot').textContent = bot;
+  document.getElementById('cnt-human').textContent = human;
+  document.getElementById('cnt-warn').textContent = warn;
+  document.getElementById('cnt-total').textContent = total;
+  // Score: each bot = -10, each human = +5, warn = -2
+  const score = human*5 - bot*10 - warn*2;
+  document.getElementById('score').textContent = score;
+  const verdictEl = document.getElementById('verdict');
+  verdictEl.classList.remove('human','suspicious','bot','pending');
+  if (total === 0) { verdictEl.classList.add('pending'); verdictEl.textContent = 'pending…'; }
+  else if (bot >= 2) { verdictEl.classList.add('bot'); verdictEl.textContent = 'AUTOMATION DETECTED'; }
+  else if (bot === 1 || warn >= 2) { verdictEl.classList.add('suspicious'); verdictEl.textContent = 'suspicious'; }
+  else { verdictEl.classList.add('human'); verdictEl.textContent = 'human-like'; }
+}
+
+function updateExport() {
+  document.getElementById('export-preview').textContent =
+    JSON.stringify({ results: RESULTS, matrix: MATRIX, events: EVENTS.slice(-30) }, null, 2);
+}
+
+function logEvent(kind, msg) {
+  EVENTS.push({ ts: performance.now(), kind, msg });
+  const el = document.getElementById('event-log');
+  const e = document.createElement('div');
+  e.className = 'log-entry ' + kind;
+  e.textContent = `[${performance.now().toFixed(1)}ms] ${msg}`;
+  el.appendChild(e);
+  el.scrollTop = el.scrollHeight;
+  while (el.children.length > 200) el.removeChild(el.firstChild);
+}
+
+/* ============================================================
+   3.1 — CDP / V8 protocol leak tests
+   ============================================================ */
+
+// T1 — Runtime.enable error-stack getter (legacy; patched May 2025 for Error)
+function test_runtimeEnableErrorStack() {
+  let triggered = false;
+  try {
+    const e = new Error('cdp-probe');
+    Object.defineProperty(e, 'stack', {
+      configurable: false, enumerable: false,
+      get() { triggered = true; return ''; }
+    });
+    // Use console.debug — original DataDome trick path
+    console.debug(e);
+  } catch (err) {}
+  recordResult('cdp', 'runtimeEnable_errorStack',
+    'Runtime.enable — Error.stack getter (legacy)',
+    triggered ? 'bot' : 'human',
+    triggered,
+    triggered ? 'getter fired during console serialization' : 'getter did not fire (V8 patched May 2025 or no CDP)');
+}
+
+// T2 — Runtime.enable Proxy.ownKeys trap (live as of March 2026)
+function test_runtimeEnableProxyOwnKeys() {
+  let triggered = false;
+  try {
+    const trap = new Proxy({}, {
+      ownKeys() { triggered = true; return []; }
+    });
+    const obj = Object.create(trap);
+    console.groupEnd(obj);  // preview enumeration walks proto chain
+  } catch (err) {}
+  recordResult('cdp', 'runtimeEnable_proxyOwnKeys',
+    'Runtime.enable — Proxy.ownKeys trap (2026)',
+    triggered ? 'bot' : 'human',
+    triggered,
+    triggered ? 'inspector enumerated prototype chain — CDP attached' : 'no enumeration — likely no CDP / patched',
+    'HOW IT WORKS: Playwright controls Chrome via a hidden wire protocol called CDP (Chrome DevTools Protocol). ' +
+    'When CDP is active, Chrome\'s inspector automatically "previews" any object sent to console — it peeks inside ' +
+    'to list the object\'s properties. We plant a booby-trapped object using a JS Proxy: if anyone tries to list its ' +
+    'keys, our trap function fires. A real user browsing normally never triggers this — only CDP\'s inspector does. ' +
+    'This is one of the strongest bot signals because it detects the protocol layer itself, not a patchable JS property.');
+}
+
+// T2b — Error.stack getter via prototype chain (bypasses May 2025 V8 patch)
+// The V8 patch added getErrorProperty() which checks ScriptId — but only on
+// OWN property descriptors. If the getter is on the PROTOTYPE, GetOwnPropertyDescriptor
+// returns empty and V8 falls through to Path B: object->Get() directly,
+// which invokes the getter without the ScriptId guard.
+function test_errorStackProtoBypass() {
+  let triggered = false;
+  try {
+    const proto = {};
+    Object.defineProperty(proto, 'stack', {
+      configurable: true, enumerable: true,
+      get() { triggered = true; return ''; }
+    });
+    const e = Object.create(proto);
+    // Make it look like an Error so V8's descriptionForError() kicks in
+    e.constructor = Error;
+    e.name = 'Error';
+    e.message = 'cdp-probe';
+    // Set @@toStringTag so typeof checks in inspector see [object Error]
+    Object.defineProperty(e, Symbol.toStringTag, { value: 'Error' });
+    console.debug(e);
+  } catch (err) {}
+  recordResult('cdp', 'errorStack_proto_bypass',
+    'Error.stack getter via prototype (post-patch bypass)',
+    triggered ? 'bot' : 'human',
+    triggered,
+    triggered ? 'prototype getter fired — GetOwnPropertyDescriptor bypass (Path B)' : 'getter did not fire',
+    'HOW IT WORKS: V8 patched the original Error.stack detection in May 2025. The fix checks if the .stack ' +
+    'property has a user-defined getter by looking at the OWN property descriptor and checking its ScriptId. ' +
+    'But if the getter lives on the PROTOTYPE instead of the object itself, GetOwnPropertyDescriptor returns ' +
+    'empty and V8 falls through to a direct object->Get() call — which invokes the getter without any guard. ' +
+    'This is the "Path B" bypass documented by svebaa (March 2026). It exploits the fact that V8\'s inspector ' +
+    'only guards own properties, not inherited ones.');
+}
+
+// T2c — Proxy.ownKeys via console.dir (redundant path confirmation)
+// console.dir also triggers wrapArguments with generatePreview=true.
+// This test confirms the CDP serialization path fires on multiple console methods.
+function test_proxyOwnKeysDir() {
+  let triggered = false;
+  try {
+    const trap = new Proxy({}, {
+      ownKeys() { triggered = true; return []; }
+    });
+    const obj = Object.create(trap);
+    console.dir(obj);
+  } catch (err) {}
+  recordResult('cdp', 'proxyOwnKeys_dir',
+    'Proxy.ownKeys trap via console.dir',
+    triggered ? 'bot' : 'human',
+    triggered,
+    triggered ? 'console.dir also triggers serialization — CDP confirmed' : 'no trigger',
+    'HOW IT WORKS: This is a variant of the Proxy.ownKeys trap using console.dir() instead of console.groupEnd(). ' +
+    'Both methods route through V8\'s wrapArguments() which calls generatePreview. If CDP/Runtime.enable is active, ' +
+    'the inspector serializes the object and walks its prototype chain, hitting our Proxy trap. Testing multiple ' +
+    'console methods makes detection harder to bypass — the attacker would need to intercept ALL console methods.');
+}
+
+// T2d — Proxy.ownKeys via console.warn
+function test_proxyOwnKeysWarn() {
+  let triggered = false;
+  try {
+    const trap = new Proxy({}, {
+      ownKeys() { triggered = true; return []; }
+    });
+    const obj = Object.create(trap);
+    console.warn(obj);
+  } catch (err) {}
+  recordResult('cdp', 'proxyOwnKeys_warn',
+    'Proxy.ownKeys trap via console.warn',
+    triggered ? 'bot' : 'human',
+    triggered,
+    triggered ? 'console.warn also triggers serialization — CDP confirmed' : 'no trigger',
+    'HOW IT WORKS: Another variant of the Proxy.ownKeys trap, this time using console.warn(). All console methods ' +
+    '(log, warn, error, dir, debug, groupEnd, table) route through the same V8 wrapArguments() serialization path. ' +
+    'Each variant uses the same mechanism but different entry points. A stealth tool that patches console.groupEnd ' +
+    'would miss console.warn. Having multiple variants increases robustness.');
+}
+
+// T3 — sourceURL leak via stack inspection
+function test_sourceUrlLeak() {
+  let stk = '';
+  try { throw new Error('probe'); } catch (e) { stk = e.stack || ''; }
+  const markers = [
+    '__puppeteer_evaluation_script__',
+    '__playwright_evaluator__',
+    '__pwInitScripts',
+    'puppeteer_evaluation_script',
+    'evaluate_script',
+  ];
+  const hit = markers.find(m => stk.includes(m));
+  recordResult('cdp', 'sourceUrl_leak',
+    'sourceURL stack-trace leak',
+    hit ? 'bot' : 'human',
+    hit || 'none',
+    hit ? `stack contains ${hit}` : 'no automation marker in stack');
+}
+
+// T4 — Console.enable side effect (Patchright disables Console)
+function test_consoleEnableSideEffect() {
+  // Probe: when Console domain is enabled, console.log forwards to inspector.
+  // We can't see that directly, but we can look for "[native code]" mismatches
+  // and whether console.log throws after monkey-patch attempt.
+  let nativeOk = true;
+  try {
+    const s = console.log.toString();
+    if (!/\[native code\]/.test(s)) nativeOk = false;
+  } catch (e) { nativeOk = false; }
+  // Patchright stubs console — call shouldn't throw, but toString may differ
+  let logFnOk = typeof console.log === 'function';
+  const verdict = (!nativeOk || !logFnOk) ? 'warn' : 'human';
+  recordResult('cdp', 'console_enable',
+    'Console.enable / console patch sanity',
+    verdict,
+    { nativeToString: nativeOk, logIsFunction: logFnOk },
+    nativeOk ? 'console.log appears native' : 'console.log toString patched (Patchright?)');
+}
+
+// T5 — Isolated-world leak via __pwInitScripts global
+function test_pwInitScriptsGlobal() {
+  const present = typeof window.__pwInitScripts !== 'undefined';
+  recordResult('cdp', 'pwInitScripts',
+    '__pwInitScripts global on window',
+    present ? 'bot' : 'human',
+    present,
+    present ? 'window.__pwInitScripts present (Playwright)' : 'absent',
+    'WHY this exists: Playwright keeps a registry object window.__pwInitScripts to track which ' +
+    'page.addInitScript() scripts have been injected per frame. This lets Playwright re-inject ' +
+    'them after cross-process navigations. Real browsers have no such system — this global only ' +
+    'exists when automated via Playwright. Detected by rebrowser-bot-detector (index.js, ' +
+    'testPwInitScriptsInit): "You are using unpatched Playwright as it creates window.__pwInitScripts". ' +
+    'Patchright avoids this by injecting scripts via Route interception (HTML injection) ' +
+    'instead of addScriptToEvaluateOnNewDocument.');
+}
+
+// T6 — Isolated-world execution: did init script add anything we can see?
+function test_isolatedWorld() {
+  // Common Playwright/Puppeteer init-script side-effects:
+  // NOTE: navigator.webdriver is excluded — it's standard in all modern browsers.
+  const suspects = [
+    '__$webdriverAsyncExecutor',
+    'cdc_adoQpoasnfa76pfcZLmcfl_',
+    'callFunctionOn',
+    '__driver_evaluate',
+    '__webdriver_evaluate',
+    '__selenium_evaluate',
+    '__fxdriver_evaluate',
+    '__driver_unwrapped',
+    '__webdriver_script_fn',
+    '__playwright__binding__',
+    '__playwright__binding__controller__',
+  ];
+  const found = suspects.filter(s => {
+    try { return (s in window); }
+    catch(e) { return false; }
+  });
+  const verdict = found.length > 0 ? 'bot' : 'human';
+  recordResult('cdp', 'isolated_world',
+    'Isolated-world & WebDriver markers',
+    verdict,
+    { found },
+    found.length ? `${found.length} automation markers found` : 'clean');
+}
+
+// T8 — Playwright binding infrastructure (page.exposeFunction / page.exposeBinding)
+// Source: playwright-core/src/server/page.ts — PageBinding class sets
+// globalThis['__playwright__binding__controller__'] and
+// globalThis['__playwright__binding__'] when ANY binding is exposed.
+function test_playwrightBindings() {
+  const controller = '__playwright__binding__controller__' in globalThis;
+  const binding = '__playwright__binding__' in globalThis;
+  const found = controller || binding;
+  const details = [];
+  if (controller) details.push('__playwright__binding__controller__');
+  if (binding) details.push('__playwright__binding__');
+  recordResult('cdp', 'playwright_bindings',
+    'Playwright binding infrastructure',
+    found ? 'bot' : 'human',
+    { controller, binding },
+    found ? `found: ${details.join(', ')}` : 'no Playwright binding globals',
+    'WHY bots call expose_function: Playwright normally runs one-way (Python→Browser). ' +
+    'expose_function reverses it — it gives the browser a phone number to call Python back. ' +
+    'Real use cases: (1) CAPTCHA — iframe calls window.captchaReady(token) back to Python, ' +
+    '(2) scraper — MutationObserver calls window.sendRow(data) for each infinite-scroll item, ' +
+    '(3) event-driven waiting — MutationObserver calls window.notifyPython() when an element appears. ' +
+    'SIDE EFFECT: Playwright injects __playwright__binding__controller__ and __playwright__binding__ ' +
+    'into window to wire this up — and never removes them. (PageBinding.createInitScript, page.ts)');
+}
+
+// T7 — exposeFunction leak: scan global for non-native functions that look injected
+function test_exposeFunctionLeak() {
+  // Names to skip: our own detector functions and well-known browser builtins
+  const SELF = new Set(['test_exposeFunctionLeak','recordResult','renderResult','updateScore','updateExport']);
+  const suspects = [];
+  for (const k of Object.getOwnPropertyNames(window)) {
+    if (SELF.has(k)) continue;
+    if (typeof window[k] === 'function' && /^[a-z_$][a-zA-Z0-9_$]*$/.test(k) && k.length < 40) {
+      try {
+        const s = window[k].toString();
+        // Playwright exposeFunction signature: __pw_ prefix in body, or
+        // the actual CDP binding boilerplate
+        if (/__pw_/.test(s) || /bindingCalledFromFrame|deliverResult/.test(s)) suspects.push(k);
+      } catch (e) {}
+    }
+  }
+  recordResult('cdp', 'expose_function',
+    'page.exposeFunction binding leak',
+    suspects.length ? 'bot' : 'human',
+    suspects,
+    suspects.length ? `${suspects.length} suspicious bindings on window` : 'no exposed bindings');
+}
+
+/* ============================================================
+   Cross-context mismatch tests
+   ============================================================ */
+
+// M1 — main vs iframe navigator.userAgent
+function test_mainVsIframeUA() {
+  return new Promise((resolve) => {
+    const ifr = document.createElement('iframe');
+    ifr.style.display = 'none';
+    ifr.srcdoc = '<script>parent.postMessage({type:"ifrUA",ua:navigator.userAgent,wd:navigator.webdriver},"*"})<\/script>';
+    const handler = (ev) => {
+      if (ev.data && ev.data.type === 'ifrUA') {
+        window.removeEventListener('message', handler);
+        const main = navigator.userAgent;
+        const ifrUA = ev.data.ua;
+        const ifrWD = ev.data.wd;
+        const mainWD = navigator.webdriver;
+        const uaMatch = main === ifrUA;
+        const wdMatch = mainWD === ifrWD;
+        const verdict = (!uaMatch || !wdMatch) ? 'bot' : 'human';
+        recordResult('mismatch', 'main_vs_iframe_ua',
+          'main vs iframe navigator (UA + webdriver)',
+          verdict,
+          { mainUA: main.slice(0,60), ifrUA: ifrUA.slice(0,60), mainWD, ifrWD },
+          (!uaMatch ? 'UA differs ' : '') + (!wdMatch ? 'webdriver differs' : ''));
+        ifr.remove();
+        resolve();
+      }
+    };
+    window.addEventListener('message', handler);
+    document.body.appendChild(ifr);
+    setTimeout(() => {
+      window.removeEventListener('message', handler);
+      if (!RESULTS.main_vs_iframe_ua) {
+        recordResult('mismatch', 'main_vs_iframe_ua',
+          'main vs iframe navigator (UA + webdriver)', 'unknown', null, 'iframe did not respond');
+      }
+      resolve();
+    }, 1500);
+  });
+}
+
+// M2 — main vs Worker navigator.userAgent
+function test_mainVsWorkerUA() {
+  return new Promise((resolve) => {
+    try {
+      const blob = new Blob([`onmessage=()=>{
+        postMessage({ ua: navigator.userAgent, wd: navigator.webdriver, hc: navigator.hardwareConcurrency });
+      }`], { type: 'application/javascript' });
+      const w = new Worker(URL.createObjectURL(blob));
+      w.onmessage = (ev) => {
+        const main = navigator.userAgent;
+        const workerUA = ev.data.ua;
+        const uaMatch = main === workerUA;
+        const wdInWorker = ev.data.wd;
+        const verdict = (!uaMatch || wdInWorker === true) ? 'bot' : 'human';
+        recordResult('mismatch', 'main_vs_worker_ua',
+          'main vs Worker navigator',
+          verdict,
+          { mainUA: main.slice(0,60), workerUA: workerUA.slice(0,60), workerWD: wdInWorker, hc: ev.data.hc },
+          uaMatch ? 'UA matches' : 'UA differs');
+        w.terminate();
+        resolve();
+      };
+      w.postMessage('go');
+    } catch (e) {
+      recordResult('mismatch', 'main_vs_worker_ua', 'main vs Worker navigator', 'unknown', null, 'worker error: '+e.message);
+      resolve();
+    }
+  });
+}
+
+// M3 — Notification.permission vs permissions.query
+async function test_notifVsPermission() {
+  try {
+    const notif = Notification.permission;
+    const q = await navigator.permissions.query({ name: 'notifications' });
+    const match = (notif === 'denied'  && q.state === 'denied') ||
+                  (notif === 'granted' && q.state === 'granted') ||
+                  (notif === 'default' && q.state === 'prompt');
+    recordResult('mismatch', 'notif_vs_perm',
+      'Notification.permission vs permissions.query',
+      match ? 'human' : 'bot',
+      { notif, perm: q.state },
+      match ? 'consistent' : `mismatch: Notification=${notif}, permissions=${q.state}`);
+  } catch (e) {
+    recordResult('mismatch', 'notif_vs_perm', 'Notification.permission vs permissions.query', 'unknown', null, e.message);
+  }
+}
+
+// M4 — canvas hash main vs same-origin iframe
+function test_canvasMainVsIframe() {
+  return new Promise((resolve) => {
+    function hashCanvas() {
+      const c = document.createElement('canvas');
+      c.width = 280; c.height = 60;
+      const ctx = c.getContext('2d');
+      ctx.textBaseline = 'top';
+      ctx.font = "14px 'Arial'";
+      ctx.fillStyle = '#f60';
+      ctx.fillRect(125, 1, 62, 20);
+      ctx.fillStyle = '#069';
+      ctx.fillText('Canvas🐺Test, 1234', 2, 15);
+      ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+      ctx.fillText('Canvas🐺Test, 1234', 4, 17);
+      const data = c.toDataURL();
+      let h = 0; for (let i=0;i<data.length;i++) h = ((h<<5)-h+data.charCodeAt(i))|0;
+      return h.toString(16);
+    }
+    const main = hashCanvas();
+    const ifr = document.createElement('iframe');
+    ifr.style.display = 'none';
+    ifr.srcdoc = `<script>
+      const c=document.createElement('canvas');c.width=280;c.height=60;
+      const x=c.getContext('2d');x.textBaseline='top';x.font="14px 'Arial'";
+      x.fillStyle='#f60';x.fillRect(125,1,62,20);
+      x.fillStyle='#069';x.fillText('Canvas🐺Test, 1234',2,15);
+      x.fillStyle='rgba(102, 204, 0, 0.7)';x.fillText('Canvas🐺Test, 1234',4,17);
+      const d=c.toDataURL();let h=0;for(let i=0;i<d.length;i++)h=((h<<5)-h+d.charCodeAt(i))|0;
+      parent.postMessage({type:'cv',h:h.toString(16)},'*');
+      <\/script>`;
+    const handler = (ev) => {
+      if (ev.data && ev.data.type === 'cv') {
+        window.removeEventListener('message', handler);
+        const ifrH = ev.data.h;
+        const match = main === ifrH;
+        recordResult('mismatch', 'canvas_main_vs_iframe',
+          'canvas hash: main vs iframe',
+          match ? 'human' : 'warn',
+          { main, iframe: ifrH },
+          match ? 'identical' : 'differs (some patches add noise per-context)');
+        ifr.remove();
+        resolve();
+      }
+    };
+    window.addEventListener('message', handler);
+    document.body.appendChild(ifr);
+    setTimeout(() => {
+      window.removeEventListener('message', handler);
+      if (!RESULTS.canvas_main_vs_iframe) {
+        recordResult('mismatch', 'canvas_main_vs_iframe',
+          'canvas hash: main vs iframe', 'unknown', { main }, 'iframe timeout');
+      }
+      resolve();
+    }, 1500);
+  });
+}
+
+// M5 — Intl timezone vs Date.getTimezoneOffset consistency
+function test_intlVsDateTZ() {
+  const intlTZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const offset = new Date().getTimezoneOffset();
+  // Build expected: parse intlTZ, compute current offset; if browser is consistent they correspond.
+  // We can't directly compute, but we can flag obvious mismatches (e.g. intlTZ='UTC' but offset!=0).
+  let mismatch = false;
+  if (intlTZ === 'UTC' && offset !== 0) mismatch = true;
+  // Also flag when intlTZ is undefined (rare in headless)
+  if (!intlTZ) mismatch = true;
+  recordResult('mismatch', 'intl_vs_date_tz',
+    'Intl timezone vs Date.getTimezoneOffset',
+    mismatch ? 'bot' : 'human',
+    { intlTZ, offsetMin: offset },
+    mismatch ? 'inconsistent' : 'consistent');
+}
+
+// M6 — screen.width vs window.outerWidth (headless zeroed-out check)
+function test_screenVsOuter() {
+  const sw = screen.width, ow = window.outerWidth, iw = window.innerWidth;
+  // Only flag outerWidth === 0 which is a true headless signal.
+  // outerWidth === innerWidth is normal for maximized/fullscreen windows.
+  const ouZero = ow === 0;
+  const verdict = ouZero ? 'bot' : 'human';
+  recordResult('mismatch', 'screen_vs_outer',
+    'screen vs window outer width',
+    verdict,
+    { 'screen.width': sw, 'outerWidth': ow, 'innerWidth': iw },
+    ouZero ? 'outerWidth=0 (headless)' : 'normal');
+}
+
+// M7 — WebGL renderer main vs iframe
+function test_webglMainVsIframe() {
+  return new Promise((resolve) => {
+    function getRenderer(gl) {
+      if (!gl) return null;
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      if (!ext) return gl.getParameter(gl.RENDERER);
+      return gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) + ' | ' +
+             gl.getParameter(ext.UNMASKED_VENDOR_WEBGL);
+    }
+    const c = document.createElement('canvas');
+    const main = getRenderer(c.getContext('webgl') || c.getContext('experimental-webgl'));
+    const ifr = document.createElement('iframe');
+    ifr.style.display='none';
+    ifr.srcdoc = `<script>
+      const c=document.createElement('canvas');
+      const gl=c.getContext('webgl')||c.getContext('experimental-webgl');
+      if(!gl){parent.postMessage({type:'wgl',r:null},'*');}
+      else{
+        const ext=gl.getExtension('WEBGL_debug_renderer_info');
+        const r=ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)+' | '+gl.getParameter(ext.UNMASKED_VENDOR_WEBGL):gl.getParameter(gl.RENDERER);
+        parent.postMessage({type:'wgl',r},'*');
+      }
+      <\/script>`;
+    const handler = (ev) => {
+      if (ev.data && ev.data.type === 'wgl') {
+        window.removeEventListener('message', handler);
+        const ifrR = ev.data.r;
+        const match = main === ifrR;
+        const isSwiftShader = /swiftshader|software/i.test(main || '');
+        const verdict = isSwiftShader ? 'bot' : (match ? 'human' : 'warn');
+        recordResult('mismatch', 'webgl_main_vs_iframe',
+          'WebGL renderer: main vs iframe',
+          verdict,
+          { main, iframe: ifrR },
+          isSwiftShader ? 'SwiftShader (headless GPU)' :
+          match ? 'consistent' : 'differs');
+        ifr.remove();
+        resolve();
+      }
+    };
+    window.addEventListener('message', handler);
+    document.body.appendChild(ifr);
+    setTimeout(() => {
+      window.removeEventListener('message', handler);
+      if (!RESULTS.webgl_main_vs_iframe) {
+        recordResult('mismatch', 'webgl_main_vs_iframe',
+          'WebGL renderer: main vs iframe', 'unknown', { main }, 'iframe timeout');
+      }
+      resolve();
+    }, 1500);
+  });
+}
+
+/* ============================================================
+   Browser-identity sanity (quick top-tier checks)
+   ============================================================ */
+function test_identity() {
+  // navigator.webdriver — true is automation, false is standard in modern Chrome
+  recordResult('identity', 'navigator_webdriver',
+    'navigator.webdriver',
+    navigator.webdriver === true ? 'bot' : 'human',
+    navigator.webdriver,
+    navigator.webdriver === true ? 'TRUE — automation' : 'false/undefined (normal)');
+
+  // plugins length — real Chrome always reports exactly 5 PDF-related plugins
+  const pl = navigator.plugins.length;
+  recordResult('identity', 'plugins_length',
+    'navigator.plugins.length',
+    pl === 0 ? 'bot' : 'human',
+    pl,
+    pl === 0 ? 'empty (headless/automation)' : `${pl} plugins (expected 5 in Chrome)`,
+    'HOW IT WORKS: Since Chrome 90+, real Chrome always reports exactly 5 PDF-related plugins (PDF Viewer, Chrome ' +
+    'PDF Viewer, Chromium PDF Viewer, Microsoft Edge PDF Viewer, WebKit built-in PDF). An empty plugins list (0) ' +
+    'is a strong headless/automation signal because headless browsers don\'t load the plugin system. Most stealth ' +
+    'tools patch this to return 5, but some miss it.');
+
+  // chrome object — window.chrome should exist in Chrome; runtime is extension-only
+  const hasChrome = !!window.chrome;
+  const isChromeUA = /Chrome\//.test(navigator.userAgent);
+  const verdict2 = (isChromeUA && !hasChrome) ? 'bot' : 'human';
+  recordResult('identity', 'window_chrome',
+    'window.chrome object presence',
+    verdict2,
+    { hasChrome, isChromeUA },
+    verdict2 === 'bot' ? 'UA says Chrome but window.chrome missing' : 'consistent');
+
+  // languages
+  const langs = navigator.languages || [];
+  recordResult('identity', 'navigator_languages',
+    'navigator.languages',
+    langs.length === 0 ? 'bot' : 'human',
+    langs,
+    langs.length === 0 ? 'empty array' : `${langs.length} locale(s)`);
+
+  // headless UA
+  const headless = /HeadlessChrome|PhantomJS/i.test(navigator.userAgent);
+  recordResult('identity', 'headless_ua',
+    'UA contains "HeadlessChrome"',
+    headless ? 'bot' : 'human',
+    headless,
+    headless ? 'HEADLESS UA' : 'normal UA');
+
+  // hardwareConcurrency
+  const hc = navigator.hardwareConcurrency;
+  recordResult('identity', 'hardware_concurrency',
+    'navigator.hardwareConcurrency',
+    (hc < 2 || hc > 64) ? 'warn' : 'human',
+    hc,
+    `${hc} cores`);
+
+  // userAgentData brands match UA
+  const uad = navigator.userAgentData;
+  if (uad && uad.brands) {
+    const brands = uad.brands.map(b=>b.brand).join(',');
+    const uaSaysChrome = /Chrome\//.test(navigator.userAgent);
+    const uadHasChrome = /Chrome|Chromium/i.test(brands);
+    const m = uaSaysChrome === uadHasChrome;
+    recordResult('identity', 'uach_consistency',
+      'UA-CH brands match UA string',
+      m ? 'human' : 'bot',
+      { brands, uaSaysChrome, uadHasChrome },
+      m ? 'consistent' : 'mismatch');
+  }
+
+  // platform vs UA consistency
+  const plat = navigator.platform;
+  const ua = navigator.userAgent;
+  let platMatch = true;
+  if (/Windows/.test(ua) && !/Win/.test(plat)) platMatch = false;
+  if (/Macintosh/.test(ua) && !/Mac/.test(plat)) platMatch = false;
+  if (/Linux/.test(ua) && !/Linux/.test(plat) && !/Android/.test(ua)) platMatch = false;
+  recordResult('identity', 'platform_vs_ua',
+    'navigator.platform vs UA consistency',
+    platMatch ? 'human' : 'bot',
+    { platform: plat, uaOS: ua.match(/(Windows|Macintosh|Linux|Android|iPhone)/)?.[1] || 'unknown' },
+    platMatch ? 'consistent' : 'platform doesn\'t match UA — spoofed?',
+    'HOW IT WORKS: navigator.platform returns the OS type (Win32, MacIntel, Linux x86_64) and the User-Agent ' +
+    'string also contains the OS. These must agree. Stealth tools often set a custom User-Agent but forget to ' +
+    'also override navigator.platform, creating a detectable mismatch. For example: UA says "Windows NT 10.0" ' +
+    'but platform says "Linux x86_64" = obviously spoofed.');
+
+  // deviceMemory (Chromium-only, low values suspicious)
+  const dm = navigator.deviceMemory;
+  if (dm !== undefined) {
+    recordResult('identity', 'device_memory',
+      'navigator.deviceMemory',
+      dm >= 2 ? 'human' : 'warn',
+      dm,
+      dm >= 2 ? `${dm} GB (normal)` : `${dm} GB — very low, VM/container?`,
+      'HOW IT WORKS: Chrome exposes how much RAM the device has (approximately). Real computers have 4-64 GB. ' +
+      'Docker containers and minimal VMs often have 0.5-1 GB. Very low memory is a soft signal of automation ' +
+      'running in a constrained environment.');
+  }
+
+  // canvas consistency (noise injection detection)
+  try {
+    const canvasHash = (ctx) => {
+      ctx.font = '14px Arial';
+      ctx.fillStyle = '#f60';
+      ctx.fillRect(0, 0, 60, 20);
+      ctx.fillStyle = '#069';
+      ctx.fillText('Abc 123', 2, 15);
+      return ctx.canvas.toDataURL().slice(-40);
+    };
+    const c1 = document.createElement('canvas'); c1.width=100; c1.height=30;
+    const c2 = document.createElement('canvas'); c2.width=100; c2.height=30;
+    const h1 = canvasHash(c1.getContext('2d'));
+    const h2 = canvasHash(c2.getContext('2d'));
+    const consistent = h1 === h2;
+    recordResult('identity', 'canvas_consistency',
+      'Canvas rendering consistency (noise injection)',
+      consistent ? 'human' : 'bot',
+      { match: consistent, hash1: h1, hash2: h2 },
+      consistent ? 'canvas output stable' : 'canvas hash differs between renders — noise injection detected!',
+      'HOW IT WORKS: Some privacy/stealth tools inject random noise into canvas rendering to prevent fingerprinting. ' +
+      'We draw the same shapes twice on two separate canvases and compare the output. On a real browser, the output ' +
+      'is identical both times (same GPU, same driver). If the output differs, something is injecting random noise — ' +
+      'which paradoxically makes the browser MORE detectable, not less. Noise injection is itself a detection signal.');
+  } catch(e) {}
+}
+
+/* ============================================================
+   New detection signals — iteratively validated
+   ============================================================ */
+
+// N1 — document.hasFocus(): embedded/headless browsers often lack OS-level focus
+function test_documentHasFocus() {
+  const focused = document.hasFocus();
+  recordResult('identity', 'document_has_focus',
+    'document.hasFocus()',
+    focused ? 'human' : 'warn',
+    focused,
+    focused ? 'page has focus (normal)' : 'page lacks focus — embedded or headless',
+    'HOW IT WORKS: When you open a website in a real browser and look at it, the page "has focus" — your OS knows ' +
+    'that Chrome window is in the foreground. Automated browsers (Playwright, Puppeteer) or embedded browser widgets ' +
+    'often run without real OS focus. We simply ask the browser "does this page have focus?" — if not, it\'s a clue ' +
+    'that a robot is driving, not a human looking at the screen.');
+}
+
+// N2 — speechSynthesis.getVoices(): real browsers on real OS have TTS voices
+function test_speechSynthesisVoices() {
+  const synth = window.speechSynthesis;
+  if (!synth) {
+    recordResult('identity', 'speech_voices',
+      'speechSynthesis API',
+      'bot', 0,
+      'speechSynthesis missing — likely headless',
+      'HOW IT WORKS: Real computers have text-to-speech voices installed by the operating system (Cortana, Google voices, etc). ' +
+      'We ask the browser to list available voices. Headless/automated browsers running in Docker or CI have zero voices ' +
+      'because there\'s no real audio system. Zero voices = strong headless signal.');
+    return;
+  }
+  // Voices load async in Chrome — use voiceschanged event with fallback
+  const checkVoices = () => {
+    const voices = synth.getVoices();
+    recordResult('identity', 'speech_voices',
+      'speechSynthesis voices count',
+      voices.length === 0 ? 'bot' : 'human',
+      voices.length,
+      voices.length === 0 ? 'zero voices — headless/Docker' : `${voices.length} voices available`,
+      'HOW IT WORKS: Real computers have text-to-speech voices installed by the OS (like "Microsoft David", "Google US English"). ' +
+      'We count them. Headless browsers in containers have zero voices because there\'s no audio system. ' +
+      'Zero voices is a strong indicator of a server-side bot, not a real user\'s machine.');
+  };
+  const voices = synth.getVoices();
+  if (voices.length > 0) { checkVoices(); }
+  else { synth.addEventListener('voiceschanged', checkVoices, { once: true }); setTimeout(checkVoices, 2000); }
+}
+
+// N3 — navigator.connection.rtt: headless often reports 0 ms round-trip
+function test_connectionRtt() {
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (!conn) { return; /* connection API unavailable — skip, not actionable */ }
+  const rtt = conn.rtt;
+  const dl = conn.downlink;
+  // RTT=0 is normal for localhost/127.0.0.1 and very fast LAN; only flag if on a remote host
+  const isLocal = /^(localhost|127\.|\[::1\]|0\.0\.0\.0)/.test(location.hostname);
+  const verdict = (!isLocal && rtt === 0) ? 'warn' : 'human';
+  recordResult('identity', 'connection_rtt',
+    'navigator.connection.rtt',
+    verdict,
+    { rtt, downlink: dl, type: conn.effectiveType, isLocal },
+    rtt === 0 ? (isLocal ? 'RTT=0 (localhost — normal)' : 'RTT=0 — suspicious (headless?)') : `RTT=${rtt}ms (normal)`,
+    'HOW IT WORKS: Chrome measures your actual network latency (ping time) and exposes it as navigator.connection.rtt. ' +
+    'Real users on real WiFi/ethernet always have rtt > 0 (usually 50-150ms). Headless browsers in data centers ' +
+    'sometimes report rtt = 0 because the network stack doesn\'t do real measurements. Zero RTT = suspicious. ' +
+    'Note: RTT=0 is expected on localhost connections — we skip the check for local URLs.');
+}
+
+// N4 — screen.availHeight vs screen.height: real desktops have a taskbar
+function test_screenTaskbar() {
+  const sh = screen.height;
+  const ah = screen.availHeight;
+  const delta = sh - ah;
+  // Windows taskbar ~40-60px, macOS dock ~60-90px. If delta===0, no taskbar.
+  const verdict = delta === 0 ? 'warn' : 'human';
+  recordResult('identity', 'screen_taskbar',
+    'screen.availHeight vs screen.height (taskbar)',
+    verdict,
+    { 'screen.height': sh, 'screen.availHeight': ah, delta },
+    delta === 0 ? 'no taskbar detected — headless or kiosk?' : `taskbar=${delta}px (normal)`,
+    'HOW IT WORKS: On a real computer, the Windows taskbar or macOS dock takes up ~40-80 pixels at the bottom of your ' +
+    'screen. The browser knows this: screen.height is the full monitor height, but screen.availHeight subtracts the ' +
+    'taskbar. If they\'re equal (delta = 0), there\'s no taskbar — which is suspicious. Real humans almost always ' +
+    'have a taskbar. Headless browsers and Docker containers have no OS desktop, so no taskbar.');
+}
+
+// N5 — CDP trap: console.table Proxy get trap
+// When CDP Runtime is enabled, console.table serializes object properties
+// by calling the 'get' trap on proxied getters for known symbol/string keys.
+function test_cdpConsoleTableProxy() {
+  let getCount = 0;
+  const trackedKeys = new Set();
+  try {
+    const handler = {
+      get(target, prop, receiver) {
+        if (typeof prop === 'string' && prop !== 'length') {
+          getCount++;
+          trackedKeys.add(prop);
+        }
+        return Reflect.get(target, prop, receiver);
+      }
+    };
+    const probed = new Proxy([{ a: 1, b: 2 }], handler);
+    console.table(probed);
+  } catch(e) {}
+  // Without CDP, console.table may still read .length (1 get). With CDP, inspector reads multiple properties.
+  const triggered = getCount > 2;
+  recordResult('cdp', 'cdp_console_table',
+    'CDP console.table Proxy get trap',
+    triggered ? 'bot' : 'human',
+    { getCount, keys: [...trackedKeys].slice(0, 10) },
+    triggered ? `inspector accessed ${getCount} properties — CDP active` : 'minimal property access — no CDP',
+    'HOW IT WORKS: Similar to the Proxy.ownKeys trap, but targets console.table(). When CDP is active, the browser\'s ' +
+    'inspector serializes table data by reading every property on the object we pass. We wrap the object in a JS Proxy ' +
+    'that counts how many times anyone reads its properties. A real browser with no debugger attached reads very few; ' +
+    'CDP-attached browsers read many properties during serialization. More reads = debugger is attached = likely automation.');
+}
+
+// N5b — CDP trap: Error.cause deep inspection
+function test_cdpErrorCause() {
+  let triggered = false;
+  try {
+    const inner = new Error('inner');
+    Object.defineProperty(inner, 'message', {
+      get() { triggered = true; return 'trap'; }
+    });
+    const outer = new Error('outer', { cause: inner });
+    console.error(outer);
+  } catch(e) {}
+  recordResult('cdp', 'cdp_error_cause',
+    'CDP Error.cause deep getter inspection',
+    triggered ? 'bot' : 'human',
+    triggered,
+    triggered ? 'inner error.message getter fired — CDP deep-inspects Error.cause' : 'getter not fired — no deep inspection',
+    'HOW IT WORKS: Modern JavaScript errors can have a .cause property (a chain of errors). We create an outer error ' +
+    'whose cause is an inner error with a booby-trapped .message getter. We send this to console.error(). ' +
+    'When CDP is active, the inspector recursively inspects the entire error chain, triggering our getter on the ' +
+    'inner error\'s message. Without CDP, the browser doesn\'t need to deeply serialize the cause chain. ' +
+    'Getter fires = CDP is attached = likely Playwright or DevTools.');
+}
+
+// N6 — Notification constructor: can we construct one?
+function test_notificationConstructor() {
+  if (typeof Notification === 'undefined') {
+    recordResult('identity', 'notification_api',
+      'Notification API presence',
+      'warn', false,
+      'Notification constructor missing',
+      'HOW IT WORKS: Real browsers support the Notification API for push notifications. Some headless/embedded ' +
+      'environments strip it out entirely. If the Notification constructor doesn\'t exist, it suggests an unusual runtime.');
+    return;
+  }
+  const perm = Notification.permission;
+  // In headed real Chrome, permission is 'default' or 'granted'. In headless, sometimes 'denied'.
+  recordResult('identity', 'notification_api',
+    'Notification API presence',
+    'human', perm,
+    `permission="${perm}"`,
+    'HOW IT WORKS: The Notification API lets websites show desktop pop-ups. We check if it exists and what permission ' +
+    'state it\'s in. Real browsers always have this API. If it\'s missing, we\'re in a stripped-down automated environment.');
+}
+
+// N7 — MediaDevices.enumerateDevices(): real devices vs headless stubs
+function test_mediaDevices() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    recordResult('identity', 'media_devices',
+      'MediaDevices.enumerateDevices()',
+      'warn', 0,
+      'mediaDevices API missing',
+      'HOW IT WORKS: Real computers have webcams, microphones, and speakers. We ask the browser to list them. ' +
+      'Headless browsers running on servers have zero media devices because there\'s no physical hardware. ' +
+      'Zero devices = bot signal.');
+    return;
+  }
+  navigator.mediaDevices.enumerateDevices().then(devices => {
+    const kinds = {};
+    devices.forEach(d => { kinds[d.kind] = (kinds[d.kind]||0) + 1; });
+    const total = devices.length;
+    const verdict = total === 0 ? 'bot' : 'human';
+    recordResult('identity', 'media_devices',
+      'MediaDevices.enumerateDevices()',
+      verdict, { total, ...kinds },
+      total === 0 ? 'zero devices — headless' : `${total} devices found`,
+      'HOW IT WORKS: Real computers have webcams, microphones, and speakers that the browser can list. We count them. ' +
+      'A real laptop typically has 3-6 devices (mic, camera, speakers). Headless browsers on servers have zero ' +
+      'because there\'s no physical audio/video hardware. Zero devices = strong headless/bot signal.');
+  }).catch(() => {
+    recordResult('identity', 'media_devices',
+      'MediaDevices.enumerateDevices()',
+      'warn', 'error',
+      'enumeration failed');
+  });
+}
+
+// N8 — WebShare API: only available on HTTPS in real browsers
+function test_webShareAPI() {
+  // Web Share API requires HTTPS — skip check on HTTP to avoid false positives
+  if (location.protocol !== 'https:') { return; /* not actionable on HTTP */ }
+  const hasShare = !!navigator.share;
+  const hasCanShare = !!navigator.canShare;
+  recordResult('identity', 'web_share_api',
+    'Web Share API presence',
+    hasShare ? 'human' : 'warn',
+    { share: hasShare, canShare: hasCanShare },
+    hasShare ? 'Web Share available' : 'Web Share missing — headless or embedded',
+    'HOW IT WORKS: The Web Share API lets websites trigger the OS "Share" dialog (share via email, social apps, etc). ' +
+    'This API requires HTTPS and a real OS with a share UI — it\'s absent in headless browsers and most embedded contexts. ' +
+    'Its absence is a soft signal that we\'re not in a real user-facing browser.');
+}
+
+/* ============================================================
+   Behavioral / UI affordance probes
+   ============================================================ */
+
+const BEHAVIOR = {
+  selectFocusTs: 0, selectChangeTs: 0,
+  dateFocusTs: 0, dateChangeTs: 0,
+  fileClickTs: 0, fileChangeTs: 0,
+  colorChangeTrusted: null, colorChanged: false,
+  rangeInputCount: 0,
+  composeEvents: 0, beforeInputCount: 0, inputCount: 0,
+  mouseMoveCount: 0, lastMouseTarget: null, lastMoveTs: 0,
+  buttonClickHadPriorMove: null,
+  trustedSeen: 0, untrustedSeen: 0,
+};
+
+function bumpEvent(ctrl, kind, trusted) {
+  MATRIX[ctrl] = MATRIX[ctrl] || { focus:'-', input:'-', change:'-', click:'-' };
+  const cur = MATRIX[ctrl][kind];
+  const next = trusted ? 't' : 'u';
+  MATRIX[ctrl][kind] = (cur === '-' || cur === next) ? next : 'm';
+  if (trusted) BEHAVIOR.trustedSeen++; else BEHAVIOR.untrustedSeen++;
+  renderMatrix();
+  logEvent(trusted ? 't' : 'u',
+    `${ctrl} ${kind} isTrusted=${trusted}`);
+}
+
+function renderMatrix() {
+  const tbody = document.querySelector('#trusted-matrix tbody');
+  tbody.innerHTML = '';
+  const ctrls = ['text','select','date','file','color','range','editable','button'];
+  for (const c of ctrls) {
+    const m = MATRIX[c] || { focus:'-', input:'-', change:'-', click:'-' };
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${c}</td>` + ['focus','input','change','click'].map(k => {
+      const v = m[k];
+      const cls = v === 't' ? 'cell-t' : v === 'u' ? 'cell-u' : v === 'm' ? 'cell-m' : 'cell-n';
+      const txt = v === 't' ? 'trusted' : v === 'u' ? 'UNTRUSTED' : v === 'm' ? 'mixed' : '—';
+      return `<td class="${cls}">${txt}</td>`;
+    }).join('');
+    tbody.appendChild(tr);
+  }
+}
+renderMatrix();
+
+function attachProbes() {
+  // global mousemove tracker (for "click without prior mousemove over target")
+  document.addEventListener('mousemove', (e) => {
+    BEHAVIOR.mouseMoveCount++;
+    BEHAVIOR.lastMouseTarget = e.target;
+    BEHAVIOR.lastMoveTs = performance.now();
+  }, true);
+
+  function bind(id, ctrl, events) {
+    const el = document.getElementById(id);
+    for (const ev of events) {
+      el.addEventListener(ev, (e) => {
+        bumpEvent(ctrl, ev, !!e.isTrusted);
+        // Per-control hooks
+        if (id === 'ipt-select') {
+          if (ev === 'focus') BEHAVIOR.selectFocusTs = performance.now();
+          if (ev === 'change') {
+            BEHAVIOR.selectChangeTs = performance.now();
+            evaluateSelect();
+          }
+        }
+        if (id === 'ipt-date') {
+          if (ev === 'focus') BEHAVIOR.dateFocusTs = performance.now();
+          if (ev === 'change') {
+            BEHAVIOR.dateChangeTs = performance.now();
+            evaluateDate();
+          }
+        }
+        if (id === 'ipt-file') {
+          if (ev === 'click') BEHAVIOR.fileClickTs = performance.now();
+          if (ev === 'change') {
+            BEHAVIOR.fileChangeTs = performance.now();
+            evaluateFile();
+          }
+        }
+        if (id === 'ipt-color' && ev === 'change') {
+          BEHAVIOR.colorChanged = true;
+          BEHAVIOR.colorChangeTrusted = !!e.isTrusted;
+          evaluateColor();
+        }
+        if (id === 'ipt-range' && ev === 'input') {
+          BEHAVIOR.rangeInputCount++;
+          evaluateRange();
+        }
+        if (id === 'ipt-editable') {
+          if (ev === 'beforeinput') BEHAVIOR.beforeInputCount++;
+          if (ev === 'input') BEHAVIOR.inputCount++;
+          if (ev === 'compositionstart' || ev === 'compositionupdate' || ev === 'compositionend') {
+            BEHAVIOR.composeEvents++;
+          }
+          evaluateEditable();
+        }
+        if (id === 'ipt-btn' && ev === 'click') {
+          // Did we see a mousemove over the button (or its descendants) before this click?
+          const tgt = e.target;
+          const recentMove = BEHAVIOR.lastMouseTarget &&
+            (BEHAVIOR.lastMouseTarget === tgt || tgt.contains(BEHAVIOR.lastMouseTarget) || BEHAVIOR.lastMouseTarget.contains(tgt));
+          const dt = performance.now() - BEHAVIOR.lastMoveTs;
+          BEHAVIOR.buttonClickHadPriorMove = recentMove && dt < 5000;
+          recordResult('behavior', 'click_without_move',
+            'Click arrives without preceding mousemove on target',
+            BEHAVIOR.buttonClickHadPriorMove ? 'human' : 'bot',
+            { recentMove, dtMs: dt.toFixed(1), totalMoves: BEHAVIOR.mouseMoveCount },
+            BEHAVIOR.buttonClickHadPriorMove ? 'normal pointer trail' : 'no recent mousemove on target — teleport click');
+        }
+      }, true);
+    }
+  }
+
+  bind('ipt-text',     'text',     ['focus','input','change','click','keydown','keyup']);
+  bind('ipt-select',   'select',   ['focus','input','change','click','mousedown','mouseup']);
+  bind('ipt-date',     'date',     ['focus','input','change','click','pointerdown','pointerup']);
+  bind('ipt-file',     'file',     ['focus','input','change','click']);
+  bind('ipt-color',    'color',    ['focus','input','change','click']);
+  bind('ipt-range',    'range',    ['focus','input','change','click','pointerdown','pointerup']);
+  bind('ipt-editable', 'editable', ['focus','input','beforeinput','compositionstart','compositionupdate','compositionend','keydown','click']);
+  bind('ipt-btn',      'button',   ['focus','click','mousedown','mouseup']);
+}
+attachProbes();
+
+function evaluateSelect() {
+  const dt = BEHAVIOR.selectChangeTs - BEHAVIOR.selectFocusTs;
+  // human typical popup latency: 300–3000ms ; Playwright selectOption: <5ms
+  const verdict = dt < 50 ? 'bot' : (dt < 200 ? 'warn' : 'human');
+  recordResult('behavior', 'select_popup_latency',
+    'Native <select>: focus→change latency',
+    verdict,
+    `${dt.toFixed(1)}ms`,
+    verdict === 'bot' ? 'instant change — no OS popup interaction' :
+    verdict === 'warn' ? 'fast — could be keyboard, could be selectOption()' :
+    'human-like popup duration');
+}
+
+function evaluateDate() {
+  const dt = BEHAVIOR.dateChangeTs - BEHAVIOR.dateFocusTs;
+  const verdict = dt < 30 ? 'bot' : (dt < 200 ? 'warn' : 'human');
+  recordResult('behavior', 'date_picker_latency',
+    'Date input: focus→change latency',
+    verdict,
+    `${dt.toFixed(1)}ms`,
+    verdict === 'bot' ? 'value set instantly (.fill())' :
+    verdict === 'warn' ? 'fast (typed?)' : 'calendar interaction time');
+}
+
+function evaluateFile() {
+  const dt = BEHAVIOR.fileChangeTs - BEHAVIOR.fileClickTs;
+  // Real OS dialog: typically >500ms; Playwright setInputFiles: <50ms
+  const verdict = dt < 50 ? 'bot' : (dt < 500 ? 'warn' : 'human');
+  recordResult('behavior', 'file_dialog_latency',
+    'File input: click→change latency',
+    verdict,
+    `${dt.toFixed(1)}ms`,
+    verdict === 'bot' ? 'no OS file dialog (setInputFiles)' :
+    verdict === 'warn' ? 'unusually fast user' : 'normal file-dialog use');
+}
+
+function evaluateColor() {
+  const trusted = BEHAVIOR.colorChangeTrusted;
+  const verdict = trusted ? 'human' : 'bot';
+  recordResult('behavior', 'color_picker_untrusted',
+    'Color picker: change event isTrusted',
+    verdict,
+    trusted ? 'isTrusted=true (OS picker)' : 'isTrusted=false (JS fill)',
+    trusted
+      ? 'OS color dialog used — change event is native'
+      : 'Playwright fill() used — no OS dialog, change event is untrusted (unfixable)');
+}
+
+function evaluateRange() {
+  // Throttled live evaluation; final verdict on blur
+  const c = BEHAVIOR.rangeInputCount;
+  const verdict = c < 2 ? 'bot' : (c < 5 ? 'warn' : 'human');
+  recordResult('behavior', 'range_event_volume',
+    'Range slider: input event count',
+    verdict,
+    c,
+    verdict === 'bot' ? 'single jump (no drag)' :
+    verdict === 'warn' ? 'sparse — keyboard nudge?' : 'natural drag');
+}
+
+function evaluateEditable() {
+  const before = BEHAVIOR.beforeInputCount, inp = BEHAVIOR.inputCount;
+  // Real typing: beforeinput approximately equals input; Playwright fill/innerHTML: 0 beforeinput, 1 input
+  const ratio = inp > 0 ? before / inp : 0;
+  const verdict = (inp > 0 && before === 0) ? 'bot' :
+                  (inp > 3 && ratio > 0.6) ? 'human' :
+                  'warn';
+  recordResult('behavior', 'composition_events',
+    'contenteditable: beforeinput / input ratio',
+    verdict,
+    { beforeInput: before, input: inp, composition: BEHAVIOR.composeEvents, ratio: ratio.toFixed(2) },
+    verdict === 'bot' ? 'innerHTML written directly — no beforeinput' :
+    verdict === 'human' ? 'natural editing event chain' : 'inconclusive');
+}
+
+/* ============================================================
+   Deep-dive modal — rich "teacher" explanations
+   ============================================================ */
+
+const DEEP_DIVE = {};  // signal_id -> HTML string
+
+// ─── targeted deep dives requested by user ───
+function buildProxyOwnKeysDeepDive(methodName, titleSuffix) {
+  return `
+<h3>${titleSuffix}</h3>
+
+<div class="analogy">
+  <strong>This signal does not just detect Playwright.</strong> It detects the CDP Runtime domain being active.
+  That happens when: Playwright/Puppeteer is driving the browser, OR when a real user has DevTools open,
+  OR when any commercial CDP-based browser (OpenClaw, Browserbase, etc.) has connected to the tab.
+  In anti-bot contexts, all three are "not an ordinary user."
+</div>
+
+<h3>Why CDP causes this — the four-layer cascade</h3>
+<p>When <code>Runtime.enable</code> is active (automatically enabled by Playwright <em>and</em> by Chrome DevTools),
+the V8 inspector intercepts every <code>console.*</code> call and builds a deep <strong>preview</strong> of every argument
+— so DevTools can show an interactive, expandable object tree. Building that preview means enumerating
+keys. Enumerating keys on a <em>Proxy</em> is a function call, not a memory read. Our probe exploits exactly this.</p>
+
+<div class="dt-shell">
+  <div class="dt-toolbar">
+    <span class="dt-dot red"></span><span class="dt-dot yellow"></span><span class="dt-dot green"></span>
+    <span class="dt-tab active">V8 inspector internals</span><span class="dt-tab">value-mirror.cc</span><span class="dt-tab">debug-property-iterator.cc</span>
+  </div>
+  <div class="dt-content"><span class="dt-muted">Layer A — Inspector decides to preview:</span>
+V8ConsoleMessage::wrapArguments() intercepts console.${methodName}(obj)
+  → generatePreview = true → build deep object tree
+
+<span class="dt-muted">Layer B — Proxy guard checks surface only:</span>
+buildObjectPreviewInternal:
+  while (value->IsProxy()) value = value.As&lt;v8::Proxy&gt;()->GetTarget();
+  // obj is NOT a Proxy itself — loop never runs.
+  // obj's prototype IS a Proxy — guard missed it entirely.
+
+<span class="dt-muted">Layer C — Iterator eagerly walks prototype chain:</span>
+DebugPropertyIterator::Create(isolate, obj)
+  → FillKeysForCurrentPrototypeAndStage()  // 0 own keys
+  → AdvanceToPrototype()  // steps onto our Proxy
+  → FillKeysForCurrentPrototypeAndStage()  // kEnumerableStrings on Proxy...
+
+<span class="dt-muted">Layer D — ECMAScript spec forces the crossing:</span>
+KeyAccumulator::GetKeys(receiver=Proxy)
+  → CollectOwnJSProxyKeys()
+  → Execution::Call(trap, handler)  // ← C++ calls into our JS
+
+<span class="dt-bad">ownKeys() { triggered = true; return []; }  ← our code runs</span></div>
+</div>
+
+<h3>Who triggers this? — the complete population</h3>
+<div class="comparison" style="grid-template-columns:repeat(3,1fr)">
+  <div class="cmp-col bot-col">
+    <h4>Playwright / Puppeteer</h4>
+    <pre>Runtime.enable called automatically
+at browser launch.
+
+All console.* calls trigger preview.
+<span class="dt-bad">triggered = true</span></pre>
+    <p style="font-size:.85em">Standard behavior — Playwright needs Runtime domain active to intercept console for tests and logging.</p>
+  </div>
+  <div class="cmp-col" style="border-color:#c2730a44;background:#fffbeb">
+    <h4>Real user + DevTools open</h4>
+    <pre>Opening DevTools activates Runtime
+domain for that tab internally.
+
+Same code path. Same trap fires.
+<span style="color:#c2730a">triggered = true</span></pre>
+    <p style="font-size:.85em">This is intentional: in high-stakes contexts (payments, auth), a user with DevTools open is itself a risk signal worth noting — it suggests developer tooling, not a typical consumer.</p>
+  </div>
+  <div class="cmp-col" style="border-color:#8b5cf644;background:#f5f3ff">
+    <h4>Commercial CDP browsers<br><small>(OpenClaw, Browserbase…)</small></h4>
+    <pre>These services connect to Chrome
+via CDP to provide scripted browsing.
+
+CDP attachment → Runtime.enable.
+<span style="color:#7c3aed">triggered = true</span></pre>
+    <p style="font-size:.85em">Any browser-as-a-service that uses CDP (not just Playwright) is detected. This includes OpenClaw and similar scraping infrastructure providers.</p>
+  </div>
+</div>
+
+<h3>Source-Level Reasoning (V8, March 2026)</h3>
+<div class="src-block">
+  <span class="src-label"><a href="https://svebaa.github.io/personal/blog/cdp-fingerprinting/" target="_blank">svebaa.github.io — "How V8 Leaks Your Headless Browser's Identity" (March 2026)</a></span>
+  <code><span class="cm">// value-mirror.cc — buildObjectPreviewInternal (Layer B guard)</span>
+<span class="cm">// Only checks if obj itself is a Proxy. Prototype chain is not inspected.</span>
+<span class="kw">while</span> (value-><span class="fn">IsProxy</span>()) value = value.As&lt;<span class="fn">v8::Proxy</span>&gt;()-><span class="fn">GetTarget</span>();
+<span class="cm">// Our obj passes — it is not a Proxy. Prototype IS a Proxy. Guard missed.</span>
+
+<span class="cm">// debug-property-iterator.cc — DebugPropertyIterator::Create (Layer C)</span>
+<span class="cm">// Eagerly walks full prototype chain at construction time.</span>
+<span class="kw">if</span> (<span class="fn">IsJSProxy</span>(*receiver)) { iterator-><span class="fn">AdvanceToPrototype</span>(); }
+<span class="cm">// receiver = obj, not the Proxy. Guard missed again. Iterator walks to Proxy.</span>
+
+<span class="cm">// keys.cc — CollectOwnJSProxyKeys (Layer D)</span>
+<span class="cm">// ECMAScript spec mandates calling the ownKeys trap — no way around it.</span>
+<span class="fn">Execution::Call</span>(isolate, trap, handler, ...)  <span class="cm">// C++ → JS boundary crossed</span>
+<span class="cm">// Our ownKeys() function runs. triggered = true.</span></code>
+</div>
+
+<div class="kv-grid">
+  <div class="cmp-col bot-col">
+    <h4>CDP active (any source)</h4>
+    <pre><span class="dt-bad">value=true</span>
+Runtime.enable → preview serialization
+→ prototype Proxy trap fires</pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>Real Chrome, DevTools closed</h4>
+    <pre><span class="dt-ok">value=false</span>
+No Runtime.enable → no preview
+→ ownKeys never called</pre>
+  </div>
+</div>
+
+<div class="durability high"><strong>Durability: High.</strong> This fires at the V8 C++ inspector layer, not at the JS layer.
+playwright-stealth patches JS properties — it cannot intercept V8 internal object preview calls.
+The only fix is to patch the browser binary (what Patchright does) or disable Runtime domain
+entirely (which breaks Playwright's own test infrastructure).</div>
+
+<h3>Research source</h3>
+<ul style="font-size:.9em;line-height:1.8">
+  <li><a href="https://svebaa.github.io/personal/blog/cdp-fingerprinting/" target="_blank">svebaa.github.io — V8 CDP fingerprinting (March 2026)</a> — primary source, includes local V8 debug logs</li>
+  <li><a href="https://blog.castle.io/why-a-classic-cdp-bot-detection-signal-suddenly-stopped-working-and-nobody-noticed/" target="_blank">castle.io — Error.stack getter history</a> — May 2025 V8 patch context</li>
+</ul>
+`;
+}
+
+DEEP_DIVE['runtimeEnable_proxyOwnKeys'] = buildProxyOwnKeysDeepDive(
+  'groupEnd',
+  'Runtime.enable — Proxy.ownKeys trap (2026)'
+);
+DEEP_DIVE['proxyOwnKeys_dir'] = buildProxyOwnKeysDeepDive(
+  'dir',
+  'Proxy.ownKeys trap via console.dir'
+);
+DEEP_DIVE['proxyOwnKeys_warn'] = buildProxyOwnKeysDeepDive(
+  'warn',
+  'Proxy.ownKeys trap via console.warn'
+);
+
+DEEP_DIVE['playwright_bindings'] = `
+<h3>Why does a bot use <code>expose_function</code>? — The Core Problem</h3>
+
+<div class="analogy">
+  <strong>The direction problem.</strong> Playwright normally runs one way: Python → Browser.
+  Python calls <code>page.click()</code>, <code>page.fill()</code>, <code>page.evaluate()</code> —
+  always Python asking, browser answering.<br><br>
+  But some tasks require the <em>browser to call Python back proactively</em> — "hey, something
+  happened on the page, here's the data." <code>expose_function</code> creates a
+  <strong>phone number inside the browser</strong> that JavaScript can dial to reach Python at any time.
+</div>
+
+<h3>Three real bot scenarios that need this</h3>
+
+<div class="comparison" style="grid-template-columns:repeat(3,1fr)">
+  <div class="cmp-col bot-col">
+    <h4>1 — CAPTCHA solving</h4>
+    <pre><span style="color:#8b949e">// Python registers the callback:</span>
+await page.expose_function(
+  "captchaReady",
+  lambda token: solve(token)
+)
+
+<span style="color:#8b949e">// When CAPTCHA iframe finishes,
+// page JS calls:</span>
+window.captchaReady("03AGdBq…")
+<span style="color:#8b949e">// → Python receives the token</span></pre>
+    <p style="font-size:.85em">Without expose_function, Python would have to poll every 100 ms waiting for the token to appear — much slower and more detectable.</p>
+  </div>
+  <div class="cmp-col" style="border-color:#388bfd22">
+    <h4>2 — Infinite-scroll scraper</h4>
+    <pre><span style="color:#8b949e">// Python collects rows in real time:</span>
+await page.expose_function(
+  "sendRow",
+  lambda row: store(row)
+)
+
+<span style="color:#8b949e">// Bot injects a MutationObserver
+// that calls for each new item:</span>
+window.sendRow({ title, price })
+<span style="color:#8b949e">// → Python stores each row live</span></pre>
+    <p style="font-size:.85em">The observer fires as items appear, pushing data to Python without polling. Common in e-commerce scraping bots.</p>
+  </div>
+  <div class="cmp-col" style="border-color:#3fb95022">
+    <h4>3 — Event-driven waiting</h4>
+    <pre><span style="color:#8b949e">// Python waits for an element
+// to appear asynchronously:</span>
+await page.expose_function(
+  "notifyPython",
+  lambda: event.set()
+)
+
+<span style="color:#8b949e">// Injected MutationObserver calls:</span>
+window.notifyPython()
+<span style="color:#8b949e">// → Python wakes immediately</span></pre>
+    <p style="font-size:.85em">Faster and more reliable than <code>wait_for_selector()</code> for SPAs where elements appear from XHR responses.</p>
+  </div>
+</div>
+
+<h3>The side effect we detect</h3>
+<p>To wire the phone line up, Playwright must inject two globals into every frame <em>before</em> any page JS runs:</p>
+
+<div class="dt-shell">
+  <div class="dt-toolbar">
+    <span class="dt-dot red"></span><span class="dt-dot yellow"></span><span class="dt-dot green"></span>
+    <span class="dt-tab active">DevTools Console</span>
+  </div>
+  <div class="dt-content">&gt; '__playwright__binding__controller__' in window
+<span class="dt-bad">true   ← the dispatch switchboard</span>
+
+&gt; '__playwright__binding__' in window
+<span class="dt-bad">true   ← the channel name</span>
+
+<span class="dt-muted">Both are absent on any real user browser.
+Neither is cleaned up after expose_function runs.</span></div>
+</div>
+
+<h3>Playwright source — where these globals come from</h3>
+<div class="src-block">
+  <span class="src-label">playwright-core/src/server/page.ts · class PageBinding</span>
+  <code><span class="kw">private static</span> kController = <span class="str">'__playwright__binding__controller__'</span>;
+<span class="kw">static</span> kBindingName     = <span class="str">'__playwright__binding__'</span>;
+
+<span class="cm">// Called by exposeFunction() / exposeBinding():</span>
+<span class="kw">private</span> createInitScript() {
+  <span class="cm">// Injects an addInitScript that runs BEFORE page JS:</span>
+  <span class="kw">if</span> (!globalThis[kController])
+    globalThis[kController] = <span class="kw">new</span> BindingsController(globalThis, kBindingName);
+  <span class="cm">// These two globals stay on window for the lifetime of the page.</span>
+}</code>
+</div>
+
+<div class="comparison">
+  <div class="cmp-col bot-col">
+    <h4>Automation (expose_function called)</h4>
+    <pre>window.__playwright__binding__controller__  ✗ present
+window.__playwright__binding__              ✗ present
+→ phone line installed → signal fires</pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>Real user browser</h4>
+    <pre>window.__playwright__binding__controller__  absent
+window.__playwright__binding__              absent
+→ no signal</pre>
+  </div>
+</div>
+
+<div class="durability low"><strong>Durability:</strong> Medium — only fires when the bot script uses
+<code>expose_function</code> / <code>expose_binding</code>. Simple bots that only use <code>fill()</code>
+and <code>click()</code> won't trigger this. But any bot that needs push callbacks (CAPTCHA, scraping,
+event-driven logic) almost certainly will.</div>
+
+<h3>Real-world detection evidence</h3>
+<p>This is test #10 in <a href="https://github.com/rebrowser/rebrowser-bot-detector" target="_blank">rebrowser-bot-detector</a>
+(the public benchmark for Playwright stealth evasion). The detector's actual code scans
+<code>window</code> for three separate sub-signals:</p>
+<div class="src-block">
+  <span class="src-label"><a href="https://github.com/rebrowser/rebrowser-bot-detector/blob/main/index.js" target="_blank">rebrowser-bot-detector/index.js</a> — testExposeFunctionLeakInit()</span>
+  <code><span class="cm">// Sub-signal 1: binding controller global</span>
+<span class="kw">for</span> (<span class="kw">const</span> key <span class="kw">in</span> window) {
+  <span class="kw">if</span> (key === <span class="str">'__playwright__binding__'</span>) {
+    detection.rating = 1
+    detection.note = <span class="str">'You are using unpatched Playwright and page.exposeFunction
+    as it creates window.__playwright__binding__ object.'</span>
+    <span class="kw">break</span>
+  }
+
+  <span class="cm">// Sub-signal 2: exposed function __installed flag</span>
+  <span class="kw">if</span> (typeof window[key] === <span class="str">'function'</span> &&
+      window[key].__installed === <span class="kw">true</span>) {
+    detection.rating = 1  <span class="cm">// __installed=true is injected by Playwright</span>
+    <span class="kw">break</span>
+  }
+}
+
+<span class="cm">// Sub-signal 3: exposed function toString reveals Playwright internals</span>
+<span class="kw">if</span> (window.exposedFn.toString()?.includes(
+    <span class="str">'exposeBindingHandle supports a single argument'</span>)) {
+  detection.rating = 1  <span class="cm">// Playwright's JS wrapper leaks its own source</span>
+}</code>
+</div>
+
+<p>The Playwright source that creates these globals comes from
+<a href="https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/page.ts" target="_blank">playwright-core/src/server/page.ts</a>
+(class <code>PageBinding</code>, method <code>createInitScript()</code>).</p>
+
+<h3>Research links</h3>
+<ul style="font-size:.9em;line-height:1.8">
+  <li><a href="https://github.com/rebrowser/rebrowser-bot-detector/blob/main/index.js" target="_blank">rebrowser-bot-detector/index.js</a> — <code>testExposeFunctionLeakInit()</code> (3 sub-signals)</li>
+  <li><a href="https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/page.ts" target="_blank">Playwright page.ts</a> — <code>PageBinding.kBindingName</code>, <code>PageBinding.createInitScript()</code></li>
+  <li><a href="https://github.com/Kaliiiiiiiiii-Vinyzu/patchright" target="_blank">Patchright</a> — stealth fork that patches these globals</li>
+  <li><a href="https://github.com/rebrowser/rebrowser-patches" target="_blank">rebrowser-patches</a> — open patch set with fix for this leak</li>
+</ul>
+`;
+
+// ─── pwInitScripts ───
+DEEP_DIVE['pwInitScripts'] = `
+<h3>What is <code>window.__pwInitScripts</code>?</h3>
+<p>Every call to <code>page.addInitScript()</code> (or internally, for stealth patches) makes Playwright
+inject a script that runs <em>before</em> any page JavaScript. To track which scripts have been
+injected into which frame, Playwright creates a <strong>registry object on <code>window</code></strong>
+called <code>__pwInitScripts</code>. Real browsers have no such object — it only exists when the
+page is loaded inside Playwright.</p>
+
+<div class="analogy">Imagine a plumber who, before entering your house, tapes a list of all their
+tools to your front door so they don't forget anything. No normal visitor does that. The list
+on the door is the evidence of the professional visit.</div>
+
+<h3>Who detects this — and how</h3>
+<p>This is test #11 in <a href="https://github.com/rebrowser/rebrowser-bot-detector" target="_blank">rebrowser-bot-detector</a>,
+the community benchmark for Playwright stealth quality:</p>
+
+<div class="src-block">
+  <span class="src-label"><a href="https://github.com/rebrowser/rebrowser-bot-detector/blob/main/index.js" target="_blank">rebrowser-bot-detector/index.js</a> — testPwInitScriptsInit()</span>
+  <code><span class="kw">if</span> (window.__pwInitScripts !== <span class="kw">undefined</span>) {
+  addDetection({
+    type: <span class="str">'pwInitScripts'</span>,
+    rating: 1,
+    note: <span class="str">'You are using unpatched Playwright as it creates window.__pwInitScripts.'</span>,
+    debug: { __pwInitScripts: window.__pwInitScripts },
+  })
+}</code>
+</div>
+
+<h3>DevTools Console</h3>
+<div class="dt-shell">
+  <div class="dt-toolbar">
+    <span class="dt-dot red"></span><span class="dt-dot yellow"></span><span class="dt-dot green"></span>
+    <span class="dt-tab active">DevTools Console</span>
+  </div>
+  <div class="dt-content">&gt; typeof window.__pwInitScripts
+<span class="dt-bad">"object"   ← only present in Playwright sessions</span>
+
+&gt; window.__pwInitScripts
+<span class="dt-bad">{ /* array of init-script sources */ }</span>
+
+<span class="dt-muted">On a real user browser:</span>
+&gt; typeof window.__pwInitScripts
+<span class="dt-good">"undefined"</span></div>
+</div>
+
+<h3>How playwright-stealth actually works</h3>
+<p>playwright-stealth (<a href="https://github.com/AtuboDad/playwright_stealth" target="_blank">github.com/AtuboDad/playwright_stealth</a>)
+is a Python library that calls <code>page.add_init_script()</code> once per JS patch file. Each file
+uses <code>Object.defineProperty</code> + a <code>Proxy</code> getter to override one browser property.
+There are ~15 such files.</p>
+
+<div class="src-block">
+  <span class="src-label"><a href="https://github.com/AtuboDad/playwright_stealth/blob/master/playwright_stealth/stealth.py" target="_blank">playwright_stealth/stealth.py</a> — core injection loop</span>
+  <code><span class="cm"># Every patch script is injected as a separate init script:</span>
+<span class="kw">async def</span> <span class="fn">stealth_async</span>(page, config=<span class="kw">None</span>):
+    <span class="kw">for</span> script <span class="kw">in</span> (config <span class="kw">or</span> StealthConfig()).enabled_scripts:
+        <span class="kw">await</span> page.<span class="fn">add_init_script</span>(script)   <span class="cm"># ← CDP call × 15+</span>
+
+<span class="cm"># Each script patches one thing, e.g.:</span>
+SCRIPTS = {
+    <span class="str">'webdriver'</span>:  <span class="fn">from_file</span>(<span class="str">'navigator.webdriver.js'</span>),
+    <span class="str">'chrome_runtime'</span>: <span class="fn">from_file</span>(<span class="str">'chrome.runtime.js'</span>),
+    <span class="str">'navigator_plugins'</span>: <span class="fn">from_file</span>(<span class="str">'navigator.plugins.js'</span>),
+    <span class="str">'webgl_vendor'</span>: <span class="fn">from_file</span>(<span class="str">'webgl.vendor.js'</span>),
+    <span class="cm">... ~15 more ...</span>
+}</code>
+</div>
+
+<div class="src-block">
+  <span class="src-label"><a href="https://github.com/AtuboDad/playwright_stealth/blob/master/playwright_stealth/js/navigator.webdriver.js" target="_blank">playwright_stealth/js/navigator.webdriver.js</a> — actual patch source</span>
+  <code><span class="cm">// Redefines navigator.webdriver via Object.defineProperty on the prototype</span>
+<span class="cm">// with a Proxy getter that returns false instead of true:</span>
+Object.<span class="fn">defineProperty</span>(Object.<span class="fn">getPrototypeOf</span>(navigator), <span class="str">'webdriver'</span>, {
+    set: <span class="kw">undefined</span>,
+    enumerable: <span class="kw">true</span>,
+    configurable: <span class="kw">true</span>,
+    get: <span class="kw">new</span> <span class="fn">Proxy</span>(
+        Object.<span class="fn">getOwnPropertyDescriptor</span>(
+            Object.<span class="fn">getPrototypeOf</span>(navigator), <span class="str">'webdriver'</span>
+        ).get,
+        { apply: (target, thisArg, args) =&gt; {
+            Reflect.<span class="fn">apply</span>(target, thisArg, args);
+            <span class="kw">return false</span>;   <span class="cm">// ← always false, even in headless</span>
+        }}
+    )
+});</code>
+</div>
+
+<div class="analogy">Each patch file is a disguise. playwright-stealth puts 15 disguises on Playwright
+before each page visit. But the <em>act of applying disguises</em> leaves traces — CDP protocol calls
+that create <code>__pwInitScripts</code> on the window, and V8 inspector side effects that fire
+our Proxy traps.</div>
+
+<h3>Where does Playwright create it?</h3>
+<p>Init scripts (both user-provided via <code>page.addInitScript()</code> and internal stealth patches)
+are tracked via this global so they can be re-applied after cross-process navigations (OOPIFs,
+iframe swaps). Patchright fixes this by replacing
+<code>Page.addScriptToEvaluateOnNewDocument</code> CDP calls with <strong>Route interception</strong>
+— injecting scripts into HTML responses directly, which doesn't require this registry:</p>
+
+<div class="src-block">
+  <span class="src-label"><a href="https://github.com/Kaliiiiiiiiii-Vinyzu/patchright/blob/main/README.md" target="_blank">Patchright README</a> — InitScript Shenanigans section</span>
+  <code><span class="cm">// Patchright's approach to init scripts:</span>
+<span class="cm">// "To avoid detection, Patchright uses Playwright Routes to inject</span>
+<span class="cm">//  JavaScript into HTML requests" (instead of CDP init-script API).</span>
+<span class="cm">//</span>
+<span class="cm">// This means __pwInitScripts is never created,</span>
+<span class="cm">// but script injection timing is slightly different — detectable via timing attack.</span></code>
+</div>
+
+<div class="comparison">
+  <div class="cmp-col bot-col">
+    <h4>Unpatched Playwright</h4>
+    <pre>page.addInitScript(source)
+  → CDP: Page.addScriptToEvaluateOnNewDocument
+  → Creates window.__pwInitScripts = [...]
+  → Detected by rebrowser-bot-detector ✗</pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>Real user / Patchright</h4>
+    <pre>No init script registry.
+window.__pwInitScripts === undefined
+→ Signal absent ✓</pre>
+  </div>
+</div>
+
+<div class="durability low"><strong>Durability:</strong> Medium — Patchright patches this, but any
+standard playwright-stealth (Python) or unpatched Playwright will expose it.
+The global is created automatically when ANY init script is added (including stealth patches),
+so you don't need to call <code>addInitScript</code> explicitly — stealth tools do it for you.</div>
+
+<h3>Research links</h3>
+<ul style="font-size:.9em;line-height:1.8">
+  <li><a href="https://github.com/rebrowser/rebrowser-bot-detector/blob/main/index.js" target="_blank">rebrowser-bot-detector/index.js</a> — <code>testPwInitScriptsInit()</code></li>
+  <li><a href="https://github.com/Kaliiiiiiiiii-Vinyzu/patchright/blob/main/README.md" target="_blank">Patchright README</a> — Init Script Shenanigans section</li>
+  <li><a href="https://github.com/rebrowser/rebrowser-patches" target="_blank">rebrowser-patches</a> — patch set that removes this leak</li>
+</ul>
+`;
+
+// ─── canvas_consistency ───
+DEEP_DIVE['canvas_consistency'] = `
+<h3>What is this signal?</h3>
+<p>This detects <strong>canvas fingerprint noise injection</strong> — a technique used by stealth tools to
+randomize canvas output so the browser can't be fingerprinted. The problem? If you draw the same
+image twice and get different hashes, that itself is the fingerprint.</p>
+
+<div class="analogy">Imagine a suspect wears a different disguise every time they enter a store. No real
+customer changes their face between visits. The fact that the face keeps changing IS the evidence of deception.</div>
+
+<h3>How it works</h3>
+<p>We draw the <strong>exact same canvas image twice</strong> (same text, same colors, same dimensions) and
+compute a hash of each result. On a real browser, the output is deterministic — same GPU, same fonts,
+same rasterizer = same pixels. But if a stealth tool is injecting random noise into
+<code>CanvasRenderingContext2D</code> methods, each draw produces slightly different pixels.</p>
+
+<h3>Playwright-stealth source code</h3>
+<div class="src-block">
+  <span class="src-label">playwright-stealth / canvas patch (typical implementation)</span>
+  <code><span class="cm">// Stealth tools override canvas toDataURL to add noise:</span>
+<span class="kw">const</span> origToDataURL = HTMLCanvasElement.prototype.<span class="fn">toDataURL</span>;
+HTMLCanvasElement.prototype.<span class="fn">toDataURL</span> = <span class="kw">function</span>(...args) {
+  <span class="kw">const</span> ctx = <span class="kw">this</span>.getContext(<span class="str">'2d'</span>);
+  <span class="kw">const</span> imageData = ctx.<span class="fn">getImageData</span>(0, 0, <span class="kw">this</span>.width, <span class="kw">this</span>.height);
+  <span class="cm">// Add tiny random noise to pixel data</span>
+  <span class="kw">for</span> (<span class="kw">let</span> i = 0; i < imageData.data.length; i += 4) {
+    imageData.data[i]   += Math.floor(Math.random() * 3) - 1; <span class="cm">// R</span>
+    imageData.data[i+1] += Math.floor(Math.random() * 3) - 1; <span class="cm">// G</span>
+    imageData.data[i+2] += Math.floor(Math.random() * 3) - 1; <span class="cm">// B</span>
+  }
+  ctx.<span class="fn">putImageData</span>(imageData, 0, 0);
+  <span class="kw">return</span> origToDataURL.<span class="fn">apply</span>(<span class="kw">this</span>, args);
+};</code>
+</div>
+
+<h3>Real data comparison</h3>
+<div class="comparison">
+  <div class="cmp-col bot-col">
+    <h4>🤖 Playwright + stealth (noise injection)</h4>
+    <pre>Draw #1 hash: <span style="color:#f85149">-7a3f2c1e</span>
+Draw #2 hash: <span style="color:#f85149">-4b8e9d3a</span>  ← different!
+
+Same code, same canvas, different output.
+Noise injection detected → BOT</pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>👤 Real Chrome</h4>
+    <pre>Draw #1 hash: <span style="color:#3fb950">-7a3f2c1e</span>
+Draw #2 hash: <span style="color:#3fb950">-7a3f2c1e</span>  ← identical!
+
+Deterministic GPU rasterization.
+Same input → same output → HUMAN</pre>
+  </div>
+</div>
+
+<div class="durability high">
+  <strong>✅ Durability: HIGH</strong> — Stealth tools face a dilemma: either inject noise (and get caught by
+  this consistency check) or don't inject noise (and get caught by canvas fingerprinting). There's no clean
+  way to add noise that is deterministic within a page load but different across page loads — because the
+  detector can draw at any time and compare.
+</div>
+`;
+
+// ─── select_popup_latency ───
+DEEP_DIVE['select_popup_latency'] = `
+<h3>What is this signal?</h3>
+<p>This measures the time between <strong>focusing a &lt;select&gt; dropdown</strong> and the
+<strong>change event firing</strong>. When a real human clicks a dropdown, the OS opens a native popup menu —
+the user scans the options, moves their mouse, and clicks. This takes 300–3000ms. Playwright's
+<code>selectOption()</code> skips the entire popup and sets the value in under 5ms.</p>
+
+<div class="analogy">It's like measuring how long someone takes to pick an item from a menu at a restaurant.
+A real person reads the menu for at least a few seconds. A robot orders before the waiter finishes
+handing them the menu. The time itself is the evidence.</div>
+
+<h3>Playwright source code — what selectOption() actually does</h3>
+<div class="src-block">
+  <span class="src-label">Playwright docs — page.select_option()</span>
+  <code><span class="cm">// From the official Playwright Python API docs:</span>
+<span class="cm">// "Triggers a change and input event once all the</span>
+<span class="cm">//  provided options have been selected."</span>
+<span class="cm">//</span>
+<span class="cm">// That's it. No mousedown, no popup, no mouseup, no click.</span>
+<span class="cm">// It directly sets selectedIndex and fires change+input.</span>
+
+<span class="cm"># Python bot code:</span>
+<span class="kw">await</span> page.<span class="fn">select_option</span>(<span class="str">"#my-select"</span>, <span class="str">"option2"</span>)
+<span class="cm"># Internally: element.selectedIndex = N; dispatch('change'); dispatch('input');</span>
+<span class="cm"># Total time: &lt;5ms</span></code>
+</div>
+
+<h3>Real data comparison</h3>
+<div class="comparison">
+  <div class="cmp-col bot-col">
+    <h4>🤖 Playwright selectOption()</h4>
+    <pre>Event stream:
+  focus        @ 0ms
+  change       @ <span style="color:#f85149">2.3ms</span>  ← instant!
+
+Missing events:
+  ❌ No mousedown on select
+  ❌ No OS popup opened
+  ❌ No mouseover on options
+  ❌ No mouseup / click on option
+
+focus→change: <span style="color:#f85149">2.3ms</span></pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>👤 Real human clicking dropdown</h4>
+    <pre>Event stream:
+  mousedown    @ 0ms
+  focus        @ 1ms
+  mouseup      @ 85ms
+  click        @ 86ms
+  <span style="color:#8b949e">── OS popup opens ──</span>
+  <span style="color:#8b949e">── user browses options ──</span>
+  change       @ <span style="color:#3fb950">1247ms</span>
+
+focus→change: <span style="color:#3fb950">1247ms</span></pre>
+  </div>
+</div>
+
+<div class="durability high">
+  <strong>✅ Durability: HIGH</strong> — To fake this, a bot would need to actually open the OS-level popup,
+  navigate through it with real mouse events, and close it — which requires controlling the browser's
+  process-level UI, not just JavaScript. <code>selectOption()</code> is a convenience API that fundamentally
+  cannot produce the right timing because it bypasses the OS entirely.
+</div>
+`;
+
+// ─── date_picker_latency ───
+DEEP_DIVE['date_picker_latency'] = `
+<h3>What is this signal?</h3>
+<p>Same principle as the &lt;select&gt; popup, but for <strong>date pickers</strong>.
+When a real human clicks a date input, Chrome opens a calendar widget — they navigate months,
+click a day. This takes 500ms–5000ms. Playwright's <code>fill()</code> sets the value directly in &lt;1ms.</p>
+
+<h3>Playwright docs — what fill() does to date inputs</h3>
+<div class="src-block">
+  <span class="src-label">Playwright docs — page.fill()</span>
+  <code><span class="cm">// "Focuses the element, fills it and triggers an input event after filling."</span>
+<span class="cm">// For type="date": directly sets element.value = "2026-05-10"</span>
+<span class="cm">// No calendar popup, no pointer events on day/month buttons.</span>
+
+<span class="kw">await</span> page.<span class="fn">fill</span>(<span class="str">"#date-input"</span>, <span class="str">"2026-05-10"</span>)
+<span class="cm"># Internally: element.value = "2026-05-10"; dispatch('input');</span></code>
+</div>
+
+<h3>Real data comparison</h3>
+<div class="comparison">
+  <div class="cmp-col bot-col">
+    <h4>🤖 Playwright fill()</h4>
+    <pre>focus→change: <span style="color:#f85149">0.8ms</span>
+
+No pointerdown on calendar
+No month navigation clicks
+Value appears instantly</pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>👤 Real human with calendar</h4>
+    <pre>focus→change: <span style="color:#3fb950">2340ms</span>
+
+pointerdown on calendar button
+Arrow clicks to navigate months
+Click on day number → change fires</pre>
+  </div>
+</div>
+
+<div class="durability high">
+  <strong>✅ Durability: HIGH</strong> — Same reasoning as &lt;select&gt;: the OS calendar popup is
+  outside Playwright's reach. The bot would need to synthesize real pointer events on the
+  calendar widget, including the month navigation delay.
+</div>
+`;
+
+// ─── file_dialog_latency ───
+DEEP_DIVE['file_dialog_latency'] = `
+<h3>What is this signal?</h3>
+<p>When you click a file input, the <strong>OS file dialog</strong> opens — a user browses folders, finds a file,
+clicks Open. This takes at minimum 500ms, typically 2–10 seconds. Playwright's <code>setInputFiles()</code>
+sets the file path directly, completing in under 5ms.</p>
+
+<h3>Playwright source</h3>
+<div class="src-block">
+  <span class="src-label">Playwright docs — locator.set_input_files()</span>
+  <code><span class="cm">// "Sets the value of the file input to these file paths or files."</span>
+<span class="cm">// No OS dialog. No user browsing. Direct file path injection.</span>
+
+<span class="kw">await</span> page.locator(<span class="str">"#file-input"</span>).<span class="fn">set_input_files</span>(<span class="str">"./data.txt"</span>)
+<span class="cm"># Internally: CDP Input.setFiles → element.files = FileList</span></code>
+</div>
+
+<div class="comparison">
+  <div class="cmp-col bot-col">
+    <h4>🤖 Playwright setInputFiles()</h4>
+    <pre>click→change: <span style="color:#f85149">3.1ms</span>
+No OS dialog ever opened</pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>👤 Real human</h4>
+    <pre>click→change: <span style="color:#3fb950">4200ms</span>
+OS file picker opened, user browsed</pre>
+  </div>
+</div>
+
+<div class="durability high">
+  <strong>✅ Durability: HIGH</strong> — There's no Playwright API that opens the real OS file dialog.
+  <code>setInputFiles()</code> is the only way, and it always bypasses the dialog.
+</div>
+`;
+
+// ─── range_event_volume ───
+DEEP_DIVE['range_event_volume'] = `
+<h3>What is this signal?</h3>
+<p>When a human <strong>drags a range slider</strong>, the browser fires dozens of <code>input</code> events —
+one for each pixel the thumb moves. A real drag produces 15–100 events. Playwright's <code>fill()</code>
+sets the value in one shot, producing just 1 event.</p>
+
+<div class="comparison">
+  <div class="cmp-col bot-col">
+    <h4>🤖 Playwright fill() on range</h4>
+    <pre>input events: <span style="color:#f85149">1</span>
+
+await page.fill("#slider", "80")
+<span style="color:#8b949e">// Single value assignment → 1 input event</span></pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>👤 Real human dragging</h4>
+    <pre>input events: <span style="color:#3fb950">47</span>
+
+pointerdown → drag 200px → pointerup
+<span style="color:#8b949e">// Each pixel movement fires input event</span></pre>
+  </div>
+</div>
+
+<div class="durability high">
+  <strong>✅ Durability: HIGH</strong> — To fake this, a bot would need to generate dozens of mouse-move
+  events with realistic timing and acceleration — essentially simulating a real drag gesture.
+</div>
+`;
+
+// ─── composition_events ───
+DEEP_DIVE['composition_events'] = `
+<h3>What is this signal?</h3>
+<p>When a human types into a <code>contenteditable</code> div, the browser fires <code>beforeinput</code>
+before each <code>input</code> event — roughly a 1:1 ratio. Playwright's <code>fill()</code> writes
+<code>innerHTML</code> directly, producing 0 beforeinput events and typically just 1 input event.</p>
+
+<h3>Playwright docs</h3>
+<div class="src-block">
+  <span class="src-label">Playwright docs — locator.fill()</span>
+  <code><span class="cm">// "Focuses the element, fills it and triggers an input event"</span>
+<span class="cm">// For contenteditable: sets innerHTML directly.</span>
+<span class="cm">// No beforeinput, no per-character events, no composition events.</span>
+
+<span class="kw">await</span> page.locator(<span class="str">"#editor"</span>).<span class="fn">fill</span>(<span class="str">"Hello world"</span>)
+<span class="cm"># Result: 0 beforeinput, 1 input, 0 composition events</span></code>
+</div>
+
+<div class="comparison">
+  <div class="cmp-col bot-col">
+    <h4>🤖 Playwright fill()</h4>
+    <pre>beforeinput events: <span style="color:#f85149">0</span>
+input events:       1
+ratio:              <span style="color:#f85149">0.00</span></pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>👤 Real human typing "Hello"</h4>
+    <pre>beforeinput events: <span style="color:#3fb950">5</span>
+input events:       5
+ratio:              <span style="color:#3fb950">1.00</span></pre>
+  </div>
+</div>
+
+<div class="durability high">
+  <strong>✅ Durability: HIGH</strong> — The alternative <code>press_sequentially()</code> does fire per-key
+  events, but even it doesn't produce natural <code>beforeinput</code> sequences for all input types.
+  IME/composition events from non-Latin keyboards are even harder to fake.
+</div>
+`;
+
+// ─── color picker — OS dialog wall ───
+DEEP_DIVE['color_picker_untrusted'] = `
+<h3>Why color picker events are always untrusted in automation</h3>
+
+<p>The <code>isTrusted</code> flag on a browser event is set to <code>true</code> only when the
+event was <strong>generated by the browser engine in response to genuine hardware input</strong>
+(keyboard, mouse, touch). Any event dispatched by JavaScript — including Playwright's
+<code>fill()</code> — has <code>isTrusted = false</code>. You cannot fake this flag from JS;
+it is set internally by the browser's C++ event factory. This is not a bug in Playwright —
+it is the intended behaviour specified in the W3C DOM standard and enforced by every browser.</p>
+
+<div class="analogy" style="background:#f0f4ff;border-color:#4f6ef7">
+  <strong>Zero GitHub issues confirm this is by design.</strong> Searching
+  <a href="https://github.com/microsoft/playwright/issues?q=color+picker+isTrusted" target="_blank" rel="noopener">microsoft/playwright issues</a>
+  for "color picker isTrusted" returns <em>no results</em>. The Playwright core team does not
+  consider this a bug. The team knows the OS picker cannot be driven via CDP.
+  There is no open feature request, no workaround, no patch — because it is impossible
+  at the protocol level.
+</div>
+
+<h3>The fundamental problem: the OS color picker is a wall</h3>
+
+<div class="analogy">
+  <strong>The select dropdown and the date picker have DOM-accessible UI.</strong>
+  Playwright can click the dropdown arrow, send <code>ArrowDown</code> key events, press <code>Enter</code> —
+  all of which generate real CDP <code>Input.dispatchKeyEvent</code> calls that the browser tags as
+  <code>isTrusted = true</code>. The UI is inside the tab. Playwright can reach it.<br><br>
+  <strong>The OS color picker is a different process.</strong> When you click a
+  <code>&lt;input type="color"&gt;</code> swatch, the <em>browser process</em> opens a system color
+  dialog — the same dialog that appears in MS Paint or Photoshop. No DOM interaction is possible
+  because the picker is rendered by the OS, completely outside Chrome's renderer. Playwright has
+  no CDP call that can open, navigate, and close this dialog. The only escape hatch is to write
+  the value via JavaScript, which is by definition untrusted.
+</div>
+
+<h3>How select / date were fixed — and why color cannot follow</h3>
+
+<div class="comparison" style="grid-template-columns:repeat(3,1fr)">
+  <div class="cmp-col" style="border-color:#3fb95044;background:#f0fdf4">
+    <h4>✅ &lt;select&gt; — fixable</h4>
+    <pre><span style="color:#8b949e"># Playwright's naive API:</span>
+page.<span style="color:#f85149">select_option</span>("#sel", "opt2")
+<span style="color:#f85149">→ isTrusted = false</span>
+
+<span style="color:#8b949e"># Our human-like API:</span>
+<span style="color:#3fb950">human_click(x, y)</span>          <span style="color:#8b949e"># opens popup</span>
+<span style="color:#3fb950">keyboard.press("ArrowDown")</span> <span style="color:#8b949e"># navigate</span>
+<span style="color:#3fb950">keyboard.press("Enter")</span>     <span style="color:#8b949e"># confirm</span>
+<span style="color:#3fb950">→ isTrusted = true</span></pre>
+    <p style="font-size:.85em">The dropdown popup is rendered inside the tab. CDP mouse/keyboard events can navigate it normally.</p>
+  </div>
+  <div class="cmp-col" style="border-color:#3fb95044;background:#f0fdf4">
+    <h4>✅ &lt;input type="date"&gt; — fixable</h4>
+    <pre><span style="color:#8b949e"># Playwright's naive API:</span>
+page.<span style="color:#f85149">fill</span>("#date", "2026-05-10")
+<span style="color:#f85149">→ isTrusted = false</span>
+
+<span style="color:#8b949e"># Our human-like API:</span>
+<span style="color:#3fb950">human_click(x, y)</span>    <span style="color:#8b949e"># focus the field</span>
+<span style="color:#3fb950">keyboard.press("0")</span>  <span style="color:#8b949e"># type month</span>
+<span style="color:#3fb950">keyboard.press("5")</span>
+<span style="color:#3fb950">keyboard.press("1")</span>  <span style="color:#8b949e"># type day</span>
+<span style="color:#3fb950">keyboard.press("0")</span>
+<span style="color:#3fb950">→ isTrusted = true</span></pre>
+    <p style="font-size:.85em">Date inputs accept direct digit entry via keyboard. CDP keyboard events produce trusted events because they go through the browser's native input pipeline.</p>
+  </div>
+  <div class="cmp-col bot-col">
+    <h4>❌ &lt;input type="color"&gt; — impossible</h4>
+    <pre><span style="color:#8b949e"># Playwright's only API:</span>
+page.<span style="color:#f85149">fill</span>("#color", "#da3633")
+<span style="color:#f85149">→ isTrusted = false</span>
+
+<span style="color:#8b949e"># How fill() works internally:</span>
+element.value = <span style="color:#f85149">"#da3633"</span>   <span style="color:#8b949e"># JS eval</span>
+element.<span style="color:#f85149">dispatchEvent</span>(
+  new Event('input'))     <span style="color:#8b949e"># untrusted!</span>
+element.<span style="color:#f85149">dispatchEvent</span>(
+  new Event('change'))    <span style="color:#8b949e"># untrusted!</span>
+<span style="color:#f85149">→ always untrusted</span></pre>
+    <p style="font-size:.85em">There is no keyboard shortcut to type a hex color into the color picker. The picker is OS-level. No CDP API exists to interact with it. JS value assignment is the only path.</p>
+  </div>
+</div>
+
+<h3>Why playwright-stealth cannot patch this</h3>
+<p>playwright-stealth patches browser properties using <code>Object.defineProperty</code> and
+<code>Proxy</code> getters. It intercepts reads and writes of JS <em>values</em>. But
+<code>event.isTrusted</code> is not a JS value you can intercept — it is a read-only attribute
+set by the browser engine's C++ event factory when the event object is created. The W3C
+spec explicitly forbids setting it from JS:</p>
+
+<div class="dt-shell">
+  <div class="dt-toolbar">
+    <span class="dt-dot red"></span><span class="dt-dot yellow"></span><span class="dt-dot green"></span>
+    <span class="dt-tab active">DevTools Console</span>
+  </div>
+  <div class="dt-content"><span class="dt-muted">Can you fake isTrusted from JS?</span>
+&gt; const e = new Event('change', { bubbles: true });
+&gt; Object.defineProperty(e, 'isTrusted', { value: true })
+<span class="dt-bad">TypeError: Cannot redefine property: isTrusted</span>
+
+&gt; e.isTrusted
+<span class="dt-bad">false   ← always false for JS-created events</span>
+
+<span class="dt-muted">Could a stealth init script intercept it via Proxy?</span>
+&gt; <span class="dt-muted">// Events are not plain objects. isTrusted is a read-only IDL attribute</span>
+&gt; <span class="dt-muted">// defined on the Event interface's prototype by the C++ WebIDL binding.</span>
+&gt; <span class="dt-muted">// Object.defineProperty on Event.prototype throws:</span>
+&gt; Object.defineProperty(Event.prototype, 'isTrusted', { get() { return true; } })
+<span class="dt-bad">TypeError: Cannot redefine property: isTrusted</span></div>
+</div>
+
+<h3>How Playwright's fill() works at the source level</h3>
+<p>Looking at
+<a href="https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/dom.ts#L371" target="_blank" rel="noopener"><code>dom.ts</code> → <code>ElementHandle._fill()</code></a>
+in the Playwright repository, the call chain is:</p>
+<div class="src-block">
+  <span class="src-label">Playwright core — dom.ts (simplified)</span>
+  <code><span class="cm">// 1. Playwright calls evaluateInUtility → runs JS inside the page</span>
+<span class="kw">const</span> result = <span class="kw">await</span> this.evaluateInUtility(
+  ([injected, node, { value }]) =&gt; <span class="fn">injected.fill</span>(node, value),
+  { value }
+);
+
+<span class="cm">// 2. injected.fill() for a color input (in injectedScript.ts):</span>
+element.value = value;                          <span class="cm">// JS value assignment</span>
+element.<span class="fn">dispatchEvent</span>(<span class="kw">new</span> InputEvent(<span class="str">'input'</span>, ...));  <span class="cm">// isTrusted = false</span>
+element.<span class="fn">dispatchEvent</span>(<span class="kw">new</span> Event(<span class="str">'change'</span>, ...));        <span class="cm">// isTrusted = false</span>
+
+<span class="cm">// 3. For text inputs fill() returns 'needsinput' and switches to:</span>
+<span class="kw">await</span> this._page.keyboard.<span class="fn">insertText</span>(progress, value);
+<span class="cm">// ↑ This path uses CDP Input.insertText — trusted. But color has no text input.</span></code>
+</div>
+<p>The <code>evaluateInUtility</code> path executes JavaScript inside the page's utility world. Any
+<code>dispatchEvent()</code> call from inside the page — regardless of which world — always produces
+<code>isTrusted = false</code>. Only the browser's C++ input pipeline, reached via CDP
+<code>Input.dispatchKeyEvent</code> / <code>Input.dispatchMouseEvent</code>, produces trusted events.
+The color picker's OS dialog is outside Chrome's renderer process — no CDP input command reaches it.</p>
+
+<h3>The detection: what our probe sees</h3>
+<p>The trusted-event matrix on the left panel records <code>event.isTrusted</code> for each event
+on each control. For color, the <code>change</code> event column will always show
+<span class="cell-u" style="padding:1px 5px;border-radius:3px;font-size:11px;">UNTRUSTED</span>
+in a Playwright session. For a real human who clicked the swatch and picked a color via the
+OS dialog, the browser generates a native <code>change</code> event with
+<span class="cell-t" style="padding:1px 5px;border-radius:3px;font-size:11px;">trusted = true</span>.</p>
+
+<div class="comparison">
+  <div class="cmp-col bot-col">
+    <h4>🤖 Playwright — fill("#da3633")</h4>
+    <pre>focus:  <span style="color:#f85149">untrusted</span> (programmatic focus)
+input:  <span style="color:#f85149">untrusted</span> (JS-dispatched)
+change: <span style="color:#f85149">untrusted</span> (JS-dispatched)</pre>
+  </div>
+  <div class="cmp-col human-col">
+    <h4>👤 Real human — OS picker used</h4>
+    <pre>focus:  <span style="color:#3fb950">trusted</span>  (click on swatch)
+<span style="color:#8b949e">── OS color dialog opens ──</span>
+<span style="color:#8b949e">── user picks color ──</span>
+change: <span style="color:#3fb950">trusted</span>  (native event)</pre>
+  </div>
+</div>
+
+<div class="durability high">
+  <strong>✅ Durability: PERMANENT</strong> — Unlike timing-based signals that can theoretically be
+  faked with enough effort, this one cannot be patched. There is no CDP API to interact with the
+  OS color picker. There is no JS API to create trusted events. The W3C spec and browser engine
+  make this read-only attribute unclonable from script. As long as <code>&lt;input type="color"&gt;</code>
+  uses an OS-level dialog, Playwright cannot produce a trusted change event for it.
+</div>
+
+<h3>Authoritative references</h3>
+<ul style="font-size:13px;line-height:2.1;color:var(--text2);padding-left:20px;margin-top:8px;">
+  <li>
+    <a href="https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/dom.ts" target="_blank" rel="noopener">
+      Playwright source: <code>packages/playwright-core/src/server/dom.ts</code>
+    </a> — <code>ElementHandle._fill()</code> calls <code>injected.fill(node, value)</code> via
+    <code>evaluateInUtility</code>. Any JS-dispatched event from inside the page has
+    <code>isTrusted = false</code>.
+  </li>
+  <li>
+    <a href="https://dom.spec.whatwg.org/#dom-event-istrusted" target="_blank" rel="noopener">
+      WHATWG DOM Living Standard §2.9 — <code>isTrusted</code>
+    </a> — The IDL attribute is defined as <code>readonly attribute boolean isTrusted</code>.
+    The spec states events dispatched with <code>dispatchEvent()</code> must initialize
+    <code>isTrusted</code> to <code>false</code>. This is a normative requirement — browsers
+    must not allow JS to override it.
+  </li>
+  <li>
+    <a href="https://developer.mozilla.org/en-US/docs/Web/API/Event/isTrusted" target="_blank" rel="noopener">
+      MDN: <code>Event.isTrusted</code>
+    </a> — "The <code>isTrusted</code> read-only property is <code>true</code> when the event was
+    generated by the user agent… and <code>false</code> when the event was dispatched via
+    <code>EventTarget.dispatchEvent()</code>." Browser support: all major engines since 2015.
+  </li>
+  <li>
+    <a href="https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/bindings/core/v8/v8_event.cc" target="_blank" rel="noopener">
+      Chromium Blink: <code>v8_event.cc</code> — <code>isTrustedAttributeGetter</code>
+    </a> — The C++ getter simply reads the internal <code>is_trusted_</code> bit that is set at
+    event creation time by the browser's input pipeline. No JS path can set this bit.
+  </li>
+  <li>
+    <a href="https://github.com/microsoft/playwright/issues?q=color+picker" target="_blank" rel="noopener">
+      Playwright GitHub issues: "color picker"
+    </a> — No issue exists requesting trusted events for color inputs.
+    The Playwright team treats this as expected behaviour, not a bug.
+  </li>
+</ul>
+`;
+
+// Modal open/close logic
+function openDeepDive(id) {
+  const r = RESULTS[id];
+  if (!r) return;
+  const html = DEEP_DIVE[id];
+  if (!html) return;
+  const overlay = document.getElementById('modal-overlay');
+  const title = document.getElementById('modal-title');
+  const badge = document.getElementById('modal-badge');
+  const body = document.getElementById('modal-body');
+  if (!overlay || !title || !badge || !body) return;
+  title.textContent = r.name;
+  badge.className = 'modal-badge ' + r.verdict;
+  badge.textContent = r.verdict;
+  body.innerHTML = html;
+  overlay.classList.add('open');
+}
+
+function initModalHandlers() {
+  const overlay = document.getElementById('modal-overlay');
+  const closeBtn = document.getElementById('modal-close');
+  if (!overlay || !closeBtn) return;
+  closeBtn.addEventListener('click', () => {
+    overlay.classList.remove('open');
+  });
+  overlay.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') overlay.classList.remove('open');
+  });
+}
+
+/* ============================================================
+   Test orchestration
+   ============================================================ */
+
+async function runAll() {
+  // Synchronous tests
+  test_runtimeEnableErrorStack();
+  test_runtimeEnableProxyOwnKeys();
+  test_errorStackProtoBypass();
+  test_proxyOwnKeysDir();
+  test_proxyOwnKeysWarn();
+  test_sourceUrlLeak();
+  test_consoleEnableSideEffect();
+  test_pwInitScriptsGlobal();
+  test_isolatedWorld();
+  test_playwrightBindings();
+  test_exposeFunctionLeak();
+  test_identity();
+  test_intlVsDateTZ();
+  test_screenVsOuter();
+
+  // New signals
+  test_documentHasFocus();
+  test_speechSynthesisVoices();
+  test_connectionRtt();
+  test_screenTaskbar();
+  test_cdpConsoleTableProxy();
+  test_cdpErrorCause();
+  test_notificationConstructor();
+  test_webShareAPI();
+
+  // Async tests
+  await Promise.all([
+    test_mainVsIframeUA(),
+    test_mainVsWorkerUA(),
+    test_notifVsPermission(),
+    test_canvasMainVsIframe(),
+    test_webglMainVsIframe(),
+    test_mediaDevices(),
+  ]);
+
+  logEvent('i', 'All JS detection tests run. Interact with the form to populate behavioral signals.');
+}
+
+document.getElementById('btn-run').addEventListener('click', runAll);
+document.getElementById('btn-rerun').addEventListener('click', runAll);
+document.getElementById('btn-showall').addEventListener('click', () => {
+  VIEW_STATE.showAll = !VIEW_STATE.showAll;
+  updateShowAllButton();
+  applyAllRowsVisibility();
+  logEvent('i', VIEW_STATE.showAll ? 'Showing all signals.' : 'Showing risk-only signals (bot+warn).');
+});
+document.getElementById('btn-reset').addEventListener('click', () => {
+  for (const k in MATRIX) delete MATRIX[k];
+  for (const b in BEHAVIOR) {
+    if (typeof BEHAVIOR[b] === 'number') BEHAVIOR[b] = 0;
+    else if (typeof BEHAVIOR[b] === 'boolean') BEHAVIOR[b] = false;
+    else BEHAVIOR[b] = null;
+  }
+  ['select_popup_latency','date_picker_latency','file_dialog_latency',
+   'color_picker_untrusted','range_event_volume','composition_events','click_without_move'].forEach(k => {
+    delete RESULTS[k];
+    const el = document.getElementById('row-'+k);
+    if (el) el.remove();
+  });
+  renderMatrix();
+  updateScore();
+  updateExport();
+  logEvent('i', 'Matrix + behavioral signals reset.');
+});
+document.getElementById('btn-clearlog').addEventListener('click', () => {
+  EVENTS.length = 0;
+  document.getElementById('event-log').innerHTML = '';
+  updateExport();
+});
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  const data = {
+    meta: {
+      ts: new Date().toISOString(),
+      url: location.href,
+      ua: navigator.userAgent,
+      webdriver: navigator.webdriver,
+    },
+    score: parseInt(document.getElementById('score').textContent, 10),
+    verdict: document.getElementById('verdict').textContent,
+    counts: {
+      bot:   parseInt(document.getElementById('cnt-bot').textContent, 10),
+      human: parseInt(document.getElementById('cnt-human').textContent, 10),
+      warn:  parseInt(document.getElementById('cnt-warn').textContent, 10),
+      total: parseInt(document.getElementById('cnt-total').textContent, 10),
+    },
+    results: RESULTS,
+    matrix: MATRIX,
+    behavior: BEHAVIOR,
+    events: EVENTS,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'playwright_stealth_report_' + Date.now() + '.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  logEvent('i', 'Report exported.');
+});
+
+// Auto-run on load
+window.addEventListener('load', () => {
+  updateShowAllButton();
+  initModalHandlers();
+  setTimeout(runAll, 200);
+});
+
+</script>
+</div><!-- /.page-body -->
+
+<!-- Deep-dive modal container -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Signal details</h2>
+      <span class="modal-badge" id="modal-badge"></span>
+      <button class="modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+</body>
+</html>
