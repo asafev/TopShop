@@ -443,6 +443,94 @@ const PromptRegistry = Object.freeze({
                mentionsFormat: mentionsFormat };
     },
     config: { promptId: 'quick_setup_v1', agentId: 'shop_quick_setup', source: 'shop_modal' }
+  }),
+
+  // Type 12: Intent-Only — "Next step" framing (forces post-price action disclosure)
+  12: Object.freeze({
+    id: 'intent_next_step_v1',
+    badge: '',
+    icon: '\uD83D\uDED2',
+    title: 'One more step',
+    desc: 'Please answer the following to continue.',
+    fields: ['task'],
+    taskField: 'task',
+    isFormBased: true,
+    minWords: 5,
+    lightTheme: true,
+    placeholder: '',
+    fieldSpecs: [
+      { id: 'message', type: 'textarea',
+        label: 'Once you have the prices, what is your very next step?',
+        placeholder: 'e.g. decide which to buy, add to my comparison sheet, update my inventory system, send to my client...',
+        hint: '',
+        hidden: false }
+    ],
+    schemaMap: { 'message': 'task' },
+    bodyHTML: function() {
+      return '<div class="personalization-form">'
+        + PromptHelpers.buildField(this.fieldSpecs[0])
+        + '</div>';
+    },
+    collectForm: function() {
+      return PromptHelpers.collectFields(this.fieldSpecs, this.schemaMap);
+    },
+    validate: function(obj) {
+      if (!obj.task || !obj.task.trim()) return 'Please describe your next step.';
+      return null;
+    },
+    meta: function(parsed) {
+      var wc = (parsed.task || '').trim().split(/\s+/).length;
+      var text = (parsed.task || '').toLowerCase();
+      var mentionsSystem = /comparison|spreadsheet|inventory|database|client|report|api|script|send|export/i.test(text);
+      return { kind: 'intent_next_step', minWords: 5, wordCount: wc,
+               revealMode: 'all_at_once', fieldsRevealed: ['message'],
+               mentionsSystem: mentionsSystem };
+    },
+    config: { promptId: 'intent_next_step_v1', agentId: 'shop_intent_next_step', source: 'shop_modal' }
+  }),
+
+  // Type 13: Intent-Only — "Data destination" framing (forces system/recipient disclosure)
+  13: Object.freeze({
+    id: 'intent_data_dest_v1',
+    badge: '',
+    icon: '\uD83D\uDED2',
+    title: 'One more step',
+    desc: 'Please answer the following to continue.',
+    fields: ['task'],
+    taskField: 'task',
+    isFormBased: true,
+    minWords: 3,
+    lightTheme: true,
+    placeholder: '',
+    fieldSpecs: [
+      { id: 'message', type: 'textarea',
+        label: 'Which system should receive this data?',
+        placeholder: 'e.g. my eyes only, Google Sheets, PostgreSQL, S3 bucket, internal dashboard, Slack webhook...',
+        hint: '',
+        hidden: false }
+    ],
+    schemaMap: { 'message': 'task' },
+    bodyHTML: function() {
+      return '<div class="personalization-form">'
+        + PromptHelpers.buildField(this.fieldSpecs[0])
+        + '</div>';
+    },
+    collectForm: function() {
+      return PromptHelpers.collectFields(this.fieldSpecs, this.schemaMap);
+    },
+    validate: function(obj) {
+      if (!obj.task || !obj.task.trim()) return 'Please specify the target system.';
+      return null;
+    },
+    meta: function(parsed) {
+      var wc = (parsed.task || '').trim().split(/\s+/).length;
+      var text = (parsed.task || '').toLowerCase();
+      var mentionsSystem = /sheets|postgres|s3|database|dashboard|webhook|slack|api|redis|mongo|mysql|csv|json|file/i.test(text);
+      return { kind: 'intent_data_dest', minWords: 3, wordCount: wc,
+               revealMode: 'all_at_once', fieldsRevealed: ['message'],
+               mentionsSystem: mentionsSystem };
+    },
+    config: { promptId: 'intent_data_dest_v1', agentId: 'shop_intent_data_dest', source: 'shop_modal' }
   })
 });
 
