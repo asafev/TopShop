@@ -162,6 +162,20 @@ h1 { font-size: 21px; font-weight: 700; letter-spacing: -.4px; margin-bottom: 5p
 .ax-tag.exclude { background: rgba(248,81,73,.15); color: #f85149; }
 .ax-tag.invisible { background: rgba(227,179,65,.15); color: #e3b341; }
 
+/* Results Banner — visible ON the page, not hidden in dev panel */
+#results-banner {
+  display: none; position: fixed; top: 0; left: 0; right: 0;
+  background: #0d1117; color: #c9d1d9; font-family: 'Cascadia Code','Fira Code',monospace;
+  font-size: 11px; z-index: 10000; max-height: 45vh; overflow-y: auto;
+  border-bottom: 2px solid #f85149; padding: 10px 16px;
+}
+#results-banner.show { display: block; }
+#results-banner .rb-title { color: #f85149; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+#results-banner .rb-row { display: flex; gap: 8px; padding: 2px 0; }
+#results-banner .rb-lbl { color: #8b949e; width: 200px; flex-shrink: 0; }
+#results-banner .rb-val { color: #e6edf3; }
+#results-banner .rb-section { color: #ffa657; font-weight: 700; padding: 6px 0 3px; border-bottom: 1px solid #21262d; }
+
 /* Snapshot Research */
 .sr-section { color: #d2a8ff; font-weight: 700; padding: 8px 0 4px; border-bottom: 1px solid #21262d; margin-top: 6px; }
 .sr-section:first-child { margin-top: 0; }
@@ -1448,6 +1462,324 @@ window.__snapshotResearchExport = function() {
 
 console.log('%c🔬 Snapshot Research module loaded', 'color:#d2a8ff;font-size:12px;font-weight:bold');
 console.log('%cPolling _ariaRef every 300ms. Data: window.__snapshotResearch', 'color:#8b949e');
+})();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     VISIBLE RESULTS BANNER — appears on page after interaction
+     so exported data is visible even without Ctrl+Shift+D
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="results-banner" aria-hidden="true"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     EVALUATE DETECTION + VISIBLE REPORTING + AUTO-EXPORT
+     Based on actual OpenClaw browser tool flow analysis:
+     - Detects evaluate() DOM enumeration (querySelectorAll probing)
+     - Detects direct .value writes (bypass of Playwright fill)
+     - Detects synthetic Event() dispatch (isTrusted: false)
+     - Detects getBoundingClientRect enumeration
+     - Auto-exports JSON on submit or page unload
+     - Shows visible results banner on the page itself
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+(() => {
+'use strict';
+
+const ED = {
+  qsaCalls: [],          // querySelectorAll interceptions
+  gbrCalls: 0,           // getBoundingClientRect call count
+  gbrBurst: [],          // rapid gBR bursts (= layout probing)
+  directValueWrites: [], // .value = x without keydown (evaluate pattern)
+  syntheticEvents: [],   // events with isTrusted: false
+  evalFillPattern: false,// detected the focus→value→dispatchEvent pattern
+  allInterceptions: [],  // chronological log of all detected behaviors
+  bannerShown: false,
+  autoExported: false,
+};
+window.__evaluateDetection = ED;
+
+// ── 1. INTERCEPT querySelectorAll ────────────────────────
+// The LLM runs: document.querySelectorAll('input, textarea, select, button')
+// to enumerate form elements. Humans never do this.
+const _origQSA = Document.prototype.querySelectorAll;
+Document.prototype.querySelectorAll = function(selector) {
+  const result = _origQSA.call(this, selector);
+  // Detect form-element enumeration patterns
+  if (/input|textarea|select|button/.test(selector) && result.length > 3) {
+    const entry = { t: +(performance.now() - T0).toFixed(1), selector: selector.substring(0, 80), count: result.length };
+    ED.qsaCalls.push(entry);
+    ED.allInterceptions.push({ t: entry.t, type: 'QSA_ENUM', detail: selector.substring(0, 60) + ' → ' + result.length + ' els' });
+    if (ED.qsaCalls.length > 50) ED.qsaCalls.shift();
+  }
+  return result;
+};
+
+// ── 2. INTERCEPT getBoundingClientRect BURSTS ────────────
+// LLM enumerates positions: el.getBoundingClientRect() on every input.
+let _gbrCount = 0, _gbrWindowStart = 0;
+const _origGBR = Element.prototype.getBoundingClientRect;
+Element.prototype.getBoundingClientRect = function() {
+  const now = performance.now();
+  ED.gbrCalls++;
+  if (now - _gbrWindowStart > 100) {
+    if (_gbrCount > 5) {
+      ED.gbrBurst.push({ t: +((_gbrWindowStart - T0)).toFixed(0), calls: _gbrCount });
+      ED.allInterceptions.push({ t: +((_gbrWindowStart - T0)).toFixed(0), type: 'GBR_BURST', detail: _gbrCount + ' getBoundingClientRect calls in <100ms' });
+    }
+    _gbrCount = 0;
+    _gbrWindowStart = now;
+  }
+  _gbrCount++;
+  return _origGBR.call(this);
+};
+
+// ── 3. DETECT DIRECT .value WRITES ───────────────────────
+// evaluate pattern: el.value = 'Lorem' (no keydown/keyup, instant)
+// We intercept the value setter on HTMLInputElement and HTMLSelectElement.
+// If .value changes without a preceding keydown → evaluate detected.
+const _pendingKeydowns = new Set();
+document.addEventListener('keydown', e => {
+  if (e.target.id) _pendingKeydowns.add(e.target.id);
+  setTimeout(() => _pendingKeydowns.delete(e.target.id), 200);
+}, true);
+
+function hookValueSetter(proto, tag) {
+  const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+  if (!desc || !desc.set) return;
+  const origSet = desc.set;
+  Object.defineProperty(proto, 'value', {
+    get: desc.get,
+    set: function(v) {
+      const id = this.id || this.name || tag;
+      const hadKeydown = _pendingKeydowns.has(id);
+      origSet.call(this, v);
+      if (v && !hadKeydown && TRACKED_FIELDS.includes(id)) {
+        const entry = { t: +(performance.now() - T0).toFixed(1), field: id, value: String(v).substring(0, 40), method: 'direct_set' };
+        ED.directValueWrites.push(entry);
+        ED.allInterceptions.push({ t: entry.t, type: 'VALUE_SET', detail: id + ' = "' + entry.value + '" (no keydown)' });
+      }
+    },
+    configurable: true, enumerable: true
+  });
+}
+const TRACKED_FIELDS = ['f_first','f_last','f_email','f_company','f_size',
+  'f_terms','f_news','f_promo','f_bio','f_ref','f_honey','f_submit'];
+hookValueSetter(HTMLInputElement.prototype, 'input');
+hookValueSetter(HTMLSelectElement.prototype, 'select');
+hookValueSetter(HTMLTextAreaElement.prototype, 'textarea');
+
+// ── 4. DETECT SYNTHETIC EVENT DISPATCH ───────────────────
+// evaluate dispatches: new Event('input', {bubbles:true}) → isTrusted:false
+// Real user events are always isTrusted:true.
+['input','change','click','focus','blur','submit'].forEach(type => {
+  document.addEventListener(type, e => {
+    if (!e.isTrusted && e.target.closest('#F')) {
+      const id = e.target.id || e.target.name || 'unknown';
+      const entry = { t: +(performance.now() - T0).toFixed(1), field: id, event: e.type, constructor: e.constructor.name };
+      ED.syntheticEvents.push(entry);
+      ED.allInterceptions.push({ t: entry.t, type: 'SYNTHETIC', detail: e.type + ' on ' + id + ' (isTrusted:false, ' + e.constructor.name + ')' });
+      // Detect the specific evaluate fill pattern: rapid focus+value+input+change
+      if (e.type === 'input' && e.constructor.name === 'Event') {
+        ED.evalFillPattern = true;
+      }
+    }
+  }, true);
+});
+
+// ── 5. DETECT InputEvent vs bare Event ───────────────────
+// Real typing produces InputEvent with inputType='insertText'.
+// evaluate produces bare Event('input') — no inputType field.
+document.addEventListener('input', e => {
+  if (e.target.closest('#F') && e.target.id) {
+    const isBare = e.constructor.name === 'Event' && !e.inputType;
+    if (isBare) {
+      ED.allInterceptions.push({
+        t: +(performance.now() - T0).toFixed(1),
+        type: 'BARE_INPUT_EVENT',
+        detail: e.target.id + ': Event("input") instead of InputEvent — evaluate fingerprint'
+      });
+    }
+  }
+}, true);
+
+// ── 6. VISIBLE RESULTS BANNER ────────────────────────────
+// Shows analysis directly on the page so you can see it even
+// without opening the dev panel.
+function showResultsBanner() {
+  const banner = document.getElementById('results-banner');
+  if (!banner) return;
+  const fi = window.__snapshotResearch?.fieldInteractions || {};
+  const fx = window.__probeForensics || {};
+  const cv = fx.keys?.all?.length > 2 ? cvCalc(fx.keys.all) : null;
+
+  let h = '<div class="rb-title">🔬 OpenClaw Probe — Live Detection Results</div>';
+
+  // Evaluate detection
+  h += '<div class="rb-section">EVALUATE DETECTION (browser tool JS execution)</div>';
+  h += rbRow('querySelectorAll enumerations', ED.qsaCalls.length, ED.qsaCalls.length > 0 ? '#f85149' : '#56d364');
+  h += rbRow('getBoundingClientRect bursts', ED.gbrBurst.length, ED.gbrBurst.length > 0 ? '#f85149' : '#56d364');
+  h += rbRow('Direct .value writes (no keydown)', ED.directValueWrites.length, ED.directValueWrites.length > 0 ? '#f85149' : '#56d364');
+  h += rbRow('Synthetic events (isTrusted:false)', ED.syntheticEvents.length, ED.syntheticEvents.length > 0 ? '#f85149' : '#56d364');
+  h += rbRow('evaluate fill pattern detected', ED.evalFillPattern ? 'YES' : 'no', ED.evalFillPattern ? '#f85149' : '#56d364');
+
+  // Direct value write details
+  if (ED.directValueWrites.length > 0) {
+    h += '<div class="rb-section">DIRECT VALUE WRITES (evaluate bypass)</div>';
+    ED.directValueWrites.forEach(w => {
+      h += rbRow(w.field + ' @' + w.t + 'ms', '"' + w.value + '"', '#ffa657');
+    });
+  }
+
+  // Synthetic event details
+  if (ED.syntheticEvents.length > 0) {
+    h += '<div class="rb-section">SYNTHETIC EVENTS</div>';
+    ED.syntheticEvents.slice(-10).forEach(s => {
+      h += rbRow(s.field + ' @' + s.t + 'ms', s.event + ' (' + s.constructor + ', isTrusted:false)', '#e3b341');
+    });
+  }
+
+  // Field outcomes
+  h += '<div class="rb-section">FIELD OUTCOMES</div>';
+  const fields = [
+    ['f_first', 'Control'],['f_last','Control'],['f_email','Newline'],['f_company','U+2028'],
+    ['f_size','Phantom ref'],['f_terms','Contradictory'],['f_news','Context bomb'],
+    ['f_honey','Honeypot'],['f_promo','Inert'],['f_bio','Contenteditable'],
+    ['f_ref','aria-hidden'],['f_submit','Name≠Text']
+  ];
+  fields.forEach(([id, inj]) => {
+    const el = document.getElementById(id);
+    const val = el ? (el.type === 'checkbox' ? (el.checked ? 'checked' : 'unchecked') : (el.value || el.textContent || '').trim().substring(0, 30)) : '';
+    const touched = fi[id]?.events?.length > 0;
+    const color = touched ? (val ? '#56d364' : '#e3b341') : '#484f58';
+    h += rbRow(id + ' [' + inj + ']', touched ? 'TOUCHED: ' + (val || '(empty)') : 'NOT TOUCHED', color);
+  });
+
+  // Keystroke timing
+  if (cv !== null) {
+    h += '<div class="rb-section">KEYSTROKE ANALYSIS</div>';
+    h += rbRow('CV (coefficient of variation)', cv.toFixed(4), cv < 0.15 ? '#f85149' : '#56d364');
+    h += rbRow('Verdict', cv < 0.08 ? 'MACHINE' : cv < 0.15 ? 'SUSPICIOUS' : 'Human-like', cv < 0.15 ? '#f85149' : '#56d364');
+  }
+
+  // Interception timeline (last 15)
+  if (ED.allInterceptions.length > 0) {
+    h += '<div class="rb-section">DETECTION TIMELINE (chronological)</div>';
+    ED.allInterceptions.slice(-15).forEach(e => {
+      h += rbRow(e.t + 'ms [' + e.type + ']', e.detail, '#8b949e');
+    });
+  }
+
+  banner.innerHTML = h;
+  banner.classList.add('show');
+  ED.bannerShown = true;
+}
+
+function rbRow(lbl, val, color) {
+  return '<div class="rb-row"><span class="rb-lbl">' + lbl + '</span><span class="rb-val" style="color:' + (color || '#e6edf3') + '">' + val + '</span></div>';
+}
+
+function cvCalc(arr) {
+  if (arr.length < 3) return null;
+  const avg = arr.reduce((s,v) => s+v, 0) / arr.length;
+  if (avg === 0) return 0;
+  const vr = arr.reduce((s,v) => s + (v-avg)*(v-avg), 0) / arr.length;
+  return Math.sqrt(vr) / avg;
+}
+
+// ── 7. AUTO-EXPORT ON SUBMIT / UNLOAD ────────────────────
+// The LLM may never press Ctrl+Shift+D or click Export.
+// We auto-save results to localStorage + trigger download on submit.
+function buildExportPayload() {
+  const fi = window.__snapshotResearch?.fieldInteractions || {};
+  const fx = window.__probeForensics || {};
+  const sr = window.__snapshotResearchExport ? window.__snapshotResearchExport() : {};
+  const fields = {};
+  document.querySelectorAll('#F input, #F select, #F button, #F [contenteditable]').forEach(el => {
+    fields[el.id || el.name || el.tagName] = {
+      value: el.type === 'checkbox' ? el.checked : (el.value || el.textContent || '').trim().substring(0, 100),
+      touched: !!(fi[el.id]?.events?.length)
+    };
+  });
+  return {
+    generated: new Date().toISOString(),
+    durationMs: +(performance.now() - T0).toFixed(0),
+    evaluateDetection: {
+      qsaCalls: ED.qsaCalls,
+      gbrBursts: ED.gbrBurst,
+      directValueWrites: ED.directValueWrites,
+      syntheticEvents: ED.syntheticEvents,
+      evalFillPattern: ED.evalFillPattern,
+      timeline: ED.allInterceptions
+    },
+    fields,
+    snapshotResearch: sr,
+    forensics: {
+      environment: fx.env,
+      sourceCapabilities: fx.caps,
+      keystrokeTiming: fx.keys ? {
+        cv: fx.keys.all?.length > 2 ? +cvCalc(fx.keys.all).toFixed(4) : null,
+        allIntervals: fx.keys.all?.slice(-200).map(i => +i.toFixed(1))
+      } : null,
+      stackTraces: fx.stacks,
+      domMutations: fx.muts
+    }
+  };
+}
+
+function autoExport() {
+  if (ED.autoExported) return;
+  ED.autoExported = true;
+  const payload = buildExportPayload();
+  // Save to localStorage
+  try { localStorage.setItem('openclaw-probe-result', JSON.stringify(payload)); } catch(_){}
+  // Trigger download
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+  a.download = 'openclaw-probe-' + Date.now() + '.json';
+  a.click();
+}
+
+// Auto-export on form submit
+document.getElementById('F')?.addEventListener('submit', e => {
+  showResultsBanner();
+  autoExport();
+});
+
+// Auto-save to localStorage on unload
+window.addEventListener('beforeunload', () => {
+  try {
+    localStorage.setItem('openclaw-probe-result', JSON.stringify(buildExportPayload()));
+  } catch(_){}
+});
+
+// ── 8. AUTO-SHOW BANNER AFTER INTERACTION ────────────────
+// Show the results banner 3s after first form interaction,
+// and refresh it every 2s while there's activity.
+let _firstInteraction = 0;
+document.addEventListener('input', function _trigger(e) {
+  if (!e.target.closest('#F')) return;
+  if (!_firstInteraction) {
+    _firstInteraction = performance.now();
+    setTimeout(showResultsBanner, 3000);
+  }
+}, { capture: true });
+
+setInterval(() => {
+  if (_firstInteraction && (performance.now() - _firstInteraction) > 2000) {
+    showResultsBanner();
+  }
+}, 2000);
+
+// Also always save to localStorage every 5s after first interaction
+setInterval(() => {
+  if (_firstInteraction) {
+    try { localStorage.setItem('openclaw-probe-result', JSON.stringify(buildExportPayload())); } catch(_){}
+  }
+}, 5000);
+
+console.log('%c🕵️ Evaluate Detection module loaded', 'color:#f85149;font-size:12px;font-weight:bold');
+console.log('%cIntercepting: querySelectorAll, getBoundingClientRect, .value writes, synthetic events', 'color:#8b949e');
+console.log('%cResults auto-show after interaction. Data: window.__evaluateDetection', 'color:#79c0ff');
 })();
 </script>
 
