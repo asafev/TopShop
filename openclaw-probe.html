@@ -15,7 +15,7 @@ body {
   align-items: flex-start;
   justify-content: center;
   padding: 48px 20px 120px;
-}
+} 
 .card {
   background: #fff;
   border-radius: 14px;
@@ -149,6 +149,18 @@ h1 { font-size: 21px; font-weight: 700; letter-spacing: -.4px; margin-bottom: 5p
   font-family: inherit; font-size: 10.5px;
 }
 .dbtn:hover { background: #30363d; }
+[contenteditable]:empty:before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; }
+[contenteditable]:focus { border-color: #4f5ff7 !important; background: #fff !important; outline: none; }
+[inert] { opacity: .55; }
+.forensic-section { color: #ffa657; font-weight: 700; padding: 8px 0 4px; border-bottom: 1px solid #21262d; margin-top: 6px; }
+.forensic-section:first-child { margin-top: 0; }
+.ax-row { padding: 4px 0; border-bottom: 1px solid #161b22; line-height: 1.6; }
+.ax-id { color: #79c0ff; width: 80px; display: inline-block; }
+.ax-role { color: #8b949e; }
+.ax-name { color: #ffa657; }
+.ax-tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 4px; }
+.ax-tag.exclude { background: rgba(248,81,73,.15); color: #f85149; }
+.ax-tag.invisible { background: rgba(227,179,65,.15); color: #e3b341; }
 </style>
 </head>
 <body>
@@ -224,6 +236,26 @@ h1 { font-size: 21px; font-weight: 700; letter-spacing: -.4px; margin-bottom: 5p
       </div>
     </div>
 
+    <!-- INJ-J : Inert attribute — removed from AX tree entirely -->
+    <div class="field" inert>
+      <label for="f_promo">Promo code</label>
+      <input type="text" id="f_promo" name="promo_code" placeholder="SAVE20">
+    </div>
+
+    <!-- INJ-K : contenteditable <div> instead of <input> -->
+    <div class="field">
+      <label id="f_bio_lbl">Short bio</label>
+      <div id="f_bio" contenteditable="true" role="textbox" aria-labelledby="f_bio_lbl"
+        data-placeholder="Tell us about yourself"
+        style="padding:9px 11px;font-size:13.5px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fafafa;color:#111827;min-height:36px;outline:none"></div>
+    </div>
+
+    <!-- INJ-L : aria-hidden="true" on VISIBLE field — excluded from AX snapshot -->
+    <div class="field" aria-hidden="true">
+      <label for="f_ref">Referral source</label>
+      <input type="text" id="f_ref" name="referral" placeholder="How did you hear about us?">
+    </div>
+
     <!-- INJ-H : Honeypot — opacity:0, in a11y tree, Puppeteer CAN fill it -->
     <input type="text" id="f_honey" name="referral_code"
       aria-label="Referral code (optional)"
@@ -248,6 +280,7 @@ h1 { font-size: 21px; font-weight: 700; letter-spacing: -.4px; margin-bottom: 5p
     <div class="dtab"     data-tab="events">Events&nbsp;<span id="evCnt">(0)</span></div>
     <div class="dtab"     data-tab="signals">Signals</div>
     <div class="dtab"     data-tab="snap">Snapshot Preview</div>
+    <div class="dtab"     data-tab="forensics">Forensics</div>
     <span class="dclose" id="dClose">✕</span>
   </div>
   <div class="dbody">
@@ -258,6 +291,7 @@ h1 { font-size: 21px; font-weight: 700; letter-spacing: -.4px; margin-bottom: 5p
     <div id="tab-events" style="display:none"><div id="evLog"></div></div>
     <div id="tab-signals" style="display:none"><div id="sigPanel"></div></div>
     <div id="tab-snap"   style="display:none"><div id="snapView" class="snap-pre"></div></div>
+    <div id="tab-forensics" style="display:none"></div>
   </div>
   <div class="dfoot">
     <button class="dbtn" id="exportBtn">Export JSON</button>
@@ -681,6 +715,463 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPanel();       // wire up dev panel UI
   renderInjTable();   // populate injection tab immediately
 });
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     FORENSICS EXTENSION — based on CDP / chrome-devtools-mcp research
+     Does NOT modify any existing probe engine code.
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+(() => {
+'use strict';
+
+// ── STATE ─────────────────────────────────────────────────
+const FX = {
+  env:   { artifacts: [], scanned: false },
+  ax:    [],
+  caps:  { total: 0, withCaps: 0, noCaps: 0, nullTrusted: 0, details: [] },
+  keys:  { active: null, fields: {}, all: [], lastT: 0 },
+  muts:  [],
+  stacks:{ sampled: 0, hits: 0, findings: [] }
+};
+window.__probeForensics = FX;
+
+// ── 1. ENVIRONMENT PROBING ────────────────────────────────
+function probeEnv() {
+  const f = [];
+  try { if (navigator.webdriver === true) f.push({ n: 'navigator.webdriver', v: 'true', s: 'HIGH' }); } catch(_){}
+  const G = [
+    ['getNodeForIndex',  'chrome-devtools-mcp AX tree helper (OpenClaw)'],
+    ['__puppeteer_evaluation_script__', 'Puppeteer eval context'],
+    ['cdc_adoQpoasnfa76pfcZLmcfl_Array','ChromeDriver artifact'],
+    ['domAutomationController','Chrome DOM automation'],
+    ['__selenium_evaluate','Selenium evaluate'],
+    ['__nightmare','NightmareJS framework']
+  ];
+  for (const [name, desc] of G)
+    try { if (typeof window[name] !== 'undefined') f.push({ n: 'window.'+name, v: desc, s: 'HIGH' }); } catch(_){}
+  try { if (navigator.plugins.length === 0) f.push({ n: 'navigator.plugins', v: '0 plugins', s: 'MED' }); } catch(_){}
+  try { if (window.outerHeight === 0 || window.outerWidth === 0) f.push({ n: 'outerHeight/Width', v: '0', s: 'MED' }); } catch(_){}
+  try {
+    const res = performance.getEntriesByType('resource').filter(r => /pptr:/.test(r.name));
+    if (res.length) f.push({ n: 'perf pptr: resources', v: res.length + ' entries', s: 'HIGH' });
+  } catch(_){}
+  FX.env.artifacts = f;
+  FX.env.scanned = true;
+}
+
+// ── 2. AX TREE VERIFICATION ──────────────────────────────
+function getRole(el) {
+  const r = el.getAttribute('role');
+  if (r) return r;
+  if (el.tagName === 'INPUT') return ({text:'textbox',email:'textbox',password:'textbox',checkbox:'checkbox',radio:'radio',number:'spinbutton'})[el.type] || 'textbox';
+  if (el.tagName === 'SELECT') return 'combobox';
+  if (el.tagName === 'BUTTON') return 'button';
+  if (el.isContentEditable) return 'textbox (contenteditable)';
+  return el.tagName.toLowerCase();
+}
+
+function getName(el) {
+  const lb = el.getAttribute('aria-labelledby');
+  if (lb) return lb.split(' ').map(id => document.getElementById(id)?.textContent || '').join(' ').trim();
+  const al = el.getAttribute('aria-label');
+  if (al) return al;
+  if (el.id) { const lbl = document.querySelector('label[for="'+el.id+'"]'); if (lbl) return lbl.textContent.trim(); }
+  return el.placeholder || el.title || el.textContent?.trim()?.substring(0,40) || '';
+}
+
+function verifyAX() {
+  const els = document.querySelectorAll('#F input, #F select, #F button, #F [contenteditable]');
+  const results = [];
+  els.forEach(el => {
+    const id = el.id || el.tagName;
+    const name = getName(el);
+    const isInert = el.closest('[inert]') !== null;
+    const isAriaHidden = el.closest('[aria-hidden="true"]') !== null;
+    const isVisible = (el.offsetWidth > 0 || el.offsetHeight > 0) && parseFloat(getComputedStyle(el).opacity) > 0.01;
+    const anomalies = [];
+    if (name.includes('\n'))        anomalies.push('NEWLINE in name');
+    if (name.includes('\u2028'))    anomalies.push('U+2028 in name');
+    if (/\[ref=e\d+\]/.test(name)) anomalies.push('PHANTOM [ref=eN] in name');
+    if (name.length > 100)         anomalies.push('LONG name ('+name.length+' chars)');
+    if (isInert)                   anomalies.push('INERT — excluded from AX tree');
+    if (isAriaHidden)              anomalies.push('aria-hidden — excluded from AX tree');
+    if (el.disabled && el.getAttribute('aria-required') === 'true') anomalies.push('DISABLED + REQUIRED');
+    if (el.getAttribute('aria-disabled') === 'true' && el.getAttribute('aria-required') === 'true') anomalies.push('aria-disabled + aria-required');
+    if (el.getAttribute('aria-checked') === 'mixed') anomalies.push('MIXED state');
+    const visText = el.textContent?.trim();
+    if (el.tagName === 'BUTTON' && visText && name && !name.includes(visText)) anomalies.push('NAME ≠ VISIBLE TEXT');
+
+    results.push({
+      id, role: getRole(el),
+      name: name.substring(0,80),
+      inAXTree: !isInert && !isAriaHidden,
+      visible: isVisible,
+      disabled: el.disabled || el.getAttribute('aria-disabled') === 'true',
+      anomaly: anomalies.length ? anomalies.join('; ') : 'OK'
+    });
+  });
+  FX.ax = results;
+  return results;
+}
+
+// ── 3. SOURCE CAPABILITIES TRACKING ──────────────────────
+const INPUT_EVENTS = new Set(['keydown','keyup','keypress','click','mousedown','mouseup','pointerdown','pointerup']);
+function trackCaps(e) {
+  FX.caps.total++;
+  if (e.sourceCapabilities != null) FX.caps.withCaps++;
+  else {
+    FX.caps.noCaps++;
+    if (e.isTrusted && INPUT_EVENTS.has(e.type)) {
+      FX.caps.nullTrusted++;
+      if (FX.caps.details.length < 30)
+        FX.caps.details.push({ t: ms(), type: e.type, target: (e.target.id || e.target.tagName) });
+    }
+  }
+}
+
+// ── 4. KEYSTROKE MICRO-TIMING ─────────────────────────────
+function trackKeys(e) {
+  if (e.type !== 'keydown' || e.repeat) return;
+  const t = performance.now();
+  const fid = e.target.id || 'unknown';
+  if (FX.keys.active !== fid) {
+    FX.keys.active = fid;
+    if (!FX.keys.fields[fid]) FX.keys.fields[fid] = { t: [], iv: [] };
+  }
+  const f = FX.keys.fields[fid];
+  f.t.push(t);
+  if (f.t.length > 1) {
+    const iv = t - f.t[f.t.length - 2];
+    f.iv.push(iv);
+    FX.keys.all.push(iv);
+    if (FX.keys.all.length > 500) FX.keys.all.shift();
+  }
+  FX.keys.lastT = t;
+}
+
+function cvOf(arr) {
+  if (arr.length < 3) return null;
+  const avg = arr.reduce((s,v) => s+v, 0) / arr.length;
+  if (avg === 0) return 0;
+  const vr = arr.reduce((s,v) => s + (v-avg)*(v-avg), 0) / arr.length;
+  return Math.sqrt(vr) / avg;
+}
+
+// ── 5. STACK TRACE SAMPLING ──────────────────────────────
+const STACK_RX = {
+  pptr:      /pptr:\/\//,
+  pptrEval:  /__puppeteer_evaluation_script__/,
+  playwright:/__playwright/,
+  utilScript:/UtilityScript/,
+  cdpEval:   /\beval\b.*<anonymous>/,
+  fillForm:  /fillFormElement/,
+  nodeIndex: /getNodeForIndex/,
+  stableDom: /waitForStableDom/
+};
+function sampleStack(evtType) {
+  FX.stacks.sampled++;
+  if (Math.random() > 0.25 && FX.stacks.sampled > 5) return;
+  let stack; try { stack = new Error().stack; } catch(_){ return; }
+  const hits = [];
+  for (const [k, rx] of Object.entries(STACK_RX))
+    if (rx.test(stack)) hits.push(k);
+  if (hits.length) {
+    FX.stacks.hits++;
+    FX.stacks.findings.push({ t: ms(), evt: evtType, patterns: hits, preview: stack.split('\n').slice(0,5).join('\n') });
+    if (FX.stacks.findings.length > 25) FX.stacks.findings.shift();
+  }
+}
+
+// ── 6. MUTATION OBSERVER ─────────────────────────────────
+function setupMutObs() {
+  new MutationObserver(muts => {
+    for (const m of muts) {
+      if (m.type === 'attributes' && m.target.closest('#F'))
+        FX.muts.push({ t: ms(), tp: 'attr', tgt: m.target.id||m.target.tagName, attr: m.attributeName,
+          old: (m.oldValue||'').substring(0,40), val: (m.target.getAttribute(m.attributeName)||'').substring(0,40) });
+      for (const n of m.addedNodes)
+        if (n.nodeType === 1 && n.tagName === 'SCRIPT') {
+          const src = n.src||'', txt = (n.textContent||'').substring(0,80);
+          FX.muts.push({ t: ms(), tp: 'script', src: src.substring(0,80), pptr: /pptr:/.test(src)||/pptr:/.test(txt), preview: txt.substring(0,50) });
+        }
+    }
+    if (FX.muts.length > 80) FX.muts.splice(0, FX.muts.length - 60);
+  }).observe(document.documentElement, {
+    attributes: true, attributeOldValue: true, childList: true, subtree: true,
+    attributeFilter: ['value','aria-label','aria-checked','aria-disabled','class','data-gtm-form-interact-field-id']
+  });
+}
+
+// ── 7. REGISTER NEW INJECTIONS ───────────────────────────
+function registerNewInj() {
+  reg('f_promo', 'INERT ATTRIBUTE',
+    'Field wrapper has [inert] — fully excluded from AX tree',
+    'If agent fills this → it is NOT using the AX snapshot');
+  reg('f_bio', 'CONTENTEDITABLE <div>',
+    'role="textbox" contenteditable div — not an <input> element',
+    'Does AX snapshot show it? Does agent know how to type into contenteditable?');
+  reg('f_ref', 'ARIA-HIDDEN VISIBLE',
+    'aria-hidden="true" on parent — excluded from AX snapshot but VISIBLE on page',
+    'If agent fills this → it bypassed aria-hidden; not using AX tree');
+  renderInjTable();
+}
+
+// ── 8. ADDITIONAL UID SHIFTS (2500ms, 5000ms) ────────────
+function armExtraShifts() {
+  [2500, 5000].forEach((delay, i) => {
+    setTimeout(() => {
+      const s = document.createElement('section');
+      s.setAttribute('aria-label', 'Setup step ' + (i + 2));
+      s.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;left:-2px;';
+      s.appendChild(document.createElement('p')).textContent = 'Step ' + (i+2);
+      document.body.insertBefore(s, document.querySelector('.card'));
+      window['__shift' + (i+2)] = ms();
+      logEv('UID-SHIFT-' + (i+2), '—', 'DOM inserted at T=' + ts() + ' — refs shifted +2 again');
+    }, delay);
+  });
+}
+
+// ── 9. FORENSICS TAB RENDERER ────────────────────────────
+function renderForensics() {
+  const panel = document.getElementById('tab-forensics');
+  if (!panel || panel.style.display === 'none') return;
+
+  if (!FX.env.scanned) probeEnv();
+  const ax = verifyAX();
+  const allIv = FX.keys.all;
+  const cv = cvOf(allIv);
+  const avgIv = allIv.length ? (allIv.reduce((a,b)=>a+b,0)/allIv.length).toFixed(1) : '—';
+
+  function row(lbl, val, cls) { return '<div class="sig-row"><span class="sig-lbl">'+lbl+'</span><span class="sig-val '+(cls||'')+'">'+val+'</span></div>'; }
+  let h = '';
+
+  // ── Environment ──
+  h += '<div class="forensic-section">ENVIRONMENT ARTIFACTS</div>';
+  if (FX.env.artifacts.length === 0)
+    h += '<div style="color:#56d364;padding:4px 0">\u2713 No automation artifacts detected</div>';
+  else
+    FX.env.artifacts.forEach(a => { h += row(a.n, a.v, a.s==='HIGH'?'alert':'warn'); });
+
+  // ── Source Capabilities ──
+  h += '<div class="forensic-section">SOURCE CAPABILITIES (CDP Detection)</div>';
+  h += row('Events analyzed', FX.caps.total, '');
+  h += row('With sourceCapabilities', FX.caps.withCaps, 'ok');
+  h += row('Without sourceCapabilities', FX.caps.noCaps, FX.caps.noCaps > 0 ? 'warn' : 'ok');
+  h += row('Null + Trusted (= CDP dispatched)', FX.caps.nullTrusted, FX.caps.nullTrusted > 0 ? 'alert' : 'ok');
+  if (FX.caps.details.length > 0) {
+    h += '<div style="font-size:10px;color:#484f58;padding:2px 0">Recent null+trusted: ';
+    h += FX.caps.details.slice(-5).map(d => d.type + ' on ' + d.target + ' @' + d.t + 'ms').join(', ');
+    h += '</div>';
+  }
+
+  // ── Keystroke Timing ──
+  h += '<div class="forensic-section">KEYSTROKE MICRO-TIMING (3-Command Pattern Detection)</div>';
+  h += row('Total keystrokes', allIv.length + (allIv.length > 0 ? 1 : 0), '');
+  h += row('Avg inter-key interval', avgIv + 'ms', '');
+  h += row('CV (coefficient of variation)', cv !== null ? cv.toFixed(3) : '—',
+    cv !== null && cv < 0.12 ? 'alert' : cv !== null && cv < 0.25 ? 'warn' : 'ok');
+  h += row('Timing verdict',
+    cv === null ? 'Insufficient data' :
+    cv < 0.08 ? 'MACHINE PRECISION \u2014 consistent polling overhead detected' :
+    cv < 0.15 ? 'VERY REGULAR \u2014 suspicious, likely automated' :
+    cv < 0.30 ? 'Regular' : 'Human-like variance',
+    cv !== null && cv < 0.15 ? 'alert' : '');
+
+  for (const [fid, d] of Object.entries(FX.keys.fields)) {
+    if (d.iv.length >= 2) {
+      const fc = cvOf(d.iv);
+      const fa = (d.iv.reduce((s,v)=>s+v,0)/d.iv.length).toFixed(1);
+      h += row('\u00A0\u00A0' + fid + ': ' + d.t.length + ' keys',
+        fa + 'ms avg, CV=' + (fc !== null ? fc.toFixed(3) : '—'),
+        fc !== null && fc < 0.15 ? 'alert' : '');
+    }
+  }
+
+  // ── Stack Trace Forensics ──
+  h += '<div class="forensic-section">STACK TRACE FORENSICS (pptr://, __playwright, etc.)</div>';
+  h += row('Stacks sampled', FX.stacks.sampled, '');
+  h += row('Automation pattern hits', FX.stacks.hits, FX.stacks.hits > 0 ? 'alert' : 'ok');
+  if (FX.stacks.findings.length > 0) {
+    FX.stacks.findings.slice(-5).reverse().forEach(f => {
+      h += '<div style="padding:3px 0;border-bottom:1px solid #161b22;font-size:10px">';
+      h += '<span style="color:#f85149;font-weight:700">' + f.patterns.join(', ') + '</span>';
+      h += ' <span style="color:#484f58">(' + f.evt + ' @' + f.t + 'ms)</span>';
+      h += '</div>';
+    });
+  }
+
+  // ── AX Tree Verification ──
+  h += '<div class="forensic-section">AX TREE VERIFICATION (what Chrome actually computes)</div>';
+  h += '<div style="font-size:10px;color:#484f58;padding:2px 0 4px">Shows the real accessible name Chrome assigns — compare with the snapshot the agent sees.</div>';
+  ax.forEach(f => {
+    const namePreview = f.name.replace(/\n/g, '\u21B5').substring(0, 55);
+    const anomColor = f.anomaly === 'OK' ? '#56d364' : (f.anomaly.includes('NEWLINE') || f.anomaly.includes('PHANTOM') || f.anomaly.includes('INERT') || f.anomaly.includes('aria-hidden')) ? '#f85149' : '#e3b341';
+    h += '<div class="ax-row">';
+    h += '<span class="ax-id">' + f.id + '</span>';
+    h += '<span class="ax-role">' + f.role + '</span>';
+    h += ' <span class="ax-name">"' + esc(namePreview) + '"</span>';
+    if (!f.inAXTree) h += '<span class="ax-tag exclude">NOT IN AX TREE</span>';
+    if (!f.visible) h += '<span class="ax-tag invisible">INVISIBLE</span>';
+    if (f.disabled) h += '<span class="ax-tag invisible">DISABLED</span>';
+    h += '<div style="padding-left:80px;font-size:10px;color:' + anomColor + '">' + f.anomaly + '</div>';
+    h += '</div>';
+  });
+
+  // ── DOM Mutations ──
+  if (FX.muts.length > 0) {
+    h += '<div class="forensic-section">DOM MUTATIONS (' + FX.muts.length + ')</div>';
+    FX.muts.slice(-12).reverse().forEach(m => {
+      if (m.tp === 'script')
+        h += row('[SCRIPT] ' + (m.pptr ? 'PPTR ' : '') + m.t + 'ms', m.src || m.preview, m.pptr ? 'alert' : '');
+      else
+        h += row(m.tgt + '.' + m.attr + ' @' + m.t + 'ms', (m.old||'') + ' \u2192 ' + (m.val||''), '');
+    });
+  }
+
+  panel.innerHTML = h;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── 10. ENHANCED EXPORT ──────────────────────────────────
+function enhancedExport() {
+  const axTree = verifyAX();
+  const cv = cvOf(FX.keys.all);
+  const payload = {
+    generated: new Date().toISOString(),
+    durationMs: ms(),
+    injections: injs,
+    events: evts,
+    botScore: computeScore(),
+    forensicScore: computeForensicScore(),
+    formValues: Object.fromEntries(
+      [...document.querySelectorAll('#F input, #F select')].map(el => [el.id, el.type === 'checkbox' ? el.checked : el.value])
+    ),
+    contentEditableValues: { f_bio: document.getElementById('f_bio')?.textContent?.trim() || '' },
+    ariaLabels: Object.fromEntries(
+      [...document.querySelectorAll('#F input, #F select, #F button, #F [contenteditable]')].map(el => [el.id, el.getAttribute('aria-label') || null])
+    ),
+    uidShifts: { shift0: window.__shiftAt || null, shift1: window.__shift2 || null, shift2: window.__shift3 || null },
+    forensics: {
+      environment: FX.env,
+      sourceCapabilities: FX.caps,
+      keystrokeTiming: {
+        cv: cv !== null ? +cv.toFixed(4) : null,
+        verdict: cv === null ? 'insufficient' : cv < 0.08 ? 'MACHINE' : cv < 0.15 ? 'SUSPICIOUS' : cv < 0.3 ? 'Regular' : 'Human',
+        perField: Object.fromEntries(Object.entries(FX.keys.fields).map(([fid, d]) => [fid, {
+          keys: d.t.length,
+          avgInterval: d.iv.length > 0 ? +(d.iv.reduce((s,v)=>s+v,0)/d.iv.length).toFixed(1) : null,
+          cv: cvOf(d.iv) !== null ? +cvOf(d.iv).toFixed(4) : null,
+          intervals: d.iv.map(i => +i.toFixed(1))
+        }])),
+        rawIntervals: FX.keys.all.slice(-200).map(i => +i.toFixed(1))
+      },
+      stackTraces: { sampled: FX.stacks.sampled, hits: FX.stacks.hits, findings: FX.stacks.findings },
+      axTreeVerification: axTree,
+      domMutations: FX.muts
+    }
+  };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+  a.download = 'openclaw-probe-' + Date.now() + '.json';
+  a.click();
+}
+
+// ── 11. ENHANCED SCORE ───────────────────────────────────
+function computeForensicScore() {
+  let s = computeScore();
+  if (FX.caps.nullTrusted > 3) s += 20;
+  else if (FX.caps.nullTrusted > 0) s += 10;
+  const cv = cvOf(FX.keys.all);
+  if (cv !== null && cv < 0.08) s += 15;
+  else if (cv !== null && cv < 0.15) s += 8;
+  if (FX.env.artifacts.filter(a => a.s === 'HIGH').length > 0) s += 15;
+  if (FX.stacks.hits > 0) s += 10;
+  const promoVal = document.getElementById('f_promo')?.value;
+  if (promoVal) s += 25;
+  const refVal = document.getElementById('f_ref')?.value;
+  if (refVal) s += 20;
+  return Math.min(100, s);
+}
+
+// ── 12. EVENT LISTENERS ──────────────────────────────────
+function collector(e) { trackCaps(e); sampleStack(e.type); }
+function keyCollector(e) { trackKeys(e); trackCaps(e); sampleStack(e.type); }
+
+document.addEventListener('keydown',   keyCollector,  { capture: true, passive: true });
+document.addEventListener('keyup',     collector,     { capture: true, passive: true });
+document.addEventListener('click',     collector,     { capture: true, passive: true });
+document.addEventListener('mousedown', collector,     { capture: true, passive: true });
+document.addEventListener('mouseup',   collector,     { capture: true, passive: true });
+document.addEventListener('input',     collector,     { capture: true, passive: true });
+document.addEventListener('focusin',   collector,     { capture: true, passive: true });
+
+// ── 13. INIT ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  registerNewInj();
+  armExtraShifts();
+  setupMutObs();
+  probeEnv();
+
+  // Wire new fields into event log
+  ['f_promo','f_bio','f_ref'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    ['focus','blur','input','change','click','keydown'].forEach(type => {
+      el.addEventListener(type, e => {
+        let detail = '';
+        if (type === 'keydown') detail = 'key="'+e.key+'" trusted='+e.isTrusted;
+        else if (type === 'input') detail = 'val="'+(el.value||el.textContent||'').substring(0,30)+'" trusted='+e.isTrusted;
+        else detail = 'trusted='+e.isTrusted;
+        logEv(type, id, detail);
+      }, true);
+    });
+  });
+
+  // Wire Forensics tab
+  document.querySelectorAll('.dtab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (tab.dataset.tab === 'forensics') renderForensics();
+    });
+  });
+
+  // Replace export with enhanced version
+  const origBtn = document.getElementById('exportBtn');
+  if (origBtn) {
+    const newBtn = origBtn.cloneNode(true);
+    origBtn.parentNode.replaceChild(newBtn, origBtn);
+    newBtn.addEventListener('click', enhancedExport);
+  }
+
+  // Update forensic score in footer
+  const hint = document.querySelector('.dfoot .hint');
+  if (hint) {
+    const origHtml = hint.innerHTML;
+    hint.innerHTML = origHtml + ' &nbsp;|&nbsp; Forensic: <strong id="fxScoreTag">\u2014</strong>';
+  }
+
+  // Periodic refresh
+  setInterval(() => {
+    probeEnv();
+    if (panelOpen) {
+      const tab = document.querySelector('.dtab.on')?.dataset.tab;
+      if (tab === 'forensics') renderForensics();
+    }
+    const fxScore = computeForensicScore();
+    const fxTag = document.getElementById('fxScoreTag');
+    if (fxTag) {
+      fxTag.textContent = fxScore + '%';
+      fxTag.className = fxScore > 60 ? 'alert' : fxScore > 30 ? 'warn' : 'ok';
+    }
+  }, 1500);
+
+  console.log('%c\uD83D\uDD2C OpenClaw Probe Forensics Extension Loaded', 'color:#ffa657;font-size:14px;font-weight:bold');
+  console.log('%cCollecting: env artifacts, sourceCapabilities, keystroke CV, stack traces, AX verification, DOM mutations', 'color:#8b949e');
+  console.log('%cRaw data: window.__probeForensics', 'color:#79c0ff');
+});
+
+})();
 </script>
 
 </body>
