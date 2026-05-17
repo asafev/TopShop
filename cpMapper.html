@@ -77,6 +77,35 @@
         #mouseCanvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; opacity: 0.6; }
         
         .signature-box { background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 8px; margin-top: 10px; font-family: 'Consolas', monospace; font-size: 10px; word-break: break-all; }
+
+        /* CDP Research Extension */
+        .cdp-section { margin-top: 20px; padding-top: 15px; border-top: 2px solid #f0883e; }
+        .cdp-section > h2.cdp-title { color: #f0883e; margin: 0 0 12px; font-size: 16px; }
+        .research-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 15px; }
+        .research-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 15px; }
+        .artifact-list { font-size: 11px; max-height: 220px; overflow-y: auto; }
+        .artifact-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; margin: 3px 0; background: #0d1117; border-radius: 3px; border-left: 2px solid #30363d; }
+        .artifact-item.high { border-color: #f85149; }
+        .artifact-item.medium { border-color: #d29922; }
+        .artifact-item.low { border-color: #58a6ff; }
+        .sev-badge { font-size: 9px; padding: 1px 6px; border-radius: 8px; font-weight: 700; text-transform: uppercase; flex-shrink: 0; }
+        .sev-badge.high { background: rgba(218,54,51,0.2); color: #f85149; }
+        .sev-badge.medium { background: rgba(158,106,3,0.2); color: #d29922; }
+        .sev-badge.low { background: rgba(31,111,235,0.2); color: #58a6ff; }
+        .stack-entry { font-family: 'Consolas', monospace; font-size: 10px; padding: 4px 6px; margin: 3px 0; background: #0d1117; border-radius: 3px; border-left: 2px solid #f0883e; word-break: break-all; max-height: 60px; overflow: hidden; cursor: pointer; }
+        .stack-entry:hover { max-height: none; }
+        .arch-flow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 10px; background: #0d1117; border-radius: 6px; margin: 8px 0; }
+        .arch-node { padding: 6px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; text-align: center; min-width: 70px; }
+        .arch-arrow { color: #484f58; font-size: 14px; }
+        .arch-node.detected { background: rgba(35,134,54,0.3); color: #3fb950; border: 1px solid #238636; }
+        .arch-node.suspected { background: rgba(158,106,3,0.2); color: #d29922; border: 1px solid #9e6a03; }
+        .arch-node.unknown { background: rgba(48,54,61,0.5); color: #8b949e; border: 1px solid #30363d; }
+        .evidence-item { font-size: 10px; padding: 3px 6px; margin: 2px 0; background: #0d1117; border-radius: 2px; color: #8b949e; }
+        .evidence-item .ev-label { color: #f0883e; font-weight: 600; }
+        .micro-chart { display: flex; align-items: flex-end; gap: 1px; height: 40px; padding: 4px; background: #0d1117; border-radius: 4px; margin: 6px 0; overflow: hidden; }
+        .micro-bar { min-width: 3px; background: #58a6ff; border-radius: 1px 1px 0 0; transition: height 0.15s; }
+        .micro-bar.anomaly { background: #f85149; }
+        .script-entry { padding: 2px 4px; margin: 2px 0; font-size: 10px; border-radius: 2px; }
     </style>
 </head>
 <body>
@@ -144,6 +173,53 @@
         </div>
     </div>
     
+    <!-- CDP Research Extension — data collection layer based on OpenClaw/chrome-devtools-mcp forensics -->
+    <div class="cdp-section">
+        <h2 class="cdp-title">🔬 CDP / Automation Research Layer <span style="font-size:11px;color:#8b949e;font-weight:normal">— Extended forensic data collection (does not alter core detection)</span></h2>
+
+        <div class="research-summary">
+            <div class="summary-card" style="border-color:#f0883e"><h3 id="cdp-artifactCount" style="color:#f0883e">—</h3><p>Env Artifacts</p></div>
+            <div class="summary-card" style="border-color:#f0883e"><h3 id="cdp-stackSignals" style="color:#f0883e">0</h3><p>Stack Signals</p></div>
+            <div class="summary-card" style="border-color:#f0883e"><h3 id="cdp-sourceCapGap" style="color:#f0883e">—</h3><p>Null SourceCap</p></div>
+            <div class="summary-card" style="border-color:#f0883e"><h3 id="cdp-microPattern" style="color:#f0883e">—</h3><p>Timing CV</p></div>
+            <div class="summary-card" style="border-color:#f0883e"><h3 id="cdp-archChain" style="color:#f0883e">?</h3><p>Arch Layers</p></div>
+        </div>
+
+        <div class="research-grid">
+            <div class="panel">
+                <h2 style="color:#f0883e">🌐 Environment Artifacts</h2>
+                <div id="cdp-artifactsPanel" class="artifact-list">Scanning...</div>
+            </div>
+            <div class="panel">
+                <h2 style="color:#f0883e">📚 Stack Trace Forensics</h2>
+                <div id="cdp-stackMetrics" class="metrics-grid" style="margin-bottom:8px"></div>
+                <div id="cdp-stackPanel" style="max-height:180px;overflow-y:auto;font-size:10px;">Waiting for events...</div>
+            </div>
+            <div class="panel">
+                <h2 style="color:#f0883e">⏱️ Keystroke Micro-Patterns</h2>
+                <div id="cdp-microMetrics" class="metrics-grid" style="margin-bottom:8px"></div>
+                <div id="cdp-microChart" class="micro-chart"></div>
+                <div id="cdp-microDetail" style="font-size:10px;color:#8b949e;margin-top:6px;"></div>
+            </div>
+        </div>
+        <div class="research-grid">
+            <div class="panel">
+                <h2 style="color:#f0883e">🔌 Event Source Forensics</h2>
+                <div id="cdp-eventSourceMetrics" class="metrics-grid"></div>
+            </div>
+            <div class="panel">
+                <h2 style="color:#f0883e">📜 Script Injection Monitor</h2>
+                <div id="cdp-scriptMetrics" class="metrics-grid" style="margin-bottom:8px"></div>
+                <div id="cdp-scriptLog" style="max-height:150px;overflow-y:auto;font-size:10px;">Monitoring...</div>
+            </div>
+            <div class="panel">
+                <h2 style="color:#f0883e">🏗️ Architecture Detection</h2>
+                <div id="cdp-archFlow" class="arch-flow"></div>
+                <div id="cdp-archEvidence" style="max-height:150px;overflow-y:auto;"></div>
+            </div>
+        </div>
+    </div>
+
     <canvas id="mouseCanvas"></canvas>
 
 <!-- DETECTION ENGINE -->
@@ -1032,6 +1108,654 @@ setInterval(updateUI, 1000);
 
 console.log('%c🔬 AI Agent Behavioral Mapper v2.0 Ready', 'color: #58a6ff; font-size: 16px; font-weight: bold');
 console.log('%cUse any AI agent to fill the form and observe behavioral fingerprint', 'color: #8b949e');
+</script>
+
+<!-- ====================================================================== -->
+<!-- CDP RESEARCH EXTENSION                                                 -->
+<!-- Extended forensic data collection based on OpenClaw/chrome-devtools-mcp -->
+<!-- analysis. Does NOT modify any existing cpMapper functions or state.     -->
+<!-- ====================================================================== -->
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// STATE
+// ============================================================================
+const CDP = {
+    artifacts: { detected: [], lastScan: 0, scanCount: 0 },
+    stacks: {
+        sampled: 0, automationHits: 0,
+        pptr: 0, playwright: 0, evalFrames: 0, extensionFrames: 0,
+        uniquePatterns: [],
+        recentFindings: []
+    },
+    eventSource: {
+        total: 0, withCaps: 0, withoutCaps: 0,
+        nullCapsTrusted: 0,
+        composedPaths: [],
+        tsDeltas: [], lastTs: 0
+    },
+    micro: {
+        activeField: null,
+        fields: {},
+        allIntervals: [],
+        lastKeyTime: 0,
+        focusBetweenKeys: 0,
+        totalKeys: 0
+    },
+    scripts: { items: [], pptr: 0, playwright: 0, eval: 0, dynamic: 0 },
+    perf: { entries: [], inputDelays: [] },
+    arch: { evidence: {}, chain: [], confidence: 0, details: [] }
+};
+
+window.__cdpResearch = CDP;
+
+// ============================================================================
+// 1. ENVIRONMENT ARTIFACT SCANNER
+// ============================================================================
+function scanEnvironment() {
+    const found = [];
+
+    try {
+        if (navigator.webdriver === true)
+            found.push({ name: 'navigator.webdriver', value: 'true', severity: 'HIGH', detail: 'Browser automation flag is set' });
+        else if (navigator.webdriver === false)
+            found.push({ name: 'navigator.webdriver', value: 'false (patched?)', severity: 'LOW', detail: 'Flag exists but is false — stealth plugin may be active' });
+    } catch(_) {}
+
+    const globals = [
+        ['getNodeForIndex', 'chrome-devtools-mcp accessibility tree helper (OpenClaw)'],
+        ['__puppeteer_evaluation_script__', 'Puppeteer evaluation context'],
+        ['cdc_adoQpoasnfa76pfcZLmcfl_Array', 'ChromeDriver artifact (cdc_ prefix)'],
+        ['cdc_adoQpoasnfa76pfcZLmcfl_Promise', 'ChromeDriver artifact (cdc_ prefix)'],
+        ['__webdriver_evaluate', 'Legacy WebDriver evaluate function'],
+        ['__selenium_evaluate', 'Selenium evaluate function'],
+        ['__fxdriver_evaluate', 'Firefox WebDriver evaluate'],
+        ['__driver_evaluate', 'Generic WebDriver evaluate'],
+        ['_Selenium_IDE_Recorder', 'Selenium IDE recorder'],
+        ['callSelenium', 'Selenium callback binding'],
+        ['__nightmare', 'NightmareJS automation framework'],
+        ['domAutomation', 'Chrome DOM automation interface'],
+        ['domAutomationController', 'Chrome DOM automation controller']
+    ];
+
+    for (const [name, desc] of globals) {
+        try {
+            if (typeof window[name] !== 'undefined')
+                found.push({ name: 'window.' + name, value: typeof window[name], severity: 'HIGH', detail: desc });
+        } catch(_) {}
+    }
+
+    try {
+        if (typeof window.__chromium_devtools_metrics_reporter !== 'undefined')
+            found.push({ name: '__chromium_devtools_metrics_reporter', value: 'present', severity: 'MEDIUM', detail: 'DevTools metrics CDP binding active (Runtime.bindingCalled)' });
+    } catch(_) {}
+
+    try {
+        if (navigator.plugins.length === 0)
+            found.push({ name: 'navigator.plugins', value: '0 plugins', severity: 'MEDIUM', detail: 'No browser plugins — common in headless Chrome' });
+    } catch(_) {}
+
+    try {
+        if (navigator.languages && navigator.languages.length === 0)
+            found.push({ name: 'navigator.languages', value: 'empty', severity: 'MEDIUM', detail: 'No languages configured — headless indicator' });
+    } catch(_) {}
+
+    try {
+        if (window.outerHeight === 0 || window.outerWidth === 0)
+            found.push({ name: 'window.outerHeight/Width', value: '0', severity: 'MEDIUM', detail: 'Zero outer dimensions — headless indicator' });
+    } catch(_) {}
+
+    try {
+        if (window.chrome && window.chrome.runtime && window.chrome.runtime.id)
+            found.push({ name: 'chrome.runtime.id', value: window.chrome.runtime.id, severity: 'LOW', detail: 'Extension context detected — extension may be controlling page' });
+    } catch(_) {}
+
+    // Check Performance API for pptr: resource entries
+    try {
+        const resources = performance.getEntriesByType('resource');
+        const pptrResources = resources.filter(r => /pptr:/.test(r.name));
+        if (pptrResources.length > 0)
+            found.push({ name: 'perf.pptr-resources', value: pptrResources.length + ' entries', severity: 'HIGH', detail: 'Performance API contains pptr: resource URLs' });
+    } catch(_) {}
+
+    CDP.artifacts.detected = found;
+    CDP.artifacts.lastScan = performance.now();
+    CDP.artifacts.scanCount++;
+
+    for (const a of found) {
+        if (a.name.includes('getNodeForIndex')) CDP.arch.evidence['chrome-devtools-mcp'] = true;
+        if (a.name.includes('puppeteer')) CDP.arch.evidence['puppeteer'] = true;
+        if (a.name.includes('selenium') || a.name.includes('Selenium')) CDP.arch.evidence['selenium'] = true;
+        if (a.name.includes('webdriver') && a.severity === 'HIGH') CDP.arch.evidence['cdp-automation'] = true;
+        if (a.name.includes('devtools_metrics')) CDP.arch.evidence['devtools-connected'] = true;
+        if (a.name.includes('pptr-resources')) CDP.arch.evidence['puppeteer-resources'] = true;
+    }
+}
+
+// ============================================================================
+// 2. STACK TRACE FORENSICS
+// Captures Error().stack on events and looks for automation framework URLs
+// ============================================================================
+const STACK_PATTERNS = {
+    puppeteer:      { regex: /pptr:\/\//,                          label: 'Puppeteer (pptr:// URL)' },
+    puppeteerEval:  { regex: /__puppeteer_evaluation_script__/,    label: 'Puppeteer eval script' },
+    playwright:     { regex: /__playwright/,                       label: 'Playwright framework' },
+    playwrightEval: { regex: /__playwright_evaluation_script__/,   label: 'Playwright eval' },
+    utilityScript:  { regex: /UtilityScript/,                      label: 'Playwright UtilityScript' },
+    cdpEval:        { regex: /\beval\b.*<anonymous>/,              label: 'CDP Runtime.evaluate (eval frame)' },
+    chromeExt:      { regex: /chrome-extension:\/\//,              label: 'Chrome extension context' },
+    fillForm:       { regex: /fillFormElement/,                    label: 'chrome-devtools-mcp fillFormElement' },
+    nodeForIndex:   { regex: /getNodeForIndex/,                    label: 'chrome-devtools-mcp getNodeForIndex' },
+    stableDom:      { regex: /waitForStableDom/,                   label: 'Puppeteer WaitForHelper.waitForStableDom' }
+};
+
+function collectStackForensics(eventType) {
+    CDP.stacks.sampled++;
+    if (Math.random() > 0.3 && CDP.stacks.sampled > 10) return;
+
+    let stack;
+    try { stack = new Error().stack; } catch(_) { return; }
+    if (!stack) return;
+
+    const findings = [];
+    for (const [key, { regex, label }] of Object.entries(STACK_PATTERNS)) {
+        if (regex.test(stack)) {
+            findings.push({ pattern: key, label });
+            if (key.startsWith('puppeteer') || key === 'fillForm' || key === 'nodeForIndex' || key === 'stableDom') CDP.stacks.pptr++;
+            else if (key.startsWith('playwright') || key === 'utilityScript') CDP.stacks.playwright++;
+            else if (key === 'cdpEval') CDP.stacks.evalFrames++;
+            else if (key === 'chromeExt') CDP.stacks.extensionFrames++;
+            CDP.arch.evidence[key] = (CDP.arch.evidence[key] || 0) + 1;
+        }
+    }
+
+    if (findings.length > 0) {
+        CDP.stacks.automationHits++;
+        const patternKey = findings.map(f => f.pattern).sort().join('+');
+        if (!CDP.stacks.uniquePatterns.includes(patternKey))
+            CDP.stacks.uniquePatterns.push(patternKey);
+
+        CDP.stacks.recentFindings.push({
+            time: performance.now(),
+            eventType,
+            patterns: findings,
+            stackPreview: stack.split('\n').slice(0, 6).join('\n')
+        });
+        if (CDP.stacks.recentFindings.length > 25) CDP.stacks.recentFindings.shift();
+    }
+}
+
+// ============================================================================
+// 3. EVENT SOURCE FORENSICS
+// CDP-dispatched events (Input.dispatchKeyEvent, Input.dispatchMouseEvent)
+// have null sourceCapabilities even when isTrusted is true
+// ============================================================================
+const SOURCE_EVENT_TYPES = new Set(['keydown', 'keyup', 'keypress', 'click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup']);
+
+function analyzeEventSource(e) {
+    CDP.eventSource.total++;
+
+    const hasCaps = e.sourceCapabilities != null;
+    if (hasCaps) CDP.eventSource.withCaps++;
+    else CDP.eventSource.withoutCaps++;
+
+    // Trusted event without sourceCapabilities on an input-type event = strong CDP signal
+    if (e.isTrusted && !hasCaps && SOURCE_EVENT_TYPES.has(e.type)) {
+        CDP.eventSource.nullCapsTrusted++;
+        CDP.arch.evidence['cdp-dispatched-events'] = (CDP.arch.evidence['cdp-dispatched-events'] || 0) + 1;
+    }
+
+    try {
+        const pathLen = e.composedPath ? e.composedPath().length : 0;
+        CDP.eventSource.composedPaths.push(pathLen);
+        if (CDP.eventSource.composedPaths.length > 150) CDP.eventSource.composedPaths.shift();
+    } catch(_) {}
+
+    const ts = e.timeStamp;
+    if (CDP.eventSource.lastTs > 0) {
+        const delta = ts - CDP.eventSource.lastTs;
+        if (delta > 0 && delta < 10000) {
+            CDP.eventSource.tsDeltas.push(delta);
+            if (CDP.eventSource.tsDeltas.length > 300) CDP.eventSource.tsDeltas.shift();
+        }
+    }
+    CDP.eventSource.lastTs = ts;
+}
+
+// ============================================================================
+// 4. KEYSTROKE MICRO-PATTERN ANALYSIS
+// The research shows the 3-command pattern (Runtime.evaluate → DOM.requestNode
+// → Runtime.releaseObject) adds consistent overhead between every keystroke.
+// This manifests as abnormally low coefficient of variation in inter-key timing.
+// ============================================================================
+function trackKeystrokeMicro(e) {
+    if (e.type !== 'keydown' || e.repeat) return;
+
+    const t = performance.now();
+    const fieldId = e.target.id || e.target.name || e.target.getAttribute('data-element') || 'unknown';
+
+    if (CDP.micro.activeField !== fieldId) {
+        CDP.micro.activeField = fieldId;
+        if (!CDP.micro.fields[fieldId])
+            CDP.micro.fields[fieldId] = { keys: [], intervals: [], startTime: t };
+    }
+
+    const field = CDP.micro.fields[fieldId];
+    field.keys.push(t);
+    CDP.micro.totalKeys++;
+
+    if (field.keys.length > 1) {
+        const interval = t - field.keys[field.keys.length - 2];
+        field.intervals.push(interval);
+        CDP.micro.allIntervals.push(interval);
+        if (CDP.micro.allIntervals.length > 400) CDP.micro.allIntervals.shift();
+    }
+
+    CDP.micro.lastKeyTime = t;
+}
+
+function trackFocusBetweenKeys(e) {
+    const t = performance.now();
+    const timeSinceKey = t - CDP.micro.lastKeyTime;
+    if (timeSinceKey > 0 && timeSinceKey < 50 && CDP.micro.lastKeyTime > 0)
+        CDP.micro.focusBetweenKeys++;
+}
+
+function computeMicroPatternAnalysis() {
+    const intervals = CDP.micro.allIntervals;
+    if (intervals.length < 5)
+        return { verdict: 'INSUFFICIENT_DATA', cv: '—', avgMs: '—', medianMs: '—', clusterRatio: '—', totalKeys: CDP.micro.totalKeys, focusBetweenKeys: CDP.micro.focusBetweenKeys, pollingRatio: '0', fields: {} };
+
+    const avg = mean(intervals);
+    const cv = coefficientOfVariation(intervals);
+
+    let verdict;
+    if (cv < 0.08) verdict = 'MACHINE_PRECISION';
+    else if (cv < 0.15) verdict = 'VERY_REGULAR';
+    else if (cv < 0.25) verdict = 'REGULAR';
+    else if (cv < 0.40) verdict = 'HUMAN_LIKE';
+    else verdict = 'HIGH_VARIANCE';
+
+    const sorted = [...intervals].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const nearMedian = intervals.filter(i => Math.abs(i - median) < median * 0.15).length;
+    const clusterRatio = nearMedian / intervals.length;
+
+    const fieldAnalyses = {};
+    for (const [fid, data] of Object.entries(CDP.micro.fields)) {
+        if (data.intervals.length >= 3) {
+            const fCv = coefficientOfVariation(data.intervals);
+            fieldAnalyses[fid] = {
+                keyCount: data.keys.length,
+                avgMs: mean(data.intervals).toFixed(1),
+                cv: fCv.toFixed(3),
+                verdict: fCv < 0.12 ? 'MACHINE' : fCv < 0.25 ? 'AMBIGUOUS' : 'HUMAN'
+            };
+        }
+    }
+
+    return {
+        verdict, cv: cv.toFixed(3), avgMs: avg.toFixed(1),
+        medianMs: median.toFixed(1),
+        clusterRatio: (clusterRatio * 100).toFixed(0) + '%',
+        totalKeys: CDP.micro.totalKeys,
+        focusBetweenKeys: CDP.micro.focusBetweenKeys,
+        pollingRatio: CDP.micro.totalKeys > 0 ? (CDP.micro.focusBetweenKeys / CDP.micro.totalKeys).toFixed(2) : '0',
+        fields: fieldAnalyses
+    };
+}
+
+// ============================================================================
+// 5. SCRIPT INJECTION MONITOR (MutationObserver)
+// Watches for dynamically added <script> elements, especially those with
+// pptr: URLs or Playwright signatures injected by automation libraries
+// ============================================================================
+function setupScriptMonitor() {
+    const observer = new MutationObserver(mutations => {
+        for (const mut of mutations) {
+            for (const node of mut.addedNodes) {
+                if (node.nodeType !== 1) continue;
+                if (node.tagName === 'SCRIPT') recordScript(node);
+                if (node.querySelectorAll) node.querySelectorAll('script').forEach(recordScript);
+            }
+        }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+}
+
+function recordScript(el) {
+    const src = el.src || '';
+    const text = (el.textContent || '').substring(0, 400);
+    const isPptr = /pptr:/.test(src) || /pptr:/.test(text) || /__puppeteer/.test(text);
+    const isPlaywright = /__playwright/.test(src) || /__playwright/.test(text) || /UtilityScript/.test(text);
+    const isInline = !src && text.length > 0;
+
+    CDP.scripts.dynamic++;
+    if (isPptr) { CDP.scripts.pptr++; CDP.arch.evidence['puppeteer-scripts'] = (CDP.arch.evidence['puppeteer-scripts'] || 0) + 1; }
+    if (isPlaywright) { CDP.scripts.playwright++; CDP.arch.evidence['playwright-scripts'] = (CDP.arch.evidence['playwright-scripts'] || 0) + 1; }
+    if (isInline && !isPptr && !isPlaywright) CDP.scripts.eval++;
+
+    CDP.scripts.items.push({
+        time: performance.now(), src: src.substring(0, 200),
+        textPreview: text.substring(0, 120), isPptr, isPlaywright, isInline, size: text.length
+    });
+    if (CDP.scripts.items.length > 50) CDP.scripts.items.shift();
+}
+
+// ============================================================================
+// 6. PERFORMANCE OBSERVER (Event Timing API)
+// Measures input delay — CDP events may have characteristic near-zero delay
+// ============================================================================
+function setupPerfObserver() {
+    try {
+        const po = new PerformanceObserver(list => {
+            for (const entry of list.getEntries()) {
+                const inputDelay = entry.processingStart - entry.startTime;
+                CDP.perf.inputDelays.push({ name: entry.name, delay: inputDelay, duration: entry.duration, ts: entry.startTime });
+                if (CDP.perf.inputDelays.length > 200) CDP.perf.inputDelays.shift();
+            }
+        });
+        po.observe({ type: 'event', buffered: false, durationThreshold: 0 });
+    } catch(_) {}
+}
+
+// ============================================================================
+// 7. ARCHITECTURE INFERENCE ENGINE
+// Maps collected evidence to the architecture chain:
+// AI Agent (LLM) → MCP Server → Puppeteer/Playwright → CDP → Chrome
+// ============================================================================
+function inferArchitecture() {
+    const ev = CDP.arch.evidence;
+    const chain = [];
+    const details = [];
+
+    chain.push({ name: 'Chrome', status: 'detected', detail: 'Running in Chrome browser context' });
+
+    const hasCDP = ev['cdp-automation'] || ev['devtools-connected'] ||
+                   CDP.eventSource.nullCapsTrusted > 3 ||
+                   CDP.stacks.pptr > 0 || CDP.stacks.playwright > 0 ||
+                   ev['cdp-dispatched-events'] > 0;
+    if (hasCDP) {
+        chain.push({ name: 'CDP', status: 'detected', detail: 'CDP connection indicators present' });
+        const reasons = [];
+        if (ev['cdp-automation']) reasons.push('navigator.webdriver=true');
+        if (ev['devtools-connected']) reasons.push('DevTools metrics binding');
+        if (CDP.eventSource.nullCapsTrusted > 0) reasons.push('null sourceCapabilities on ' + CDP.eventSource.nullCapsTrusted + ' trusted events');
+        if (ev['cdp-dispatched-events'] > 0) reasons.push(ev['cdp-dispatched-events'] + ' CDP-dispatched input events');
+        details.push('CDP: ' + reasons.join(', '));
+    } else {
+        chain.push({ name: 'CDP', status: 'unknown', detail: 'No CDP indicators detected yet' });
+    }
+
+    if (CDP.stacks.pptr > 0 || CDP.scripts.pptr > 0 || ev['puppeteer'] || ev['puppeteer-scripts'] || ev['puppeteer-resources']) {
+        chain.push({ name: 'Puppeteer', status: 'detected', detail: 'pptr: signals in stacks (' + CDP.stacks.pptr + ') and scripts (' + CDP.scripts.pptr + ')' });
+        details.push('Puppeteer: ' + CDP.stacks.pptr + ' stack traces, ' + CDP.scripts.pptr + ' injected scripts');
+    } else if (CDP.stacks.playwright > 0 || CDP.scripts.playwright > 0 || ev['playwright'] || ev['playwright-scripts']) {
+        chain.push({ name: 'Playwright', status: 'detected', detail: 'Playwright signals found' });
+        details.push('Playwright: ' + CDP.stacks.playwright + ' stack traces, ' + CDP.scripts.playwright + ' scripts');
+    } else if (ev['selenium']) {
+        chain.push({ name: 'Selenium', status: 'detected', detail: 'Selenium artifacts in window scope' });
+    } else {
+        chain.push({ name: 'Automation Lib', status: hasCDP ? 'suspected' : 'unknown', detail: hasCDP ? 'CDP active but library not identified' : 'No automation library signals' });
+    }
+
+    if (ev['chrome-devtools-mcp'] || ev['fillForm'] || ev['nodeForIndex']) {
+        chain.push({ name: 'MCP Server', status: 'detected', detail: 'chrome-devtools-mcp confirmed (getNodeForIndex / fillFormElement)' });
+        details.push('MCP: chrome-devtools-mcp — window.getNodeForIndex() or fillFormElement found');
+    } else if (CDP.stacks.pptr > 0 && CDP.eventSource.nullCapsTrusted > 0) {
+        chain.push({ name: 'MCP Server', status: 'suspected', detail: 'Puppeteer + CDP pattern consistent with MCP server' });
+    } else {
+        chain.push({ name: 'MCP Server', status: 'unknown', detail: 'No MCP-specific signals yet' });
+    }
+
+    const hasInjection = state.inputsWithoutKeydown > 2;
+    const hasGhostTyping = state.totalCharsTyped > 0 && state.keyEvents.filter(k => k.type === 'keydown' && !k.repeat).length === 0;
+    if (ev['chrome-devtools-mcp'] || (hasCDP && (hasInjection || hasGhostTyping))) {
+        chain.push({ name: 'AI Agent (LLM)', status: 'suspected', detail: 'Automation + ' + (hasGhostTyping ? 'ghost typing (chars without keydowns)' : 'input injection') + ' behavior' });
+        details.push('Agent: Form filling via automation — ' + (hasGhostTyping ? 'ghost typing' : hasInjection ? 'input injection' : 'MCP-driven'));
+    } else if (hasCDP) {
+        chain.push({ name: 'AI Agent?', status: 'unknown', detail: 'CDP present but no clear agent behavior yet' });
+    }
+
+    chain.reverse();
+    const detectedCount = chain.filter(c => c.status === 'detected').length;
+    const suspectedCount = chain.filter(c => c.status === 'suspected').length;
+
+    CDP.arch.chain = chain;
+    CDP.arch.confidence = Math.min(100, detectedCount * 25 + suspectedCount * 10);
+    CDP.arch.details = details;
+
+    return { chain, confidence: CDP.arch.confidence, details };
+}
+
+// ============================================================================
+// 8. UI UPDATE
+// ============================================================================
+function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+
+function updateCdpUI() {
+    if (performance.now() - CDP.artifacts.lastScan > 5000) scanEnvironment();
+
+    const arch = inferArchitecture();
+    const micro = computeMicroPatternAnalysis();
+
+    // --- Summary cards ---
+    const artCount = CDP.artifacts.detected.length;
+    const artEl = document.getElementById('cdp-artifactCount');
+    artEl.textContent = artCount || '0'; artEl.style.color = artCount > 0 ? '#f85149' : '#3fb950';
+
+    const stackEl = document.getElementById('cdp-stackSignals');
+    stackEl.textContent = CDP.stacks.automationHits; stackEl.style.color = CDP.stacks.automationHits > 0 ? '#f85149' : '#3fb950';
+
+    const capEl = document.getElementById('cdp-sourceCapGap');
+    capEl.textContent = CDP.eventSource.nullCapsTrusted;
+    capEl.style.color = CDP.eventSource.nullCapsTrusted > 5 ? '#f85149' : CDP.eventSource.nullCapsTrusted > 0 ? '#d29922' : '#3fb950';
+
+    const microEl = document.getElementById('cdp-microPattern');
+    microEl.textContent = micro.cv;
+    microEl.style.color = micro.verdict === 'MACHINE_PRECISION' ? '#f85149' : micro.verdict === 'VERY_REGULAR' ? '#d29922' : '#3fb950';
+
+    const detLayers = arch.chain.filter(c => c.status === 'detected').length;
+    const archEl = document.getElementById('cdp-archChain');
+    archEl.textContent = detLayers + '/' + arch.chain.length;
+    archEl.style.color = detLayers >= 3 ? '#f85149' : detLayers >= 1 ? '#d29922' : '#8b949e';
+
+    // --- Environment Artifacts ---
+    const artifactsPanel = document.getElementById('cdp-artifactsPanel');
+    if (CDP.artifacts.detected.length === 0) {
+        artifactsPanel.innerHTML = '<div style="color:#3fb950;padding:8px;text-align:center">\u2713 No automation artifacts detected<br><span style="color:#8b949e;font-size:10px">Scanned ' + CDP.artifacts.scanCount + ' times</span></div>';
+    } else {
+        artifactsPanel.innerHTML = CDP.artifacts.detected.map(a =>
+            '<div class="artifact-item ' + a.severity.toLowerCase() + '"><div><code style="color:#c9d1d9">' + escapeHtml(a.name) + '</code><br><span style="color:#8b949e;font-size:9px">' + escapeHtml(a.detail) + '</span></div><span class="sev-badge ' + a.severity.toLowerCase() + '">' + a.severity + '</span></div>'
+        ).join('');
+    }
+
+    // --- Stack Trace Forensics ---
+    document.getElementById('cdp-stackMetrics').innerHTML =
+        '<div class="metric-row"><span class="metric-name">Sampled</span><span class="metric-value">' + CDP.stacks.sampled + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Automation Hits</span><span class="metric-value ' + (CDP.stacks.automationHits > 0 ? 'bad' : 'good') + '">' + CDP.stacks.automationHits + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Puppeteer (pptr)</span><span class="metric-value ' + (CDP.stacks.pptr > 0 ? 'bad' : 'good') + '">' + CDP.stacks.pptr + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Playwright</span><span class="metric-value ' + (CDP.stacks.playwright > 0 ? 'bad' : 'good') + '">' + CDP.stacks.playwright + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Eval Frames</span><span class="metric-value ' + (CDP.stacks.evalFrames > 0 ? 'warn' : 'good') + '">' + CDP.stacks.evalFrames + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Unique Patterns</span><span class="metric-value">' + CDP.stacks.uniquePatterns.length + '</span></div>';
+
+    const stackPanel = document.getElementById('cdp-stackPanel');
+    if (CDP.stacks.recentFindings.length === 0) {
+        stackPanel.innerHTML = '<div style="color:#8b949e;padding:4px">No automation stack patterns found yet. Events are being sampled (30% rate)...</div>';
+    } else {
+        stackPanel.innerHTML = CDP.stacks.recentFindings.slice(-8).reverse().map(f =>
+            '<div class="stack-entry"><strong style="color:#f0883e">' + f.patterns.map(p => p.label).join(', ') + '</strong> <span style="color:#8b949e">(' + f.eventType + ')</span><br>' + escapeHtml(f.stackPreview) + '</div>'
+        ).join('');
+    }
+
+    // --- Keystroke Micro-Patterns ---
+    document.getElementById('cdp-microMetrics').innerHTML =
+        '<div class="metric-row"><span class="metric-name">Total Keys</span><span class="metric-value">' + micro.totalKeys + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Avg Interval</span><span class="metric-value">' + micro.avgMs + 'ms</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Median</span><span class="metric-value">' + micro.medianMs + 'ms</span></div>' +
+        '<div class="metric-row"><span class="metric-name">CV (variance)</span><span class="metric-value ' + (micro.verdict === 'MACHINE_PRECISION' ? 'bad' : micro.verdict === 'VERY_REGULAR' ? 'warn' : 'good') + '">' + micro.cv + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Consistency</span><span class="metric-value ' + (micro.verdict.includes('MACHINE') ? 'bad' : micro.verdict === 'VERY_REGULAR' ? 'warn' : 'good') + '">' + micro.verdict + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Focus/Key Polls</span><span class="metric-value ' + (parseFloat(micro.pollingRatio) > 0.1 ? 'warn' : 'good') + '">' + micro.pollingRatio + '</span></div>';
+
+    const chartEl = document.getElementById('cdp-microChart');
+    const recentI = CDP.micro.allIntervals.slice(-80);
+    if (recentI.length > 0) {
+        const maxI = Math.max.apply(null, recentI) || 1;
+        const avgI = mean(recentI);
+        chartEl.innerHTML = recentI.map(i => {
+            const h = Math.max(2, Math.round((i / maxI) * 36));
+            return '<div class="micro-bar' + (Math.abs(i - avgI) > avgI * 0.5 ? ' anomaly' : '') + '" style="height:' + h + 'px" title="' + i.toFixed(1) + 'ms"></div>';
+        }).join('');
+    }
+
+    const microDet = document.getElementById('cdp-microDetail');
+    const fieldEntries = Object.entries(micro.fields);
+    if (fieldEntries.length > 0) {
+        microDet.innerHTML = '<strong style="color:#f0883e">Per-field:</strong> ' +
+            fieldEntries.map(function(pair) {
+                var fid = pair[0], d = pair[1];
+                var c = d.verdict === 'MACHINE' ? '#f85149' : d.verdict === 'AMBIGUOUS' ? '#d29922' : '#3fb950';
+                return '<span style="color:' + c + '">' + fid + ': ' + d.keyCount + 'keys, CV=' + d.cv + '</span>';
+            }).join(' | ');
+    }
+
+    // --- Event Source Forensics ---
+    var nullCapPct = CDP.eventSource.total > 0 ? ((CDP.eventSource.nullCapsTrusted / CDP.eventSource.total) * 100).toFixed(0) : '0';
+    var tsDeltas = CDP.eventSource.tsDeltas;
+    var tsCv = tsDeltas.length > 3 ? coefficientOfVariation(tsDeltas).toFixed(3) : 'N/A';
+    var avgDelay = CDP.perf.inputDelays.length > 0 ? mean(CDP.perf.inputDelays.map(function(d) { return d.delay; })).toFixed(1) : '—';
+
+    document.getElementById('cdp-eventSourceMetrics').innerHTML =
+        '<div class="metric-row"><span class="metric-name">Events Analyzed</span><span class="metric-value">' + CDP.eventSource.total + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">With SourceCaps</span><span class="metric-value good">' + CDP.eventSource.withCaps + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Without SourceCaps</span><span class="metric-value ' + (CDP.eventSource.withoutCaps > 0 ? 'warn' : 'good') + '">' + CDP.eventSource.withoutCaps + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Null+Trusted (CDP)</span><span class="metric-value ' + (CDP.eventSource.nullCapsTrusted > 0 ? 'bad' : 'good') + '">' + CDP.eventSource.nullCapsTrusted + ' (' + nullCapPct + '%)</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Event \u0394t CV</span><span class="metric-value ' + (tsCv !== 'N/A' && parseFloat(tsCv) < 0.15 ? 'bad' : 'good') + '">' + tsCv + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Avg Input Delay</span><span class="metric-value">' + avgDelay + 'ms</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Path Depth Avg</span><span class="metric-value">' + (CDP.eventSource.composedPaths.length > 0 ? mean(CDP.eventSource.composedPaths).toFixed(1) : '\u2014') + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Perf Entries</span><span class="metric-value">' + CDP.perf.inputDelays.length + '</span></div>';
+
+    // --- Script Injection ---
+    document.getElementById('cdp-scriptMetrics').innerHTML =
+        '<div class="metric-row"><span class="metric-name">Dynamic Scripts</span><span class="metric-value">' + CDP.scripts.dynamic + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Puppeteer (pptr:)</span><span class="metric-value ' + (CDP.scripts.pptr > 0 ? 'bad' : 'good') + '">' + CDP.scripts.pptr + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Playwright</span><span class="metric-value ' + (CDP.scripts.playwright > 0 ? 'bad' : 'good') + '">' + CDP.scripts.playwright + '</span></div>' +
+        '<div class="metric-row"><span class="metric-name">Inline Eval</span><span class="metric-value ' + (CDP.scripts.eval > 3 ? 'warn' : 'good') + '">' + CDP.scripts.eval + '</span></div>';
+
+    var scriptLog = document.getElementById('cdp-scriptLog');
+    if (CDP.scripts.items.length === 0) {
+        scriptLog.innerHTML = '<div style="color:#8b949e;padding:4px">MutationObserver active. Watching for dynamically injected scripts...</div>';
+    } else {
+        scriptLog.innerHTML = CDP.scripts.items.slice(-10).reverse().map(function(s) {
+            var color = s.isPptr ? '#f85149' : s.isPlaywright ? '#d29922' : '#8b949e';
+            var label = s.isPptr ? '[PPTR]' : s.isPlaywright ? '[PLAYWRIGHT]' : s.isInline ? '[EVAL]' : '[SCRIPT]';
+            return '<div style="padding:2px 4px;margin:2px 0;border-left:2px solid ' + color + ';font-size:10px"><span style="color:' + color + ';font-weight:700">' + label + '</span> ' + escapeHtml(s.src || s.textPreview.substring(0, 80) || '(empty)') + '</div>';
+        }).join('');
+    }
+
+    // --- Architecture Detection ---
+    var archFlowEl = document.getElementById('cdp-archFlow');
+    archFlowEl.innerHTML = arch.chain.map(function(node, i) {
+        var html = '<div class="arch-node ' + node.status + '" title="' + escapeHtml(node.detail) + '">' + node.name + '</div>';
+        return i < arch.chain.length - 1 ? html + '<div class="arch-arrow">\u2192</div>' : html;
+    }).join('');
+
+    var archEvEl = document.getElementById('cdp-archEvidence');
+    if (arch.details.length > 0) {
+        archEvEl.innerHTML = arch.details.map(function(d) {
+            var parts = d.split(':');
+            return '<div class="evidence-item"><span class="ev-label">' + parts[0] + ':</span> ' + parts.slice(1).join(':') + '</div>';
+        }).join('');
+    } else {
+        archEvEl.innerHTML = '<div style="color:#8b949e;font-size:10px;padding:4px">Collecting evidence\u2026 interact with the form to generate signals.</div>';
+    }
+}
+
+// ============================================================================
+// 9. EVENT LISTENERS (capture phase — non-invasive, separate from core)
+// ============================================================================
+function cdpInputCollector(e) { collectStackForensics(e.type); analyzeEventSource(e); }
+function cdpKeyCollector(e)   { trackKeystrokeMicro(e); collectStackForensics(e.type); analyzeEventSource(e); }
+function cdpFocusCollector(e) { trackFocusBetweenKeys(e); collectStackForensics(e.type); }
+
+document.addEventListener('keydown',   cdpKeyCollector,   { capture: true, passive: true });
+document.addEventListener('keyup',     cdpInputCollector,  { capture: true, passive: true });
+document.addEventListener('click',     cdpInputCollector,  { capture: true, passive: true });
+document.addEventListener('mousedown', cdpInputCollector,  { capture: true, passive: true });
+document.addEventListener('mouseup',   cdpInputCollector,  { capture: true, passive: true });
+document.addEventListener('input',     cdpInputCollector,  { capture: true, passive: true });
+document.addEventListener('focusin',   cdpFocusCollector,  { capture: true, passive: true });
+
+// ============================================================================
+// 10. AUGMENT EXPORT & RESET (wraps originals, preserves existing behavior)
+// ============================================================================
+var _origExport = window.exportFullReport;
+window.exportFullReport = function() {
+    _origExport();
+
+    var micro = computeMicroPatternAnalysis();
+    var arch  = inferArchitecture();
+
+    var cdpReport = {
+        _type: 'CDP Research Extension — Forensic Data',
+        _exportedAt: new Date().toISOString(),
+        environmentArtifacts: CDP.artifacts.detected,
+        stackForensics: {
+            totalSampled: CDP.stacks.sampled, automationHits: CDP.stacks.automationHits,
+            puppeteer: CDP.stacks.pptr, playwright: CDP.stacks.playwright,
+            evalFrames: CDP.stacks.evalFrames, uniquePatterns: CDP.stacks.uniquePatterns,
+            recentFindings: CDP.stacks.recentFindings
+        },
+        eventSourceForensics: {
+            total: CDP.eventSource.total, withSourceCapabilities: CDP.eventSource.withCaps,
+            withoutSourceCapabilities: CDP.eventSource.withoutCaps,
+            nullCapsOnTrustedEvents: CDP.eventSource.nullCapsTrusted,
+            timestampDeltaCV: CDP.eventSource.tsDeltas.length > 3 ? coefficientOfVariation(CDP.eventSource.tsDeltas).toFixed(4) : 'N/A',
+            avgComposedPathDepth: CDP.eventSource.composedPaths.length > 0 ? mean(CDP.eventSource.composedPaths).toFixed(1) : 'N/A'
+        },
+        keystrokeMicroPatterns: { summary: micro, rawIntervals: CDP.micro.allIntervals.slice(-150) },
+        scriptInjection: {
+            total: CDP.scripts.dynamic, puppeteer: CDP.scripts.pptr,
+            playwright: CDP.scripts.playwright, eval: CDP.scripts.eval, items: CDP.scripts.items
+        },
+        performanceTimingEntries: CDP.perf.inputDelays.slice(-50),
+        architecture: { chain: arch.chain, confidence: arch.confidence, evidence: CDP.arch.evidence, details: arch.details }
+    };
+
+    var blob = new Blob([JSON.stringify(cdpReport, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'cdp-research-' + Date.now() + '.json';
+    a.click();
+};
+
+var _origReset = window.resetAll;
+window.resetAll = function() {
+    _origReset();
+    CDP.stacks  = { sampled: 0, automationHits: 0, pptr: 0, playwright: 0, evalFrames: 0, extensionFrames: 0, uniquePatterns: [], recentFindings: [] };
+    CDP.eventSource = { total: 0, withCaps: 0, withoutCaps: 0, nullCapsTrusted: 0, composedPaths: [], tsDeltas: [], lastTs: 0 };
+    CDP.micro   = { activeField: null, fields: {}, allIntervals: [], lastKeyTime: 0, focusBetweenKeys: 0, totalKeys: 0 };
+    CDP.scripts = { items: [], pptr: 0, playwright: 0, eval: 0, dynamic: 0 };
+    CDP.perf    = { entries: [], inputDelays: [] };
+    CDP.arch    = { evidence: {}, chain: [], confidence: 0, details: [] };
+    updateCdpUI();
+};
+
+// ============================================================================
+// INIT
+// ============================================================================
+scanEnvironment();
+setupScriptMonitor();
+setupPerfObserver();
+setInterval(updateCdpUI, 1200);
+
+console.log('%c\uD83D\uDD2C CDP Research Extension Loaded', 'color: #f0883e; font-size: 14px; font-weight: bold');
+console.log('%cCollecting: env artifacts, stack traces, event source caps, keystroke micro-patterns, script injection, perf timing, architecture inference', 'color: #8b949e');
+console.log('%cRaw data: window.__cdpResearch', 'color: #58a6ff');
+
+})();
 </script>
 </body>
 </html>
