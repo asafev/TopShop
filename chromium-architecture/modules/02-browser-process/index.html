@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Module 2: The Browser Process</title>
+  <link rel="stylesheet" href="../../styles/main.css">
+</head>
+<body data-module="mod-02">
+<div class="page-wrapper">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h2>Phase 1</h2>
+      <span class="phase-badge">Chromium Architecture</span>
+      <div class="progress-bar"><div class="progress-fill" style="width:16%"></div></div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="../../index.html">← Hub</a></li>
+      <li><a href="../01-overview/index.html" data-module="mod-01"><span class="module-number browser">1</span> Multi-Process Overview</a></li>
+      <li><a href="index.html" class="active" data-module="mod-02"><span class="module-number browser">2</span> Browser Process</a></li>
+      <li><a href="../03-renderer-process/index.html" data-module="mod-03"><span class="module-number renderer">3</span> Renderer Process</a></li>
+      <li><a href="../04-gpu-utility/index.html" data-module="mod-04"><span class="module-number gpu">4</span> GPU &amp; Utility</a></li>
+      <li><a href="../05-mojo-ipc/index.html" data-module="mod-05"><span class="module-number mojo">5</span> Mojo IPC</a></li>
+      <li><a href="../06-site-isolation/index.html" data-module="mod-06"><span class="module-number isolation">6</span> Site Isolation</a></li>
+    </ul>
+  </nav>
+
+  <!-- Main -->
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../../index.html">Hub</a><span class="sep">/</span><span>Module 2</span>
+    </div>
+
+    <h1>Module 2 — The Browser Process</h1>
+    <p>The single most privileged process in Chrome. It manages all others, owns the UI, controls navigation, and enforces every security decision. Understanding it is key to understanding what JavaScript <em>cannot</em> do — and why Electron/Copilot behaves differently.</p>
+
+    <!-- Depth Selector -->
+    <div class="depth-selector">
+      <button class="depth-btn active" data-depth="0">🧅 Layer 0 — Analogy</button>
+      <button class="depth-btn" data-depth="1">📘 Layer 1 — Concept</button>
+      <button class="depth-btn" data-depth="2">🏗️ Layer 2 — Architecture</button>
+      <button class="depth-btn" data-depth="3">💻 Layer 3 — Source Code</button>
+      <button class="depth-btn" data-depth="4">🔍 Layer 4 — Detection Angle</button>
+    </div>
+
+    <!-- ===================== LAYER 0: ANALOGY ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>The CEO + Security Guard Analogy</h2>
+      <div class="card">
+        <p><strong>The browser process is the CEO and security guard of Chrome, rolled into one.</strong></p>
+        <p>It's the only process with <em>full system access</em>. It manages all other processes, handles the UI (address bar, tabs, bookmarks), and makes every security decision. No renderer can talk to the network, read a file, or open a new tab without asking the browser process first.</p>
+        <p>Think of it like an <strong>OS kernel</strong> managing user-space processes: the kernel has privilege, the apps are sandboxed. If a renderer goes rogue, the browser process kills it — just like an OS killing a misbehaving program.</p>
+      </div>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 360" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- CEO Office (Browser Process) -->
+          <rect x="200" y="10" width="400" height="100" rx="12" fill="#111827" stroke="#4A90D9" stroke-width="2.5"/>
+          <text x="400" y="40" text-anchor="middle" fill="#4A90D9" font-weight="700" font-size="16">🏢 BROWSER PROCESS</text>
+          <text x="400" y="62" text-anchor="middle" fill="#e6edf3" font-size="11">"The CEO + Security Guard"</text>
+          <text x="400" y="82" text-anchor="middle" fill="#8b949e" font-size="10">Full system access • Manages all processes • Makes security decisions</text>
+          <text x="400" y="100" text-anchor="middle" fill="#8b949e" font-size="10">Owns: UI, network, storage, permissions, cookies, passwords</text>
+
+          <!-- Requests arrows -->
+          <line x1="250" y1="110" x2="150" y2="170" stroke="#4A90D9" stroke-width="1.5" stroke-dasharray="4"/>
+          <line x1="400" y1="110" x2="400" y2="170" stroke="#4A90D9" stroke-width="1.5" stroke-dasharray="4"/>
+          <line x1="550" y1="110" x2="650" y2="170" stroke="#4A90D9" stroke-width="1.5" stroke-dasharray="4"/>
+
+          <!-- Labels on arrows -->
+          <text x="185" y="145" text-anchor="middle" fill="#58a6ff" font-size="9">"Can I fetch?"</text>
+          <text x="400" y="148" text-anchor="middle" fill="#58a6ff" font-size="9">"Navigate me"</text>
+          <text x="610" y="145" text-anchor="middle" fill="#58a6ff" font-size="9">"Set cookie?"</text>
+
+          <!-- Renderers (the employees) -->
+          <rect x="70" y="170" width="160" height="60" rx="8" fill="#1a1111" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="150" y="200" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="11">Renderer: Tab 1</text>
+          <text x="150" y="218" text-anchor="middle" fill="#8b949e" font-size="9">🔒 Sandboxed — no OS access</text>
+
+          <rect x="320" y="170" width="160" height="60" rx="8" fill="#1a1111" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="400" y="200" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="11">Renderer: Tab 2</text>
+          <text x="400" y="218" text-anchor="middle" fill="#8b949e" font-size="9">🔒 Sandboxed — no OS access</text>
+
+          <rect x="570" y="170" width="160" height="60" rx="8" fill="#1a1111" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="650" y="200" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="11">Renderer: Tab 3</text>
+          <text x="650" y="218" text-anchor="middle" fill="#8b949e" font-size="9">🔒 Sandboxed — no OS access</text>
+
+          <!-- Key insight -->
+          <rect x="120" y="270" width="560" height="70" rx="10" fill="rgba(74,144,217,0.08)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="400" y="295" text-anchor="middle" fill="#4A90D9" font-size="12" font-weight="600">Key Insight: Every cross-process action goes through the browser process.</text>
+          <text x="400" y="315" text-anchor="middle" fill="#8b949e" font-size="11">Renderers cannot access network, filesystem, cookies, or clipboard directly.</text>
+          <text x="400" y="332" text-anchor="middle" fill="#8b949e" font-size="11">In Electron (Copilot), the "browser process" is VS Code — different CEO, different rules.</text>
+        </svg>
+      </div>
+
+      <div class="info-box tip">
+        <span class="info-icon">🧪</span>
+        <div><strong>Try it:</strong> Open Chrome Task Manager (<code>Shift+Esc</code>). The "Browser" entry is always there and always has the lowest PID. It uses significant memory because it manages everything: UI, networking, storage, and the lifecycle of every other process.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 1: CONCEPT ===================== -->
+    <section class="onion-layer" data-depth="1">
+      <h2>Browser Process — The Privileged Core</h2>
+
+      <div class="card">
+        <h4 style="color:var(--browser-process)">⚡ Privileged — Not Sandboxed</h4>
+        <p>The browser process is the <strong>only</strong> Chrome process that runs without a sandbox. It has full access to the OS: filesystem, network sockets, clipboard, system APIs. This is by design — it needs these capabilities to manage everything else.</p>
+      </div>
+
+      <h3>Internal Threads</h3>
+      <p>The browser process isn't monolithic — it uses multiple threads to avoid blocking the UI:</p>
+
+      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:1rem; margin:1.5rem 0;">
+        <div class="card">
+          <h4 style="color:#4A90D9">🖥️ UI Thread (Main Thread)</h4>
+          <p style="font-size:0.88rem">The main thread. Handles user input (clicks, typing in omnibox), renders the browser chrome (tabs, bookmarks bar, settings pages), and orchestrates navigation decisions.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#1ABC9C">📡 IO Thread</h4>
+          <p style="font-size:0.88rem">Handles <strong>all IPC</strong> with child processes. Every Mojo message from every renderer, GPU process, and utility process arrives here first, then gets dispatched to the appropriate handler.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#F39C12">⚙️ ThreadPool (Workers)</h4>
+          <p style="font-size:0.88rem">Background work: file I/O, DNS prefetch, certificate verification, database operations. Prevents heavy work from blocking the UI or IO threads.</p>
+        </div>
+      </div>
+
+      <h3>Key Responsibilities</h3>
+      <table>
+        <thead><tr><th>Responsibility</th><th>What It Does</th><th>Key Class</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Process Management</strong></td>
+            <td>Spawns, monitors, kills renderer/GPU/utility processes</td>
+            <td><code>RenderProcessHost</code></td>
+          </tr>
+          <tr>
+            <td><strong>Navigation</strong></td>
+            <td>Decides which process handles a URL, creates/reuses processes</td>
+            <td><code>NavigationRequest</code></td>
+          </tr>
+          <tr>
+            <td><strong>Security Policy</strong></td>
+            <td>Tracks what each renderer is allowed to access (origins, URLs, file paths)</td>
+            <td><code>ChildProcessSecurityPolicy</code></td>
+          </tr>
+          <tr>
+            <td><strong>Frame Management</strong></td>
+            <td>Maintains the frame tree, manages one <code>RenderFrameHost</code> per document</td>
+            <td><code>RenderFrameHostImpl</code></td>
+          </tr>
+          <tr>
+            <td><strong>UI / Chrome</strong></td>
+            <td>Address bar, tabs, bookmarks, downloads, settings, chrome:// pages</td>
+            <td><code>BrowserView</code>, <code>TabStripModel</code></td>
+          </tr>
+          <tr>
+            <td><strong>Network Control</strong></td>
+            <td>Manages the Network Service (now in utility process, but browser controls it)</td>
+            <td><code>NetworkContext</code></td>
+          </tr>
+          <tr>
+            <td><strong>Storage</strong></td>
+            <td>Cookies, localStorage, IndexedDB, cache — all browser-controlled</td>
+            <td><code>StoragePartition</code></td>
+          </tr>
+          <tr>
+            <td><strong>Permissions</strong></td>
+            <td>Camera, mic, notifications, geolocation — browser decides, renderer asks</td>
+            <td><code>PermissionManager</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="info-box detection">
+        <span class="info-icon">🔬</span>
+        <div><strong>Detection relevance:</strong> Since the browser process populates <code>navigator.*</code> properties, controls permissions, and manages cookies — these are all IPC-sourced values in the renderer. In Electron (Copilot), the browser process is VS Code's main process, which provides <em>different</em> values than Chrome's browser process would. This is the root cause of most fingerprint differences.</div>
+      </div>
+
+      <h3>Process Management via RenderProcessHost</h3>
+      <p>The browser process maintains one <code>RenderProcessHost</code> object per renderer process. This is the browser-side handle that:</p>
+      <ul>
+        <li>Launches and monitors the renderer child process</li>
+        <li>Holds the Mojo IPC pipe to that renderer</li>
+        <li>Routes messages to the appropriate <code>RenderFrameHost</code></li>
+        <li>Detects crashes and triggers "Aw, Snap!" recovery</li>
+        <li>Enforces resource limits and can kill misbehaving renderers</li>
+      </ul>
+
+      <h3>Security Enforcement</h3>
+      <p>The <code>ChildProcessSecurityPolicy</code> is a singleton in the browser process that tracks permissions per renderer. When a renderer asks to access a URL, file, or origin, the browser process checks this policy first:</p>
+      <ul>
+        <li><code>CanAccessDataForOrigin(process_id, origin)</code> — can this renderer access data for this origin?</li>
+        <li><code>GrantCommitURL(process_id, url)</code> — allow this renderer to commit a navigation to this URL</li>
+        <li><code>CanReadFile(process_id, file_path)</code> — can this renderer read this file?</li>
+      </ul>
+      <p>If a compromised renderer tries to access data it shouldn't, the browser process <strong>kills it</strong> (bad message kill). This is a defense-in-depth measure.</p>
+
+      <h3>Navigation Control</h3>
+      <p>The browser process <em>owns</em> navigation. When you type a URL or click a link:</p>
+      <ol>
+        <li>The browser process receives the navigation request</li>
+        <li>It creates a <code>NavigationRequest</code> and determines which process should handle it</li>
+        <li>It may create a new renderer process (for a cross-site navigation)</li>
+        <li>It sends <code>CommitNavigation</code> to the chosen renderer</li>
+        <li>The renderer loads the document and reports back when done</li>
+      </ol>
+      <p>Renderers <strong>cannot navigate themselves</strong> to cross-site URLs without the browser process approving it first.</p>
+    </section>
+
+    <!-- ===================== LAYER 2: ARCHITECTURE ===================== -->
+    <section class="onion-layer" data-depth="2">
+      <h2>Architectural Deep Dive</h2>
+
+      <h3>Browser Process Internals</h3>
+      <div class="arch-diagram">
+        <svg viewBox="0 0 850 580" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Browser Process outer box -->
+          <rect x="20" y="10" width="810" height="300" rx="14" fill="#0d1117" stroke="#4A90D9" stroke-width="2.5"/>
+          <text x="425" y="35" text-anchor="middle" fill="#4A90D9" font-weight="700" font-size="15">BROWSER PROCESS (PID 1 — Unsandboxed)</text>
+
+          <!-- UI Thread -->
+          <rect x="40" y="50" width="240" height="120" rx="8" fill="rgba(74,144,217,0.08)" stroke="#4A90D9" stroke-width="1.5"/>
+          <text x="160" y="72" text-anchor="middle" fill="#4A90D9" font-weight="700" font-size="11">UI THREAD (Main)</text>
+          <rect x="55" y="82" width="95" height="24" rx="4" fill="rgba(74,144,217,0.15)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="102" y="98" text-anchor="middle" fill="#e6edf3" font-size="9">Omnibox</text>
+          <rect x="160" y="82" width="105" height="24" rx="4" fill="rgba(74,144,217,0.15)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="212" y="98" text-anchor="middle" fill="#e6edf3" font-size="9">TabStripModel</text>
+          <rect x="55" y="114" width="95" height="24" rx="4" fill="rgba(74,144,217,0.15)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="102" y="130" text-anchor="middle" fill="#e6edf3" font-size="9">NavigationCtrl</text>
+          <rect x="160" y="114" width="105" height="24" rx="4" fill="rgba(74,144,217,0.15)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="212" y="130" text-anchor="middle" fill="#e6edf3" font-size="9">PermissionMgr</text>
+          <rect x="55" y="146" width="210" height="18" rx="3" fill="rgba(74,144,217,0.06)"/>
+          <text x="160" y="159" text-anchor="middle" fill="#8b949e" font-size="8">chrome:// pages, bookmarks, downloads, settings</text>
+
+          <!-- IO Thread -->
+          <rect x="300" y="50" width="240" height="120" rx="8" fill="rgba(26,188,156,0.08)" stroke="#1ABC9C" stroke-width="1.5"/>
+          <text x="420" y="72" text-anchor="middle" fill="#1ABC9C" font-weight="700" font-size="11">IO THREAD</text>
+          <rect x="315" y="82" width="105" height="24" rx="4" fill="rgba(26,188,156,0.12)" stroke="#1ABC9C" stroke-width="1"/>
+          <text x="367" y="98" text-anchor="middle" fill="#e6edf3" font-size="9">IPC Dispatch</text>
+          <rect x="430" y="82" width="95" height="24" rx="4" fill="rgba(26,188,156,0.12)" stroke="#1ABC9C" stroke-width="1"/>
+          <text x="477" y="98" text-anchor="middle" fill="#e6edf3" font-size="9">Mojo Router</text>
+          <rect x="315" y="114" width="210" height="24" rx="4" fill="rgba(26,188,156,0.12)" stroke="#1ABC9C" stroke-width="1"/>
+          <text x="420" y="130" text-anchor="middle" fill="#e6edf3" font-size="9">Message dispatch to RenderProcessHost</text>
+
+          <!-- ThreadPool -->
+          <rect x="560" y="50" width="250" height="120" rx="8" fill="rgba(243,156,18,0.08)" stroke="#F39C12" stroke-width="1.5"/>
+          <text x="685" y="72" text-anchor="middle" fill="#F39C12" font-weight="700" font-size="11">THREAD POOL</text>
+          <rect x="575" y="82" width="75" height="24" rx="4" fill="rgba(243,156,18,0.12)" stroke="#F39C12" stroke-width="1"/>
+          <text x="612" y="98" text-anchor="middle" fill="#e6edf3" font-size="9">File I/O</text>
+          <rect x="660" y="82" width="65" height="24" rx="4" fill="rgba(243,156,18,0.12)" stroke="#F39C12" stroke-width="1"/>
+          <text x="692" y="98" text-anchor="middle" fill="#e6edf3" font-size="9">DNS</text>
+          <rect x="735" y="82" width="60" height="24" rx="4" fill="rgba(243,156,18,0.12)" stroke="#F39C12" stroke-width="1"/>
+          <text x="765" y="98" text-anchor="middle" fill="#e6edf3" font-size="9">Certs</text>
+          <rect x="575" y="114" width="220" height="24" rx="4" fill="rgba(243,156,18,0.12)" stroke="#F39C12" stroke-width="1"/>
+          <text x="685" y="130" text-anchor="middle" fill="#e6edf3" font-size="9">Database, Cache, Profile I/O</text>
+
+          <!-- RenderProcessHost objects -->
+          <rect x="40" y="185" width="380" height="55" rx="6" fill="rgba(74,144,217,0.05)" stroke="#4A90D9" stroke-width="1" stroke-dasharray="3"/>
+          <text x="230" y="203" text-anchor="middle" fill="#4A90D9" font-size="10" font-weight="600">RenderProcessHost objects (one per renderer process)</text>
+          <rect x="55" y="212" width="90" height="20" rx="3" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="100" y="226" text-anchor="middle" fill="#E74C3C" font-size="8">RPH #1</text>
+          <rect x="155" y="212" width="90" height="20" rx="3" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="200" y="226" text-anchor="middle" fill="#E74C3C" font-size="8">RPH #2</text>
+          <rect x="255" y="212" width="90" height="20" rx="3" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="300" y="226" text-anchor="middle" fill="#E74C3C" font-size="8">RPH #3</text>
+
+          <!-- RenderFrameHost objects -->
+          <rect x="440" y="185" width="370" height="55" rx="6" fill="rgba(74,144,217,0.05)" stroke="#4A90D9" stroke-width="1" stroke-dasharray="3"/>
+          <text x="625" y="203" text-anchor="middle" fill="#4A90D9" font-size="10" font-weight="600">RenderFrameHost objects (one per document)</text>
+          <rect x="455" y="212" width="80" height="20" rx="3" fill="rgba(155,89,182,0.15)" stroke="#9B59B6" stroke-width="1"/>
+          <text x="495" y="226" text-anchor="middle" fill="#9B59B6" font-size="8">RFH main</text>
+          <rect x="545" y="212" width="80" height="20" rx="3" fill="rgba(155,89,182,0.15)" stroke="#9B59B6" stroke-width="1"/>
+          <text x="585" y="226" text-anchor="middle" fill="#9B59B6" font-size="8">RFH iframe</text>
+          <rect x="635" y="212" width="80" height="20" rx="3" fill="rgba(155,89,182,0.15)" stroke="#9B59B6" stroke-width="1"/>
+          <text x="675" y="226" text-anchor="middle" fill="#9B59B6" font-size="8">RFH popup</text>
+
+          <!-- ChildProcessSecurityPolicy -->
+          <rect x="40" y="255" width="240" height="40" rx="6" fill="rgba(231,76,60,0.05)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="160" y="280" text-anchor="middle" fill="#E74C3C" font-size="9" font-weight="600">ChildProcessSecurityPolicy (singleton)</text>
+
+          <!-- NavigationRequest -->
+          <rect x="300" y="255" width="200" height="40" rx="6" fill="rgba(88,166,255,0.08)" stroke="#58a6ff" stroke-width="1"/>
+          <text x="400" y="280" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="600">NavigationRequest</text>
+
+          <!-- Network Service link -->
+          <rect x="520" y="255" width="200" height="40" rx="6" fill="rgba(26,188,156,0.08)" stroke="#1ABC9C" stroke-width="1"/>
+          <text x="620" y="280" text-anchor="middle" fill="#1ABC9C" font-size="9" font-weight="600">→ Network Service (utility proc)</text>
+
+          <!-- Mojo IPC arrows down to renderers -->
+          <line x1="100" y1="310" x2="100" y2="360" stroke="#9B59B6" stroke-width="2"/>
+          <line x1="300" y1="310" x2="300" y2="360" stroke="#9B59B6" stroke-width="2"/>
+          <line x1="500" y1="310" x2="500" y2="360" stroke="#9B59B6" stroke-width="2"/>
+          <line x1="700" y1="310" x2="700" y2="360" stroke="#9B59B6" stroke-width="2"/>
+          <text x="425" y="343" text-anchor="middle" fill="#9B59B6" font-size="10" font-weight="600">↓ Mojo IPC Pipes ↓</text>
+
+          <!-- Renderer processes -->
+          <rect x="30" y="365" width="170" height="70" rx="8" fill="#1a1111" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="115" y="390" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="10">Renderer: site-a.com</text>
+          <text x="115" y="408" text-anchor="middle" fill="#8b949e" font-size="8">RenderFrame + V8 + Blink</text>
+          <text x="115" y="424" text-anchor="middle" fill="#E74C3C" font-size="8" opacity="0.6">🔒 Sandboxed</text>
+
+          <rect x="220" y="365" width="170" height="70" rx="8" fill="#1a1111" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="305" y="390" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="10">Renderer: site-b.com</text>
+          <text x="305" y="408" text-anchor="middle" fill="#8b949e" font-size="8">RenderFrame + V8 + Blink</text>
+          <text x="305" y="424" text-anchor="middle" fill="#E74C3C" font-size="8" opacity="0.6">🔒 Sandboxed</text>
+
+          <rect x="410" y="365" width="170" height="70" rx="8" fill="#111a11" stroke="#2ECC71" stroke-width="1.5"/>
+          <text x="495" y="390" text-anchor="middle" fill="#2ECC71" font-weight="600" font-size="10">GPU Process</text>
+          <text x="495" y="408" text-anchor="middle" fill="#8b949e" font-size="8">Compositor + GL/Vulkan</text>
+          <text x="495" y="424" text-anchor="middle" fill="#2ECC71" font-size="8" opacity="0.6">Partial sandbox</text>
+
+          <rect x="600" y="365" width="170" height="70" rx="8" fill="#1a1a11" stroke="#F39C12" stroke-width="1.5"/>
+          <text x="685" y="390" text-anchor="middle" fill="#F39C12" font-weight="600" font-size="10">Utility: Network</text>
+          <text x="685" y="408" text-anchor="middle" fill="#8b949e" font-size="8">NetworkService, URLLoader</text>
+          <text x="685" y="424" text-anchor="middle" fill="#F39C12" font-size="8" opacity="0.6">🔒 Sandboxed</text>
+
+          <!-- Message flow annotation -->
+          <rect x="100" y="460" width="650" height="100" rx="10" fill="rgba(88,166,255,0.05)" stroke="#58a6ff" stroke-width="1"/>
+          <text x="425" y="482" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">Message Flow: Renderer → Browser Process</text>
+          <text x="425" y="502" text-anchor="middle" fill="#e6edf3" font-size="10">1. Renderer sends Mojo message (e.g., "navigate to URL")</text>
+          <text x="425" y="520" text-anchor="middle" fill="#e6edf3" font-size="10">2. IO Thread receives → dispatches to correct RenderProcessHost</text>
+          <text x="425" y="538" text-anchor="middle" fill="#e6edf3" font-size="10">3. RPH routes to RenderFrameHost → UI Thread handles the request</text>
+          <text x="425" y="556" text-anchor="middle" fill="#e6edf3" font-size="10">4. ChildProcessSecurityPolicy validates → action proceeds or process killed</text>
+        </svg>
+      </div>
+
+      <h3>Life of a Navigation (Simplified)</h3>
+      <div class="arch-diagram">
+        <svg viewBox="0 0 850 280" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Steps -->
+          <rect x="20" y="30" width="140" height="60" rx="8" fill="rgba(74,144,217,0.12)" stroke="#4A90D9" stroke-width="1.5"/>
+          <text x="90" y="55" text-anchor="middle" fill="#4A90D9" font-size="10" font-weight="600">1. URL Entered</text>
+          <text x="90" y="72" text-anchor="middle" fill="#8b949e" font-size="8">User types in omnibox</text>
+
+          <line x1="160" y1="60" x2="185" y2="60" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+          <rect x="190" y="30" width="140" height="60" rx="8" fill="rgba(74,144,217,0.12)" stroke="#4A90D9" stroke-width="1.5"/>
+          <text x="260" y="52" text-anchor="middle" fill="#4A90D9" font-size="10" font-weight="600">2. NavigationRequest</text>
+          <text x="260" y="68" text-anchor="middle" fill="#8b949e" font-size="8">Browser process creates</text>
+          <text x="260" y="82" text-anchor="middle" fill="#8b949e" font-size="8">request object</text>
+
+          <line x1="330" y1="60" x2="355" y2="60" stroke="#58a6ff" stroke-width="1.5"/>
+
+          <rect x="360" y="30" width="140" height="60" rx="8" fill="rgba(74,144,217,0.12)" stroke="#4A90D9" stroke-width="1.5"/>
+          <text x="430" y="52" text-anchor="middle" fill="#4A90D9" font-size="10" font-weight="600">3. Pick Process</text>
+          <text x="430" y="68" text-anchor="middle" fill="#8b949e" font-size="8">Same-site? Reuse.</text>
+          <text x="430" y="82" text-anchor="middle" fill="#8b949e" font-size="8">Cross-site? New process.</text>
+
+          <line x1="500" y1="60" x2="525" y2="60" stroke="#58a6ff" stroke-width="1.5"/>
+
+          <rect x="530" y="30" width="140" height="60" rx="8" fill="rgba(26,188,156,0.12)" stroke="#1ABC9C" stroke-width="1.5"/>
+          <text x="600" y="52" text-anchor="middle" fill="#1ABC9C" font-size="10" font-weight="600">4. Network Fetch</text>
+          <text x="600" y="68" text-anchor="middle" fill="#8b949e" font-size="8">Network Service fetches</text>
+          <text x="600" y="82" text-anchor="middle" fill="#8b949e" font-size="8">response headers</text>
+
+          <line x1="670" y1="60" x2="695" y2="60" stroke="#58a6ff" stroke-width="1.5"/>
+
+          <rect x="700" y="30" width="130" height="60" rx="8" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="765" y="52" text-anchor="middle" fill="#E74C3C" font-size="10" font-weight="600">5. Commit</text>
+          <text x="765" y="68" text-anchor="middle" fill="#8b949e" font-size="8">CommitNavigation sent</text>
+          <text x="765" y="82" text-anchor="middle" fill="#8b949e" font-size="8">to renderer process</text>
+
+          <!-- Second row -->
+          <rect x="200" y="130" width="180" height="60" rx="8" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="290" y="155" text-anchor="middle" fill="#E74C3C" font-size="10" font-weight="600">6. Renderer Loads Document</text>
+          <text x="290" y="172" text-anchor="middle" fill="#8b949e" font-size="8">Blink parses HTML, V8 runs JS</text>
+
+          <line x1="380" y1="160" x2="420" y2="160" stroke="#58a6ff" stroke-width="1.5"/>
+
+          <rect x="425" y="130" width="180" height="60" rx="8" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="515" y="155" text-anchor="middle" fill="#E74C3C" font-size="10" font-weight="600">7. DidCommitNavigation</text>
+          <text x="515" y="172" text-anchor="middle" fill="#8b949e" font-size="8">Renderer confirms to browser</text>
+
+          <!-- Arrow from step 5 down to step 6 -->
+          <path d="M 765 90 L 765 115 L 290 115 L 290 130" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="4"/>
+
+          <!-- Key insight box -->
+          <rect x="100" y="215" width="600" height="45" rx="8" fill="rgba(74,144,217,0.06)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="400" y="235" text-anchor="middle" fill="#4A90D9" font-size="11" font-weight="600">The browser process controls the ENTIRE navigation lifecycle.</text>
+          <text x="400" y="252" text-anchor="middle" fill="#8b949e" font-size="10">Renderers never fetch or navigate on their own — they ask and receive.</text>
+        </svg>
+      </div>
+
+      <h3>Key Architectural Patterns</h3>
+      <table>
+        <thead><tr><th>Pattern</th><th>Browser Process Role</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Gatekeeper</strong></td>
+            <td>All cross-process requests validated before execution</td>
+            <td>Renderer asks for cookie → browser checks SameSite policy</td>
+          </tr>
+          <tr>
+            <td><strong>Process Factory</strong></td>
+            <td>Creates/reuses renderer processes based on site</td>
+            <td>Cross-site link → new process; same-site → reuse</td>
+          </tr>
+          <tr>
+            <td><strong>Host/Proxy Split</strong></td>
+            <td>Browser holds "Host" object for every renderer "Impl" object</td>
+            <td><code>RenderFrameHost</code> ↔ <code>RenderFrameImpl</code></td>
+          </tr>
+          <tr>
+            <td><strong>Kill Switch</strong></td>
+            <td>Bad IPC message → browser kills the renderer immediately</td>
+            <td>Renderer claims to be google.com but isn't → killed</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="info-box tip">
+        <span class="info-icon">📐</span>
+        <div><strong>Design insight:</strong> The browser process never trusts the renderer. Every claim a renderer makes is validated. This is the "principle of least privilege" applied at the architecture level — and it means fingerprint values populated by the browser process are authoritative, not renderer-generated.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 3: SOURCE CODE ===================== -->
+    <section class="onion-layer" data-depth="3">
+      <h2>Source Code Map</h2>
+
+      <p>The browser process code lives primarily in <code>content/browser/</code> — the browser-side of Chromium's content module. Here are the most important files for understanding process management and security.</p>
+
+      <h3>Key File: RenderProcessHostImpl</h3>
+      <p>The browser-side manager for a single renderer process. Handles lifecycle, IPC, and security.</p>
+      <pre><code>// content/browser/renderer_host/render_process_host_impl.cc
+
+// Process creation: called when a new renderer is needed
+bool RenderProcessHostImpl::Init() {
+  // 1. Build the command line for the child process
+  std::unique_ptr&lt;base::CommandLine&gt; cmd_line = 
+      std::make_unique&lt;base::CommandLine&gt;(renderer_path);
+  cmd_line-&gt;AppendSwitchASCII(switches::kRendererProcess, "");
+  
+  // 2. Configure sandbox type
+  sandbox::policy::SandboxType sandbox_type = 
+      sandbox::policy::SandboxType::kRenderer;
+  
+  // 3. Create Mojo invitation for IPC
+  mojo::OutgoingInvitation invitation;
+  
+  // 4. Launch child process with sandbox
+  child_process_launcher_ = std::make_unique&lt;ChildProcessLauncher&gt;(
+      std::make_unique&lt;RendererSandboxedProcessLauncherDelegate&gt;(),
+      std::move(cmd_line),
+      GetID(),
+      this,  // delegate — notified on launch/crash
+      std::move(invitation));
+  
+  // 5. Register with ChildProcessSecurityPolicy
+  ChildProcessSecurityPolicyImpl::GetInstance()-&gt;Add(GetID(), ...);
+  
+  return true;
+}
+
+// When a renderer crashes or is killed
+void RenderProcessHostImpl::ProcessDied(
+    const ChildProcessTerminationInfo&amp; info) {
+  // Notify all RenderFrameHosts using this process
+  for (auto* frame_host : render_frame_hosts_) {
+    frame_host-&gt;RenderProcessGone(info.status, info.exit_code);
+    // → triggers "Aw, Snap!" page in the UI
+  }
+  // Cleanup Mojo pipes, release resources
+  ResetIPC();
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/renderer_host/render_process_host_impl.cc" target="_blank">content/browser/renderer_host/render_process_host_impl.cc</a></p>
+
+      <h3>Key File: RenderFrameHostImpl</h3>
+      <p>Browser-side representation of a single document/frame. Manages navigation commit, security origin, and feature policy.</p>
+      <pre><code>// content/browser/renderer_host/render_frame_host_impl.cc
+
+// When navigation commits — document is loaded in renderer
+void RenderFrameHostImpl::DidCommitNavigation(
+    NavigationRequest* navigation_request,
+    mojom::DidCommitProvisionalLoadParamsPtr params) {
+  // Update the security origin for this frame
+  SetOrigin(params-&gt;origin);
+  
+  // Grant the renderer access to this origin's data
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  policy-&gt;GrantCommitOrigin(GetProcess()-&gt;GetID(), GetLastCommittedOrigin());
+  
+  // Update the URL bar
+  frame_tree_node_-&gt;navigator().DidNavigate(this, *params);
+  
+  // Notify observers (extensions, DevTools, etc.)
+  delegate_-&gt;DidCommitNavigation(this, navigation_request);
+}
+
+// Permission check: can this frame access a given feature?
+bool RenderFrameHostImpl::IsFeatureEnabled(
+    blink::mojom::PermissionsPolicyFeature feature) {
+  // Check Permissions-Policy header + iframe allow attribute
+  return permissions_policy_-&gt;IsFeatureEnabledForOrigin(
+      feature, GetLastCommittedOrigin());
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/renderer_host/render_frame_host_impl.cc" target="_blank">content/browser/renderer_host/render_frame_host_impl.cc</a></p>
+
+      <h3>Key File: ChildProcessSecurityPolicyImpl</h3>
+      <p>The security brain of the browser process. Tracks what each renderer can access.</p>
+      <pre><code>// content/browser/child_process_security_policy_impl.cc
+
+// Core check: can this process access data for this origin?
+bool ChildProcessSecurityPolicyImpl::CanAccessDataForOrigin(
+    int child_id,
+    const url::Origin&amp; origin) {
+  base::AutoLock lock(lock_);
+  
+  auto it = security_state_.find(child_id);
+  if (it == security_state_.end())
+    return false;  // Unknown process → deny
+  
+  SecurityState* state = it-&gt;second.get();
+  
+  // Check if process is locked to a specific site
+  if (state-&gt;process_lock().IsASiteOrOrigin()) {
+    // Process is locked — only allow matching origins
+    return state-&gt;process_lock().IsCompatibleWithOrigin(origin);
+  }
+  
+  return true;  // Unlocked process can access anything
+}
+
+// Grant navigation commit — called after browser approves navigation
+void ChildProcessSecurityPolicyImpl::GrantCommitURL(
+    int child_id, const GURL&amp; url) {
+  // Allow renderer to commit this specific URL
+  // Without this grant, the renderer CANNOT load the URL
+  base::AutoLock lock(lock_);
+  auto it = security_state_.find(child_id);
+  if (it != security_state_.end()) {
+    it-&gt;second-&gt;GrantCommitURL(url);
+  }
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/child_process_security_policy_impl.cc" target="_blank">content/browser/child_process_security_policy_impl.cc</a></p>
+
+      <h3>Key File: NavigationRequest</h3>
+      <p>Represents a single navigation from start to commit. The browser process's navigation state machine.</p>
+      <pre><code>// content/browser/renderer_host/navigation_request.cc
+
+// Start the navigation — called when user enters URL or clicks link
+void NavigationRequest::BeginNavigation() {
+  // 1. Determine if cross-site or same-site
+  bool is_cross_site = !SiteInstance::IsSameSite(
+      source_site_instance, destination_url);
+  
+  // 2. If cross-site, pick or create a new process
+  if (is_cross_site) {
+    dest_site_instance = SiteInstance::CreateForURL(
+        browser_context, destination_url);
+    // This may spawn a new renderer process
+  }
+  
+  // 3. Start the network request via Network Service
+  url_loader_ = CreateURLLoader(destination_url, ...);
+  
+  // 4. When response arrives, commit to the renderer
+  // (happens in OnResponseReceived callback)
+}
+
+// Commit the navigation to the renderer
+void NavigationRequest::CommitNavigation() {
+  // Send the response body + security info to the renderer
+  render_frame_host_-&gt;CommitNavigation(
+      std::move(response_head_),
+      std::move(response_body_),
+      common_params_.url,
+      commit_params_);
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/renderer_host/navigation_request.cc" target="_blank">content/browser/renderer_host/navigation_request.cc</a></p>
+
+      <h3>Key File: BrowserMainLoop</h3>
+      <p>Browser process startup — creates threads and initializes all subsystems.</p>
+      <pre><code>// content/browser/browser_main_loop.cc
+
+// Main initialization sequence for the browser process
+int BrowserMainLoop::CreateThreads() {
+  // 1. Create the IO thread (handles all IPC)
+  io_thread_ = std::make_unique&lt;BrowserProcessIOThread&gt;();
+  io_thread_-&gt;StartWithOptions(io_thread_options);
+  
+  // 2. Create thread pool for background work
+  base::ThreadPoolInstance::Create("Browser");
+  base::ThreadPoolInstance::Get()-&gt;Start(thread_pool_init_params);
+  
+  // 3. UI thread is the current (main) thread — no need to create it
+  // All browser UI runs on this thread
+  
+  return RESULT_CODE_NORMAL_EXIT;
+}
+
+// After threads are created, initialize subsystems
+void BrowserMainLoop::BrowserThreadsStarted() {
+  // Start the Network Service
+  network_service_ = NetworkService::Create(...);
+  
+  // Initialize GPU process
+  gpu_process_host_ = GpuProcessHost::Get();
+  
+  // Start storage systems
+  storage_partition_-&gt;Initialize();
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/browser_main_loop.cc" target="_blank">content/browser/browser_main_loop.cc</a></p>
+
+      <h3>Diagnostic chrome:// Pages</h3>
+      <table>
+        <thead><tr><th>URL</th><th>What It Shows</th><th>Useful For</th></tr></thead>
+        <tbody>
+          <tr><td><code>chrome://process-internals</code></td><td>SiteInstance → process mapping</td><td>See which sites share processes</td></tr>
+          <tr><td><code>chrome://sandbox</code></td><td>Sandbox policy per process</td><td>Verify renderer is truly sandboxed</td></tr>
+          <tr><td><code>chrome://tracing</code></td><td>Full system trace</td><td>See IPC messages, thread activity, process launches</td></tr>
+          <tr><td><code>chrome://net-internals</code></td><td>Network service internals</td><td>DNS, sockets, HTTP/2 streams, QUIC connections</td></tr>
+          <tr><td><code>chrome://discards/graph</code></td><td>Process ↔ document graph</td><td>Visualize the frame tree across processes</td></tr>
+          <tr><td><code>chrome://gpu</code></td><td>GPU feature status</td><td>See what's hardware-accelerated</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== LAYER 4: DETECTION ANGLE ===================== -->
+    <section class="onion-layer" data-depth="4">
+      <h2>Detection Angle: Browser-Process-Controlled Signals</h2>
+
+      <div class="info-box detection">
+        <span class="info-icon">🎯</span>
+        <div>The browser process <strong>populates</strong> many values visible to JavaScript. In Electron (Copilot), the browser process is VS Code's main process — which populates different values than Chrome's browser process would. These differences are detectable.</div>
+      </div>
+
+      <h3>1. The <code>window.chrome</code> Object</h3>
+      <div class="card">
+        <p>In real Chrome, the browser process populates <code>window.chrome</code> with runtime APIs, diagnostics, and extension interfaces.</p>
+        <pre><code>// Real Chrome: window.chrome has many properties
+Object.getOwnPropertyNames(window.chrome);
+// → ["loadTimes", "csi", "runtime", "app", ...]
+
+// Electron (Copilot): window.chrome exists but is nearly empty
+Object.getOwnPropertyNames(window.chrome);
+// → [] or ["runtime"] with a stub
+
+// Detection: check own property count
+const chromeKeys = window.chrome 
+  ? Object.getOwnPropertyNames(window.chrome) 
+  : [];
+// Chrome: 3+ keys, Electron: 0-1 keys</code></pre>
+        <p><strong>Why:</strong> The browser process injects these via the <code>ChromeRenderFrameObserver</code> in the renderer. Electron's browser process doesn't run Chrome's frame observer — so the properties are missing.</p>
+      </div>
+
+      <h3>2. Permissions API Responses</h3>
+      <div class="card">
+        <p>The browser process is the sole decision-maker for permissions. It returns "granted", "denied", or "prompt" to the renderer via IPC.</p>
+        <pre><code>// Real Chrome: user-interactive — some "prompt", some "granted"
+await navigator.permissions.query({name: 'notifications'});
+// → "prompt" (user hasn't decided yet)
+
+// Electron (Copilot): non-interactive environment
+await navigator.permissions.query({name: 'notifications'});
+// → "granted" (Electron auto-grants for webview)
+
+// Key pattern: in Copilot, notifications="granted" but
+// geolocation, camera, microphone = "denied"
+// NEVER "prompt" — because there's no prompt UI</code></pre>
+        <p><strong>Why:</strong> Electron's browser process auto-resolves permissions without user interaction. Real Chrome returns "prompt" for unresolved permissions because it has a permission bubble UI.</p>
+      </div>
+
+      <h3>3. <code>navigator.userAgentData.brands</code></h3>
+      <div class="card">
+        <p>The browser process provides the brand list to the renderer via User-Agent Client Hints (IPC-populated).</p>
+        <pre><code>// Real Chrome: 3 brands
+navigator.userAgentData.brands;
+// → [{brand:"Not/A)Brand", version:"8"},
+//    {brand:"Chromium", version:"126"},
+//    {brand:"Google Chrome", version:"126"}]
+
+// Electron (Copilot): only 2 brands — no "Google Chrome"
+navigator.userAgentData.brands;
+// → [{brand:"Not/A)Brand", version:"8"},
+//    {brand:"Chromium", version:"126"}]
+
+// Detection: brand count and presence of "Google Chrome"
+const hasGoogleChrome = navigator.userAgentData?.brands
+  ?.some(b => b.brand === 'Google Chrome');
+// Chrome: true, Electron: false</code></pre>
+        <p><strong>Why:</strong> The brand list is compiled by the browser process at startup. Electron doesn't include "Google Chrome" because it's not Google Chrome — it's an Electron shell.</p>
+      </div>
+
+      <h3>4. Navigation Timing</h3>
+      <div class="card">
+        <p>The browser process controls <code>performance.timing</code> and <code>performance.navigation</code>. These reflect the real navigation flow managed by <code>NavigationRequest</code>.</p>
+        <pre><code>// Navigation type — set by browser process during navigation
+performance.navigation.type;
+// Regular navigation: 0 (TYPE_NAVIGATE)
+// Reload: 1 (TYPE_RELOAD)
+// Back/forward: 2 (TYPE_BACK_FORWARD)
+
+// In Electron/Copilot webviews, the initialization differs:
+// - fetchStart, connectStart may have unusual deltas
+// - redirectCount is always 0
+// - transferSize may be 0 (local content)
+const timing = performance.getEntriesByType('navigation')[0];
+console.log(timing.transferSize);  // Electron local: 0</code></pre>
+        <p><strong>Why:</strong> Electron loads content via custom protocols or local files. The browser process sets timing values differently because the navigation path is fundamentally different (no real network hop).</p>
+      </div>
+
+      <h3>5. Cookie Access Behavior</h3>
+      <div class="card">
+        <p>The browser process enforces cookie policy. When a renderer calls <code>document.cookie</code>, it's an IPC round-trip to the browser process.</p>
+        <pre><code>// Browser process controls:
+// - Which cookies are visible to which origins
+// - SameSite enforcement
+// - Secure-only enforcement  
+// - Partitioned cookie logic
+
+navigator.cookieEnabled;  // Browser process decides this
+
+// In Electron (Copilot):
+// - cookieEnabled is usually true
+// - But the cookie jar may be session-only (not persisted)
+// - Third-party cookie behavior differs from Chrome defaults</code></pre>
+      </div>
+
+      <h3>6. PDF Viewer & Plugins</h3>
+      <div class="card">
+        <p>The browser process registers PDF viewer and plugins, then makes them visible to the renderer.</p>
+        <pre><code>// Real Chrome: browser process registers PDF viewer
+navigator.pdfViewerEnabled;  // → true
+navigator.plugins.length;    // → 5 (PDF + internal plugins)
+
+// Electron (Copilot): no PDF viewer registered
+navigator.pdfViewerEnabled;  // → false (or undefined)
+navigator.plugins.length;    // → 0
+
+// Detection: combine PDF + plugin checks
+const hasPDFViewer = navigator.pdfViewerEnabled === true;
+const hasPlugins = navigator.plugins.length > 0;</code></pre>
+      </div>
+
+      <h3>Summary: Browser-Process-Controlled Detection Signals</h3>
+      <table>
+        <thead><tr><th>Signal</th><th>Chrome (Normal)</th><th>Electron (Copilot)</th><th>Root Cause</th></tr></thead>
+        <tbody>
+          <tr><td><code>window.chrome</code> own props</td><td>3+ keys</td><td>0-1 keys</td><td>Browser process doesn't inject Chrome APIs</td></tr>
+          <tr><td>Permissions "prompt"</td><td>Exists for unresolved</td><td>Never "prompt"</td><td>No permission UI in Electron</td></tr>
+          <tr><td>Brand count</td><td>3 brands</td><td>2 brands</td><td>No "Google Chrome" brand registered</td></tr>
+          <tr><td><code>navigator.plugins</code></td><td>5 plugins</td><td>0 plugins</td><td>No plugin registration in Electron</td></tr>
+          <tr><td><code>pdfViewerEnabled</code></td><td><code>true</code></td><td><code>false</code></td><td>No PDF viewer registered</td></tr>
+          <tr><td>Navigation timing</td><td>Real network deltas</td><td>Zero/local deltas</td><td>Different navigation path</td></tr>
+          <tr><td><code>cookieEnabled</code> + persistence</td><td>Persistent cookies</td><td>Session-only possible</td><td>Different cookie policy</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== LAB ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>🧪 Lab: Probe Browser-Process-Controlled Features</h2>
+
+      <div class="lab-container" id="lab-browser-process">
+        <div class="lab-header">
+          <span class="lab-icon">🔬</span>
+          <h4>Lab: Browser Process Signal Inspector</h4>
+        </div>
+        <div class="lab-body">
+          <div class="lab-instructions">
+            This lab probes features that the browser process controls and populates via IPC. Compare the output in Chrome vs Electron vs Copilot's Simple Browser.
+          </div>
+          <textarea class="lab-code-area" rows="32">// Probe features controlled by the browser process
+const bp = {};
+
+// 1. window.chrome object — populated by browser process
+bp.windowChromeOwnKeys = window.chrome ? Object.getOwnPropertyNames(window.chrome) : [];
+bp.hasRuntime = !!(window.chrome?.runtime);
+bp.hasCsi = !!(window.chrome?.csi);
+bp.hasLoadTimes = !!(window.chrome?.loadTimes);
+
+// 2. User-Agent Client Hints — brand list from browser process
+bp.brands = navigator.userAgentData?.brands?.map(
+  b => `${b.brand} v${b.version}`
+) || 'N/A';
+bp.brandCount = navigator.userAgentData?.brands?.length || 0;
+bp.hasGoogleChrome = navigator.userAgentData?.brands?.some(
+  b => b.brand === 'Google Chrome'
+) || false;
+
+// 3. Plugins & PDF — registered by browser process
+bp.pdfViewer = navigator.pdfViewerEnabled;
+bp.pluginCount = navigator.plugins.length;
+bp.plugins = Array.from(navigator.plugins).map(p => p.name);
+
+// 4. Cookie policy — browser process controls
+bp.cookieEnabled = navigator.cookieEnabled;
+bp.doNotTrack = navigator.doNotTrack;
+
+// 5. Permissions — browser process decides (async)
+if (navigator.permissions) {
+  const perms = ['notifications','geolocation','camera','microphone'];
+  for (const p of perms) {
+    try {
+      const result = await navigator.permissions.query({name: p});
+      bp['perm_'+p] = result.state;
+    } catch(e) { bp['perm_'+p] = 'error: '+e.message; }
+  }
+}
+
+// 6. Navigation timing — browser process sets these values
+const navEntry = performance.getEntriesByType('navigation')[0];
+if (navEntry) {
+  bp.navType = navEntry.type;
+  bp.redirectCount = navEntry.redirectCount;
+  bp.transferSize = navEntry.transferSize;
+  bp.fetchStart = navEntry.fetchStart.toFixed(2);
+}
+
+console.log(JSON.stringify(bp, null, 2));</textarea>
+          <button class="lab-btn" onclick="Lab.runAsync('lab-browser-process')">▶ Run</button>
+          <div class="lab-output"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Resources -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>📚 Resources</h2>
+      <ul class="resource-list">
+        <li><span class="resource-type doc">DOC</span><a href="https://www.chromium.org/developers/design-documents/multi-process-architecture/" target="_blank">Multi-Process Architecture — chromium.org</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://www.chromium.org/developers/design-documents/displaying-a-web-page-in-chrome/" target="_blank">Displaying a Web Page in Chrome</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/renderer_host/render_process_host_impl.cc" target="_blank">render_process_host_impl.cc</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/child_process_security_policy_impl.cc" target="_blank">child_process_security_policy_impl.cc</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/HEAD/docs/design/sandbox.md" target="_blank">Chromium Sandbox Design</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/renderer_host/navigation_request.cc" target="_blank">navigation_request.cc</a></li>
+      </ul>
+    </section>
+
+    <!-- Navigation -->
+    <div class="module-nav">
+      <a href="../01-overview/index.html" class="nav-prev"><span class="nav-label">← Previous</span> Module 1: Multi-Process Overview</a>
+      <a href="../03-renderer-process/index.html" class="nav-next">Module 3: Renderer Process <span class="nav-label">→</span></a>
+    </div>
+  </main>
+</div>
+<script src="../../js/core.js"></script>
+</body>
+</html>

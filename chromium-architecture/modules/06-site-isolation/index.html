@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Module 6: Site Isolation</title>
+  <link rel="stylesheet" href="../../styles/main.css">
+</head>
+<body data-module="mod-06">
+<div class="page-wrapper">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h2>Phase 1</h2>
+      <span class="phase-badge">Chromium Architecture</span>
+      <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="../../index.html">← Hub</a></li>
+      <li><a href="../01-overview/index.html" data-module="mod-01"><span class="module-number browser">1</span> Multi-Process Overview</a></li>
+      <li><a href="../02-browser-process/index.html" data-module="mod-02"><span class="module-number browser">2</span> Browser Process</a></li>
+      <li><a href="../03-renderer-process/index.html" data-module="mod-03"><span class="module-number renderer">3</span> Renderer Process</a></li>
+      <li><a href="../04-gpu-utility/index.html" data-module="mod-04"><span class="module-number gpu">4</span> GPU &amp; Utility</a></li>
+      <li><a href="../05-mojo-ipc/index.html" data-module="mod-05"><span class="module-number mojo">5</span> Mojo IPC</a></li>
+      <li><a href="index.html" class="active" data-module="mod-06"><span class="module-number isolation">6</span> Site Isolation</a></li>
+    </ul>
+  </nav>
+
+  <!-- Main -->
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../../index.html">Hub</a><span class="sep">/</span><span>Module 6</span>
+    </div>
+
+    <h1>Module 6 — Site Isolation</h1>
+    <p>Site Isolation is Chromium's strongest security boundary — one process per site. It defends against Spectre, compromised renderers, and cross-site data theft. Understanding it reveals how process assignment works and where detection probes can observe process boundaries.</p>
+
+    <!-- Depth Selector -->
+    <div class="depth-selector">
+      <button class="depth-btn active" data-depth="0">🧅 Layer 0 — Analogy</button>
+      <button class="depth-btn" data-depth="1">📘 Layer 1 — Concept</button>
+      <button class="depth-btn" data-depth="2">🏗️ Layer 2 — Architecture</button>
+      <button class="depth-btn" data-depth="3">💻 Layer 3 — Source Code</button>
+      <button class="depth-btn" data-depth="4">🔍 Layer 4 — Detection Angle</button>
+    </div>
+
+    <!-- ===================== LAYER 0: ANALOGY ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>The Apartment Building Analogy</h2>
+      <div class="card">
+        <p><strong>Imagine an apartment building where each apartment has its own door lock (Same Origin Policy).</strong></p>
+        <p>Before Site Isolation, all apartments shared the same hallway and a thief who picked one lock could peek into others. The locks (SOP) only worked if everyone played fair — a compromised renderer (thief with tools) could bypass them entirely.</p>
+        <p><strong>Site Isolation</strong> gives each apartment its own separate building with its own guard. Even if a thief breaks into one building, they can't reach others. There's no shared hallway to exploit.</p>
+        <p>This is what Chrome 67 introduced: <strong>one process per site</strong>.</p>
+      </div>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 380" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Title -->
+          <text x="400" y="25" text-anchor="middle" fill="#c9d1d9" font-weight="700" font-size="14">Before vs After Site Isolation</text>
+
+          <!-- BEFORE: Single building -->
+          <text x="190" y="55" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="12">BEFORE (shared process)</text>
+          <rect x="60" y="65" width="260" height="240" rx="10" fill="#1a1a1a" stroke="#555" stroke-width="2"/>
+          <text x="190" y="85" text-anchor="middle" fill="#8b949e" font-size="10">One Process — Shared Memory Space</text>
+
+          <!-- Apartments inside -->
+          <rect x="80" y="100" width="100" height="60" rx="6" fill="rgba(231,76,60,0.15)" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="130" y="125" text-anchor="middle" fill="#E74C3C" font-size="10" font-weight="600">site-a.com</text>
+          <text x="130" y="145" text-anchor="middle" fill="#8b949e" font-size="9">🔒 SOP lock</text>
+
+          <rect x="200" y="100" width="100" height="60" rx="6" fill="rgba(52,152,219,0.15)" stroke="#3498DB" stroke-width="1.5"/>
+          <text x="250" y="125" text-anchor="middle" fill="#3498DB" font-size="10" font-weight="600">bank.com</text>
+          <text x="250" y="145" text-anchor="middle" fill="#8b949e" font-size="9">🔒 SOP lock</text>
+
+          <rect x="80" y="180" width="100" height="60" rx="6" fill="rgba(46,204,113,0.15)" stroke="#2ECC71" stroke-width="1.5"/>
+          <text x="130" y="205" text-anchor="middle" fill="#2ECC71" font-size="10" font-weight="600">evil.com</text>
+          <text x="130" y="225" text-anchor="middle" fill="#8b949e" font-size="9">🔓 COMPROMISED</text>
+
+          <!-- Spectre arrow -->
+          <line x1="180" y1="200" x2="200" y2="130" stroke="#E74C3C" stroke-width="2" stroke-dasharray="4"/>
+          <text x="210" y="175" fill="#E74C3C" font-size="9" font-weight="600">Spectre!</text>
+          <text x="130" y="275" text-anchor="middle" fill="#E74C3C" font-size="10">💀 Can read bank data</text>
+          <text x="190" y="295" text-anchor="middle" fill="#8b949e" font-size="9">Same process = same memory</text>
+
+          <!-- AFTER: Separate buildings -->
+          <text x="600" y="55" text-anchor="middle" fill="#E67E22" font-weight="700" font-size="12">AFTER (site-per-process)</text>
+
+          <!-- Building 1 -->
+          <rect x="470" y="65" width="100" height="100" rx="8" fill="#1a1a1a" stroke="#E74C3C" stroke-width="2"/>
+          <text x="520" y="85" text-anchor="middle" fill="#E74C3C" font-size="9" font-weight="600">Process 1</text>
+          <rect x="485" y="95" width="70" height="50" rx="4" fill="rgba(231,76,60,0.15)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="520" y="118" text-anchor="middle" fill="#E74C3C" font-size="9">site-a.com</text>
+          <text x="520" y="133" text-anchor="middle" fill="#8b949e" font-size="8">🏠 Own building</text>
+
+          <!-- Building 2 -->
+          <rect x="590" y="65" width="100" height="100" rx="8" fill="#1a1a1a" stroke="#3498DB" stroke-width="2"/>
+          <text x="640" y="85" text-anchor="middle" fill="#3498DB" font-size="9" font-weight="600">Process 2</text>
+          <rect x="605" y="95" width="70" height="50" rx="4" fill="rgba(52,152,219,0.15)" stroke="#3498DB" stroke-width="1"/>
+          <text x="640" y="118" text-anchor="middle" fill="#3498DB" font-size="9">bank.com</text>
+          <text x="640" y="133" text-anchor="middle" fill="#8b949e" font-size="8">🏠 Own building</text>
+
+          <!-- Building 3 -->
+          <rect x="530" y="190" width="100" height="100" rx="8" fill="#1a1a1a" stroke="#2ECC71" stroke-width="2"/>
+          <text x="580" y="210" text-anchor="middle" fill="#2ECC71" font-size="9" font-weight="600">Process 3</text>
+          <rect x="545" y="220" width="70" height="50" rx="4" fill="rgba(46,204,113,0.15)" stroke="#2ECC71" stroke-width="1"/>
+          <text x="580" y="243" text-anchor="middle" fill="#2ECC71" font-size="9">evil.com</text>
+          <text x="580" y="258" text-anchor="middle" fill="#8b949e" font-size="8">🔓 Compromised</text>
+
+          <!-- Blocked arrow -->
+          <line x1="580" y1="220" x2="640" y2="145" stroke="#E67E22" stroke-width="2" stroke-dasharray="4"/>
+          <text x="630" y="185" fill="#E67E22" font-size="9" font-weight="600">✋ BLOCKED</text>
+
+          <!-- Result text -->
+          <text x="600" y="320" text-anchor="middle" fill="#E67E22" font-size="10" font-weight="600">✅ Can't read bank data</text>
+          <text x="600" y="338" text-anchor="middle" fill="#8b949e" font-size="9">Different process = different memory</text>
+
+          <!-- Bottom insight -->
+          <rect x="150" y="340" width="500" height="30" rx="8" fill="rgba(230,126,34,0.08)" stroke="#E67E22" stroke-width="1"/>
+          <text x="400" y="360" text-anchor="middle" fill="#E67E22" font-size="11" font-weight="600">Site Isolation: process boundaries enforce what SOP alone cannot</text>
+        </svg>
+      </div>
+
+      <div class="info-box tip">
+        <span class="info-icon">🧪</span>
+        <div><strong>Try it now:</strong> Open <code>chrome://process-internals/#web-contents</code> in Chrome. Navigate to a page with cross-site iframes (any page with third-party ads). You'll see each site in its own process with its own <strong>ProcessLock</strong>.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 1: CONCEPT ===================== -->
+    <section class="onion-layer" data-depth="1">
+      <h2>Site Isolation Fundamentals</h2>
+
+      <h3>The Problem</h3>
+      <div class="card">
+        <p>Before Site Isolation, cross-site iframes shared the renderer process with the parent page. A compromised renderer could access data from other sites in the same process.</p>
+        <p><strong>Spectre attacks</strong> (2018) made this urgent: Spectre can read <strong>ANY data in the same process</strong> via CPU speculative execution side channels. If cross-site data lives in the same process, it's already compromised — no exploit needed beyond JavaScript.</p>
+      </div>
+
+      <h3>The Solution</h3>
+      <div class="card">
+        <p>Give each <strong>site</strong> (scheme + eTLD+1, e.g., <code>https://example.com</code>) its own renderer process. No cross-site data ever coexists in the same address space.</p>
+      </div>
+
+      <h3>Site vs Origin</h3>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin:1.5rem 0;">
+        <div class="card">
+          <h4 style="color:#E67E22">Site (scheme + eTLD+1)</h4>
+          <ul style="font-size:0.88rem">
+            <li><code>https://a.example.com</code></li>
+            <li><code>https://b.example.com</code></li>
+            <li><code>https://example.com:8080</code></li>
+          </ul>
+          <p style="font-size:0.85rem;color:var(--text-secondary)">All same site — share a process. Ignores subdomains, port, path.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#3498DB">Origin (scheme + host + port)</h4>
+          <ul style="font-size:0.88rem">
+            <li><code>https://a.example.com</code></li>
+            <li><code>https://b.example.com</code> ← different origin!</li>
+            <li><code>https://example.com:8080</code> ← different origin!</li>
+          </ul>
+          <p style="font-size:0.85rem;color:var(--text-secondary)">All different origins. More granular but breaks <code>document.domain</code> compat.</p>
+        </div>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin:1.5rem 0;">
+        <div class="card">
+          <h4 style="color:#E67E22">SiteInstance</h4>
+          <p style="font-size:0.88rem">The core abstraction — a group of documents from the same site in the same browsing context group. All documents in a SiteInstance share a process.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#E67E22">Out-of-Process iFrames (OOPIF)</h4>
+          <p style="font-size:0.88rem">Cross-site iframes run in a different renderer process from their parent. Composited visually into the right location by the GPU process.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#E67E22">ProcessLock</h4>
+          <p style="font-size:0.88rem">Each renderer process is "locked" to a specific site. The browser process enforces this: the locked renderer can only access data for its site.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#E67E22">CORB / ORB</h4>
+          <p style="font-size:0.88rem">Cross-Origin Read Blocking: the browser process blocks sensitive cross-site data (HTML, XML, JSON) from being delivered to a renderer that shouldn't have it.</p>
+        </div>
+      </div>
+
+      <h3>Site Isolation Modes</h3>
+      <table>
+        <thead><tr><th>Mode</th><th>Platform</th><th>What's Isolated</th><th>Memory Impact</th></tr></thead>
+        <tbody>
+          <tr><td>Full (site-per-process)</td><td>Desktop</td><td>All sites</td><td>~10-13% more</td></tr>
+          <tr><td>Partial</td><td>Android (2GB+)</td><td>Login sites only</td><td>~3-5% more</td></tr>
+          <tr><td>None</td><td>Android (&lt;2GB), WebView, iOS</td><td>Nothing</td><td>Baseline</td></tr>
+        </tbody>
+      </table>
+
+      <div class="info-box detection">
+        <span class="info-icon">🔬</span>
+        <div><strong>Detection relevance:</strong> Site Isolation means cross-site iframes are in different processes. This creates measurable timing differences for postMessage communication — same-process messages are nearly instant, cross-process messages incur IPC latency. This timing side channel reveals process boundaries.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 2: ARCHITECTURE ===================== -->
+    <section class="onion-layer" data-depth="2">
+      <h2>Site Isolation Architecture</h2>
+
+      <h3>Process Assignment with OOPIFs</h3>
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Title -->
+          <text x="400" y="25" text-anchor="middle" fill="#c9d1d9" font-weight="700" font-size="14">Site Isolation: Cross-Site iFrames in Separate Processes</text>
+
+          <!-- Browser Process (center) -->
+          <rect x="290" y="45" width="220" height="70" rx="10" fill="#111827" stroke="#4A90D9" stroke-width="2"/>
+          <text x="400" y="72" text-anchor="middle" fill="#4A90D9" font-weight="700" font-size="12">BROWSER PROCESS</text>
+          <text x="400" y="90" text-anchor="middle" fill="#8b949e" font-size="9">Routes Mojo messages • Enforces ProcessLock</text>
+          <text x="400" y="103" text-anchor="middle" fill="#8b949e" font-size="9">CORB: blocks cross-site sensitive data</text>
+
+          <!-- Process 1 (site-a.com) -->
+          <rect x="40" y="170" width="300" height="200" rx="10" fill="#1a1a1a" stroke="#E74C3C" stroke-width="2"/>
+          <text x="190" y="195" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="12">PROCESS 1</text>
+          <rect x="55" y="200" width="120" height="20" rx="4" fill="rgba(231,76,60,0.3)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="115" y="214" text-anchor="middle" fill="#E74C3C" font-size="9" font-weight="600">🔒 Locked: site-a.com</text>
+
+          <!-- Main frame in Process 1 -->
+          <rect x="60" y="235" width="260" height="55" rx="6" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="190" y="255" text-anchor="middle" fill="#E74C3C" font-size="11" font-weight="600">Main Frame: site-a.com/page</text>
+          <text x="190" y="275" text-anchor="middle" fill="#8b949e" font-size="9">RenderFrameHost (main)</text>
+
+          <!-- Same-site iframe in Process 1 -->
+          <rect x="60" y="305" width="260" height="50" rx="6" fill="rgba(231,76,60,0.06)" stroke="#E74C3C" stroke-width="1" stroke-dasharray="3"/>
+          <text x="190" y="325" text-anchor="middle" fill="#E74C3C" font-size="10">iframe: sub.site-a.com/widget</text>
+          <text x="190" y="342" text-anchor="middle" fill="#8b949e" font-size="9">Same site → same process ✓</text>
+
+          <!-- Process 2 (site-b.com) -->
+          <rect x="460" y="170" width="300" height="200" rx="10" fill="#1a1a1a" stroke="#3498DB" stroke-width="2"/>
+          <text x="610" y="195" text-anchor="middle" fill="#3498DB" font-weight="700" font-size="12">PROCESS 2</text>
+          <rect x="475" y="200" width="120" height="20" rx="4" fill="rgba(52,152,219,0.3)" stroke="#3498DB" stroke-width="1"/>
+          <text x="535" y="214" text-anchor="middle" fill="#3498DB" font-size="9" font-weight="600">🔒 Locked: site-b.com</text>
+
+          <!-- OOPIF in Process 2 -->
+          <rect x="480" y="245" width="260" height="55" rx="6" fill="rgba(52,152,219,0.1)" stroke="#3498DB" stroke-width="1.5"/>
+          <text x="610" y="265" text-anchor="middle" fill="#3498DB" font-size="11" font-weight="600">OOPIF: site-b.com/embed</text>
+          <text x="610" y="285" text-anchor="middle" fill="#8b949e" font-size="9">RenderFrameHost (cross-site iframe)</text>
+
+          <!-- Visual compositing note -->
+          <rect x="480" y="315" width="260" height="40" rx="6" fill="rgba(52,152,219,0.05)" stroke="#3498DB" stroke-width="1" stroke-dasharray="3"/>
+          <text x="610" y="333" text-anchor="middle" fill="#3498DB" font-size="9">Renders to texture → GPU composites</text>
+          <text x="610" y="347" text-anchor="middle" fill="#8b949e" font-size="8">into correct position in Process 1's page</text>
+
+          <!-- Mojo messages between browser and processes -->
+          <line x1="340" y1="115" x2="190" y2="170" stroke="#E67E22" stroke-width="1.5" stroke-dasharray="4">
+            <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="2s" repeatCount="indefinite"/>
+          </line>
+          <line x1="460" y1="115" x2="610" y2="170" stroke="#E67E22" stroke-width="1.5" stroke-dasharray="4">
+            <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="2s" repeatCount="indefinite"/>
+          </line>
+          <text x="400" y="150" text-anchor="middle" fill="#E67E22" font-size="9">Mojo IPC (routed via browser)</text>
+
+          <!-- CORB block -->
+          <rect x="290" y="395" width="220" height="45" rx="8" fill="rgba(230,126,34,0.08)" stroke="#E67E22" stroke-width="1.5"/>
+          <text x="400" y="415" text-anchor="middle" fill="#E67E22" font-size="10" font-weight="600">CORB: HTML response for site-a.com</text>
+          <text x="400" y="430" text-anchor="middle" fill="#E67E22" font-size="9">→ blocked from reaching Process 2 ✋</text>
+
+          <!-- Bottom note -->
+          <rect x="150" y="460" width="500" height="30" rx="8" fill="rgba(230,126,34,0.08)" stroke="#E67E22" stroke-width="1"/>
+          <text x="400" y="480" text-anchor="middle" fill="#E67E22" font-size="11" font-weight="600">postMessage between Process 1 ↔ Process 2 incurs measurable IPC latency</text>
+        </svg>
+      </div>
+
+      <h3>Key Abstraction Relationships</h3>
+      <div class="card">
+        <pre><code>BrowsingInstance (browsing context group)
+  └── SiteInstance (one per site per BrowsingInstance)
+        └── RenderProcessHost (one per SiteInstance, may be shared)
+              └── RenderFrameHost (one per document)</code></pre>
+        <p style="font-size:0.88rem;color:var(--text-secondary);margin-top:0.8rem">A <strong>BrowsingInstance</strong> groups all tabs/frames that can script each other (same browsing context group). Each <strong>SiteInstance</strong> within it represents one site and maps to exactly one process. A <strong>RenderFrameHost</strong> represents a single document within that process.</p>
+      </div>
+
+      <h3>Navigation Flow with Site Isolation</h3>
+      <div class="card">
+        <ol style="font-size:0.9rem; line-height:1.8;">
+          <li>User clicks link from <code>site-a.com</code> to <code>site-b.com</code></li>
+          <li>Browser creates <code>NavigationRequest</code></li>
+          <li>Browser checks: <code>site-b.com</code> needs different process (different site)</li>
+          <li>Browser creates or reuses process locked to <code>site-b.com</code></li>
+          <li>Old renderer process unloads document, new process loads it</li>
+          <li>Browser commits navigation to new renderer → <strong>cross-process navigation complete</strong></li>
+        </ol>
+        <p style="font-size:0.85rem;color:var(--text-secondary)">This is called a "process swap" — the browser replaces the <code>RenderFrameHost</code> for the frame with one in the correct process. The old one may be cached in the Back-Forward Cache.</p>
+      </div>
+
+      <h3>OOPIF Visual Compositing</h3>
+      <div class="card">
+        <p>When a cross-site iframe renders in a different process, it doesn't have access to the parent's compositor surface. Instead:</p>
+        <ol style="font-size:0.9rem;">
+          <li>The OOPIF renderer composites its frame content into a <strong>Surface</strong></li>
+          <li>The Surface ID is sent to the parent renderer via the browser process</li>
+          <li>The parent renderer embeds the Surface ID at the correct position in its own compositor tree</li>
+          <li>The <strong>Viz/GPU process</strong> composites both surfaces together for final display</li>
+        </ol>
+        <p style="font-size:0.85rem;color:var(--text-secondary)">This is why OOPIF rendering has slightly different paint timing characteristics — observable via <code>PerformanceObserver</code>.</p>
+      </div>
+
+      <div class="info-box tip">
+        <span class="info-icon">⚡</span>
+        <div><strong>Performance cost:</strong> Site Isolation uses ~10-13% more memory on desktop due to additional renderer processes. Each process has its own V8 heap, Blink instance, and compositor. Google considered this acceptable given the security benefit against Spectre.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 3: SOURCE CODE ===================== -->
+    <section class="onion-layer" data-depth="3">
+      <h2>Source Code Walkthrough</h2>
+
+      <h3>Key Source Files</h3>
+      <table>
+        <thead><tr><th>File</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>content/browser/site_instance_impl.cc</code></td><td>SiteInstance implementation — core process assignment logic</td></tr>
+          <tr><td><code>content/browser/site_info.h</code></td><td>SiteInfo — the security principal (scheme + eTLD+1)</td></tr>
+          <tr><td><code>content/browser/browsing_instance.h</code></td><td>BrowsingInstance — browsing context group</td></tr>
+          <tr><td><code>content/browser/process_lock.h</code></td><td>ProcessLock — restricts what a process can access</td></tr>
+          <tr><td><code>content/browser/child_process_security_policy_impl.cc</code></td><td>CanAccessDataForOrigin() enforcement</td></tr>
+          <tr><td><code>content/browser/renderer_host/render_frame_host_impl.cc</code></td><td>Frame hosting, cross-process swaps</td></tr>
+          <tr><td><code>services/network/cross_origin_read_blocking_explainer.md</code></td><td>CORB explanation</td></tr>
+        </tbody>
+      </table>
+
+      <h3>ProcessLock Enforcement</h3>
+      <div class="card">
+        <p>The browser process enforces that a locked renderer can only access data for its assigned site:</p>
+        <pre><code>// content/browser/child_process_security_policy_impl.cc
+bool ChildProcessSecurityPolicyImpl::CanAccessDataForOrigin(
+    int child_id, const url::Origin&amp; origin) {
+  auto* process_lock = GetProcessLock(child_id);
+  if (!process_lock || process_lock-&gt;is_invalid())
+    return true;  // unlocked process — can access anything
+
+  // Check if this origin matches the process's lock
+  SiteInfo site_info = SiteInfo::CreateOnIOThread(origin);
+  return process_lock-&gt;IsCompatibleWithSiteInfo(site_info);
+  // If false → browser blocks the request!
+  // This prevents compromised renderers from stealing cross-site data
+}</code></pre>
+        <p style="font-size:0.85rem;color:var(--text-secondary)">This is the critical check — even if a renderer is fully compromised (arbitrary code execution), it cannot request data for a different site. The browser process will refuse.</p>
+      </div>
+
+      <h3>SiteInstance Determination</h3>
+      <div class="card">
+        <p>When navigating, the browser determines which SiteInstance (and thus process) a URL belongs to:</p>
+        <pre><code>// content/browser/site_instance_impl.cc
+// Determine which SiteInstance (and thus which process) a URL belongs to
+scoped_refptr&lt;SiteInstanceImpl&gt; SiteInstanceImpl::GetRelatedSiteInstance(
+    const GURL&amp; url) {
+  // Same site? Reuse this SiteInstance (same process)
+  // Different site? Find or create a new SiteInstance in this BrowsingInstance
+  // Different BrowsingInstance? Create completely new SiteInstance
+}</code></pre>
+      </div>
+
+      <h3>Chrome Diagnostic URLs</h3>
+      <div class="card">
+        <ul style="font-size:0.9rem; line-height:2;">
+          <li><code>chrome://process-internals/#web-contents</code> — See SiteInstance → process mapping live</li>
+          <li><code>chrome://discards/graph</code> — Visual process graph showing all frames and their processes</li>
+          <li><code>--site-per-process</code> — Command line flag to force all sites isolated (default on desktop)</li>
+          <li><code>--isolate-origins=https://example.com</code> — Isolate specific origins (more granular than site)</li>
+        </ul>
+      </div>
+
+      <div class="info-box warning">
+        <span class="info-icon">⚠️</span>
+        <div><strong>Important:</strong> Site Isolation is enforced by the <strong>browser process</strong>, not the renderer. A compromised renderer cannot bypass it because the ProcessLock check happens in a separate, privileged process. This is the fundamental security property — the browser process is the trusted computing base.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 4: DETECTION ANGLE ===================== -->
+    <section class="onion-layer" data-depth="4">
+      <h2>Detection Implications</h2>
+
+      <div class="card">
+        <h4 style="color:#E67E22">1. OOPIF Timing Side Channel</h4>
+        <p>Cross-site iframes in different processes have measurably different <code>postMessage</code> latency compared to same-site iframes (same process). Same-process messages are near-instant (shared memory queue), while cross-process messages require Mojo IPC round-trips through the browser process.</p>
+        <p>This timing difference can reveal process isolation state and detect if site isolation is enabled or disabled (e.g., in WebView or Electron).</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:#E67E22">2. SharedArrayBuffer Availability</h4>
+        <p><code>SharedArrayBuffer</code> is only available in <strong>CrossOriginIsolated</strong> contexts (pages served with COOP + COEP headers). Its presence or absence reveals the page's isolation configuration.</p>
+        <p>Automated environments may serve different headers, revealing their nature.</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:#E67E22">3. performance.measureUserAgentSpecificMemory()</h4>
+        <p>Returns memory breakdown per origin — only available with cross-origin isolation. Can reveal process structure and the number of separate origins loaded in the page's agent cluster.</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:#E67E22">4. Cross-Origin Opener Policy (COOP)</h4>
+        <p>Affects <code>window.opener</code> behavior and process isolation. COOP: same-origin severs the opener relationship for cross-origin popups, which affects detection probes that rely on opener references.</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:#E67E22">5. Electron / VS Code Differences</h4>
+        <p>VS Code's Electron may not enforce full site isolation. SiteInstance grouping may differ. <code>webPreferences.contextIsolation</code> and <code>nodeIntegration</code> settings affect how cross-origin resources behave — creating detectable differences from standard Chrome.</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:#E67E22">6. document.domain Behavior</h4>
+        <p><code>document.domain</code> assignment reveals whether origin-keyed agent clusters are enforced. In origin-keyed mode (new default), setting <code>document.domain</code> has no effect and cross-subdomain scripting is blocked — a behavioral difference that can be probed.</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:#E67E22">7. Frame Timing Attacks</h4>
+        <p>OOPIF vs same-process iframe have different layout/paint timing characteristics. Cross-process frames must go through Surface composition, adding latency observable via <code>PerformanceObserver</code> with <code>entryTypes: ['paint', 'layout-shift']</code>.</p>
+      </div>
+
+      <table>
+        <thead><tr><th>Detection Vector</th><th>What It Reveals</th></tr></thead>
+        <tbody>
+          <tr><td>postMessage latency (same vs cross origin)</td><td>Process boundaries, site isolation state</td></tr>
+          <tr><td>SharedArrayBuffer availability</td><td>Cross-origin isolation mode, header config</td></tr>
+          <tr><td>measureUserAgentSpecificMemory()</td><td>Process structure, origin grouping</td></tr>
+          <tr><td>window.opener behavior</td><td>COOP enforcement, process model</td></tr>
+          <tr><td>document.domain effect</td><td>Origin-keyed agent clusters</td></tr>
+          <tr><td>Frame paint timing differences</td><td>OOPIF compositing overhead</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== LAB 1 ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>🧪 Lab: Site Isolation Probe</h2>
+
+      <div class="lab-container" id="lab-site-isolation">
+        <div class="lab-header">
+          <span class="lab-icon">🔬</span>
+          <h4>Lab: Probe Site Isolation State</h4>
+        </div>
+        <div class="lab-body">
+          <div class="lab-instructions">
+            This lab probes the current page's isolation state — cross-origin isolation, SharedArrayBuffer availability, memory measurement APIs, and frame configuration. Compare results between normal Chrome, Electron, and Playwright-controlled browsers.
+          </div>
+          <textarea class="lab-code-area" rows="32">// Site Isolation Probe — Detect isolation state and process boundaries
+const iso = {};
+
+// 1. CrossOriginIsolated status
+iso.crossOriginIsolated = window.crossOriginIsolated;
+
+// 2. SharedArrayBuffer availability (requires COI)
+iso.hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
+
+// 3. Can we measure memory per-origin?
+iso.hasMemoryMeasurement = typeof performance.measureUserAgentSpecificMemory === 'function';
+
+// 4. Document domain
+iso.documentDomain = document.domain;
+iso.origin = window.origin;
+iso.location = window.location.origin;
+
+// 5. Try to detect COOP
+iso.openerExists = window.opener !== null;
+iso.windowName = window.name || '(empty)';
+
+// 6. Frame isolation hints
+iso.frameCount = window.frames.length;
+iso.isTopFrame = window === window.top;
+iso.parentOrigin = (() => {
+  try { return window.parent.origin; } catch(e) { return 'cross-origin (blocked)'; }
+})();
+
+// 7. Headers that affect isolation
+iso.note = 'Check Response Headers for: Cross-Origin-Opener-Policy, Cross-Origin-Embedder-Policy, Cross-Origin-Resource-Policy';
+
+console.log('Site Isolation Probe Results:');
+console.log(JSON.stringify(iso, null, 2));</textarea>
+          <button class="lab-btn" onclick="Lab.run('lab-site-isolation')">▶ Run</button>
+          <div class="lab-output"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== LAB 2 ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>🧪 Lab: Cross-Origin Timing</h2>
+
+      <div class="lab-container" id="lab-cross-origin-timing">
+        <div class="lab-header">
+          <span class="lab-icon">🔬</span>
+          <h4>Lab: postMessage Latency — Same-Origin (Same Process)</h4>
+        </div>
+        <div class="lab-body">
+          <div class="lab-instructions">
+            This lab creates a same-origin iframe (using srcdoc) and measures postMessage round-trip time. Since same-origin iframes share a process, latency is very low (~0.1-0.5ms). A cross-site iframe (different process) would be 2-10× slower due to Mojo IPC overhead. This timing difference reveals Site Isolation process boundaries.
+          </div>
+          <textarea class="lab-code-area" rows="36">// Cross-Origin Timing Lab — Measure postMessage round-trip latency
+// Same-origin iframe = same process (fast)
+// Cross-site iframe = different process (slower — Mojo IPC overhead)
+
+// Create same-origin iframe and measure postMessage latency
+const iframe = document.createElement('iframe');
+iframe.srcdoc = `<script>
+  window.addEventListener('message', e => {
+    e.source.postMessage({type:'pong', ts: performance.now()}, '*');
+  });
+<\/script>`;
+document.body.appendChild(iframe);
+
+await new Promise(r => setTimeout(r, 500)); // wait for iframe load
+
+const times = [];
+for (let i = 0; i < 20; i++) {
+  const start = performance.now();
+  iframe.contentWindow.postMessage({type:'ping'}, '*');
+  await new Promise(resolve => {
+    window.addEventListener('message', function handler(e) {
+      if (e.data?.type === 'pong') {
+        window.removeEventListener('message', handler);
+        resolve();
+      }
+    });
+  });
+  times.push(performance.now() - start);
+}
+
+const avg = (times.reduce((a,b) => a+b, 0) / times.length).toFixed(3);
+const min = Math.min(...times).toFixed(3);
+const max = Math.max(...times).toFixed(3);
+
+document.body.removeChild(iframe);
+
+console.log('Same-origin postMessage round-trip (same process):');
+console.log('  Average: ' + avg + ' ms');
+console.log('  Min: ' + min + ' ms, Max: ' + max + ' ms');
+console.log('');
+console.log('Cross-origin iframe (different process) would be ~2-10x slower');
+console.log('This timing difference reveals Site Isolation process boundaries');</textarea>
+          <button class="lab-btn" onclick="Lab.runAsync('lab-cross-origin-timing')">▶ Run</button>
+          <div class="lab-output"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Resources -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>📚 Resources</h2>
+      <ul class="resource-list">
+        <li><span class="resource-type doc">DOC</span><a href="https://www.chromium.org/Home/chromium-security/site-isolation/" target="_blank">Site Isolation Overview — chromium.org</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://www.chromium.org/developers/design-documents/site-isolation/" target="_blank">Site Isolation Design Document</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/main/docs/process_model_and_site_isolation.md" target="_blank">Process Model and Site Isolation — Chromium docs</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/site_instance_impl.cc" target="_blank">site_instance_impl.cc — source.chromium.org</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/process_lock.h" target="_blank">process_lock.h — source.chromium.org</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://www.usenix.org/conference/usenixsecurity19/presentation/reis" target="_blank">Site Isolation: Process Separation for Web Sites (USENIX 2019)</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://youtu.be/2Ds_RIACLbk" target="_blank">Chrome's Process Model and Site Isolation (video)</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://web.dev/origin-agent-cluster" target="_blank">Origin-Agent-Cluster header — web.dev</a></li>
+      </ul>
+    </section>
+
+    <!-- Navigation -->
+    <div class="module-nav">
+      <a href="../05-mojo-ipc/index.html" class="nav-prev"><span class="nav-label">← Prev</span> Module 5: Mojo IPC</a>
+      <a href="../../index.html" class="nav-next">Back to Hub <span class="nav-label">→</span></a>
+    </div>
+  </main>
+</div>
+<script src="../../js/core.js"></script>
+</body>
+</html>

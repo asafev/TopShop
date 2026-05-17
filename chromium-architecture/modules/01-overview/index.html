@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Module 1: Multi-Process Architecture Overview</title>
+  <link rel="stylesheet" href="../../styles/main.css">
+</head>
+<body data-module="mod-01">
+<div class="page-wrapper">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h2>Phase 1</h2>
+      <span class="phase-badge">Chromium Architecture</span>
+      <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="../../index.html">← Hub</a></li>
+      <li><a href="index.html" class="active" data-module="mod-01"><span class="module-number browser">1</span> Multi-Process Overview</a></li>
+      <li><a href="../02-browser-process/index.html" data-module="mod-02"><span class="module-number browser">2</span> Browser Process</a></li>
+      <li><a href="../03-renderer-process/index.html" data-module="mod-03"><span class="module-number renderer">3</span> Renderer Process</a></li>
+      <li><a href="../04-gpu-utility/index.html" data-module="mod-04"><span class="module-number gpu">4</span> GPU &amp; Utility</a></li>
+      <li><a href="../05-mojo-ipc/index.html" data-module="mod-05"><span class="module-number mojo">5</span> Mojo IPC</a></li>
+      <li><a href="../06-site-isolation/index.html" data-module="mod-06"><span class="module-number isolation">6</span> Site Isolation</a></li>
+    </ul>
+  </nav>
+
+  <!-- Main -->
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../../index.html">Hub</a><span class="sep">/</span><span>Module 1</span>
+    </div>
+
+    <h1>Module 1 — Multi-Process Architecture Overview</h1>
+    <p>Why does Chromium use multiple OS processes? What are they? How do they relate to each other? This module is the foundation for everything that follows.</p>
+
+    <!-- Depth Selector -->
+    <div class="depth-selector">
+      <button class="depth-btn active" data-depth="0">🧅 Layer 0 — Analogy</button>
+      <button class="depth-btn" data-depth="1">📘 Layer 1 — Concept</button>
+      <button class="depth-btn" data-depth="2">🏗️ Layer 2 — Architecture</button>
+      <button class="depth-btn" data-depth="3">💻 Layer 3 — Source Code</button>
+      <button class="depth-btn" data-depth="4">🔍 Layer 4 — Detection Angle</button>
+    </div>
+
+    <!-- ===================== LAYER 0: ANALOGY ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>The Operating System Analogy</h2>
+      <div class="card">
+        <p><strong>Think of Chrome as a mini operating system.</strong></p>
+        <p>In the early days, browsers were like single-tasked DOS: one misbehaving page could crash everything. Chrome's design mirrors a modern OS where each application (web page) runs in its own isolated process.</p>
+      </div>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Browser Process = OS Kernel -->
+          <rect x="250" y="10" width="300" height="60" rx="10" fill="#1a2744" stroke="#4A90D9" stroke-width="2"/>
+          <text x="400" y="46" text-anchor="middle" fill="#4A90D9" font-weight="700" font-size="15">BROWSER PROCESS</text>
+          <text x="400" y="80" text-anchor="middle" fill="#8b949e" font-size="11">"The OS Kernel" — controls everything</text>
+
+          <!-- Renderer Processes = User Apps -->
+          <rect x="30" y="140" width="160" height="55" rx="8" fill="#2a1a1a" stroke="#E74C3C" stroke-width="2"/>
+          <text x="110" y="172" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="12">Renderer: Tab 1</text>
+          <rect x="220" y="140" width="160" height="55" rx="8" fill="#2a1a1a" stroke="#E74C3C" stroke-width="2"/>
+          <text x="300" y="172" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="12">Renderer: Tab 2</text>
+          <rect x="410" y="140" width="160" height="55" rx="8" fill="#2a1a1a" stroke="#E74C3C" stroke-width="2"/>
+          <text x="490" y="172" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="12">Renderer: Tab 3</text>
+
+          <!-- GPU Process -->
+          <rect x="610" y="140" width="160" height="55" rx="8" fill="#1a2a1a" stroke="#2ECC71" stroke-width="2"/>
+          <text x="690" y="172" text-anchor="middle" fill="#2ECC71" font-weight="600" font-size="12">GPU Process</text>
+
+          <!-- Arrows -->
+          <line x1="350" y1="70" x2="110" y2="140" stroke="#30363d" stroke-width="1.5" stroke-dasharray="4"/>
+          <line x1="400" y1="70" x2="300" y2="140" stroke="#30363d" stroke-width="1.5" stroke-dasharray="4"/>
+          <line x1="450" y1="70" x2="490" y2="140" stroke="#30363d" stroke-width="1.5" stroke-dasharray="4"/>
+          <line x1="500" y1="70" x2="690" y2="140" stroke="#30363d" stroke-width="1.5" stroke-dasharray="4"/>
+
+          <!-- Sandbox -->
+          <rect x="20" y="130" width="560" height="75" rx="10" fill="none" stroke="#E74C3C" stroke-width="1" stroke-dasharray="6" opacity="0.4"/>
+          <text x="300" y="225" text-anchor="middle" fill="#E74C3C" font-size="11" opacity="0.6">🔒 SANDBOX — restricted privileges, no direct OS access</text>
+
+          <!-- Labels -->
+          <text x="110" y="260" text-anchor="middle" fill="#8b949e" font-size="10">"User Apps"</text>
+          <text x="300" y="260" text-anchor="middle" fill="#8b949e" font-size="10">Each page = separate process</text>
+          <text x="690" y="210" text-anchor="middle" fill="#8b949e" font-size="10">"Graphics Driver"</text>
+
+          <!-- Key insight -->
+          <rect x="150" y="285" width="500" height="40" rx="8" fill="rgba(88,166,255,0.08)" stroke="#58a6ff" stroke-width="1"/>
+          <text x="400" y="310" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Key Insight: A crashed tab doesn't crash the browser — just like a crashed app doesn't crash your OS</text>
+        </svg>
+      </div>
+
+      <div class="info-box tip">
+        <span class="info-icon">🧪</span>
+        <div><strong>Try it now:</strong> Open Chrome Task Manager (<code>Shift+Esc</code>). You'll see separate entries for "Browser", each tab, GPU Process, and more. Each has its own PID (Process ID).</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 1: CONCEPT ===================== -->
+    <section class="onion-layer" data-depth="1">
+      <h2>Why Multiple Processes?</h2>
+
+      <p>Around 2006, browsers were monolithic single-process applications. A bug in the rendering engine or a misbehaving plugin could crash the entire browser. Chromium's multi-process architecture was designed to solve three problems:</p>
+
+      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:1rem; margin:1.5rem 0;">
+        <div class="card">
+          <h4 style="color:var(--success)">🛡️ Stability</h4>
+          <p style="font-size:0.88rem">A crash in one renderer (tab) doesn't bring down the rest. The browser shows a "sad tab" and other tabs keep working.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:var(--accent)">🔒 Security</h4>
+          <p style="font-size:0.88rem">Each renderer runs in a restricted <strong>sandbox</strong>. Even if an attacker compromises a renderer, they can't access files, network, or other sites directly.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:var(--warning)">⚡ Performance</h4>
+          <p style="font-size:0.88rem">Separate processes run in parallel on multi-core CPUs. One tab doing heavy JS doesn't freeze others. The OS can manage memory per-process.</p>
+        </div>
+      </div>
+
+      <h3>The Four Main Process Types</h3>
+      <table>
+        <thead><tr><th>Process</th><th>Role</th><th>Sandboxed?</th><th>Count</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="term" data-process="browser">Browser Process</span></td>
+            <td>UI, network, storage, child process management, security policy enforcement</td>
+            <td>No (privileged)</td>
+            <td>Exactly 1</td>
+          </tr>
+          <tr>
+            <td><span class="term" data-process="renderer">Renderer Process</span></td>
+            <td>Runs Blink (HTML/CSS layout) + V8 (JavaScript). Paints web content.</td>
+            <td><strong>Yes</strong> (most restricted)</td>
+            <td>1 per site (with site isolation)</td>
+          </tr>
+          <tr>
+            <td><span class="term" data-process="gpu">GPU Process</span></td>
+            <td>Executes GL/Vulkan/D3D commands on behalf of renderers. Composites final frame.</td>
+            <td>Partial (Low integrity)</td>
+            <td>Exactly 1</td>
+          </tr>
+          <tr>
+            <td style="color:var(--utility-process);font-weight:600">Utility Process</td>
+            <td>Sandboxed helper tasks: codecs, data decoding, network service, storage service</td>
+            <td><strong>Yes</strong></td>
+            <td>Several</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="info-box detection">
+        <span class="info-icon">🔬</span>
+        <div><strong>Detection relevance:</strong> Understanding process boundaries is key. JavaScript in a renderer <em>cannot</em> directly call OS APIs — it must ask the browser process via IPC. This boundary creates observable artifacts: latencies, restricted APIs, and behaviors that differ between a real Chrome and an automated one (Playwright/Electron).</div>
+      </div>
+
+      <h3>The Communication Backbone</h3>
+      <p>Processes communicate via <strong>Mojo IPC</strong> — Chromium's inter-process communication system. It replaced an older "legacy IPC" system. Every cross-process action (navigation, setting a cookie, painting to screen) goes through Mojo message pipes.</p>
+    </section>
+
+    <!-- ===================== LAYER 2: ARCHITECTURE ===================== -->
+    <section class="onion-layer" data-depth="2">
+      <h2>Architectural Deep Dive</h2>
+
+      <h3>Process Lifecycle</h3>
+      <p>When Chrome starts, the <strong>browser process</strong> launches first. It creates the UI, initializes services, and then spawns renderer processes on demand as you open tabs.</p>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Browser Process Detail -->
+          <rect x="150" y="10" width="500" height="130" rx="12" fill="#111827" stroke="#4A90D9" stroke-width="2"/>
+          <text x="400" y="35" text-anchor="middle" fill="#4A90D9" font-weight="700" font-size="14">BROWSER PROCESS (PID 1)</text>
+
+          <!-- Browser threads -->
+          <rect x="170" y="50" width="100" height="35" rx="6" fill="rgba(74,144,217,0.15)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="220" y="72" text-anchor="middle" fill="#4A90D9" font-size="10" font-weight="600">UI Thread</text>
+
+          <rect x="285" y="50" width="100" height="35" rx="6" fill="rgba(74,144,217,0.15)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="335" y="72" text-anchor="middle" fill="#4A90D9" font-size="10" font-weight="600">IO Thread</text>
+
+          <rect x="400" y="50" width="120" height="35" rx="6" fill="rgba(26,188,156,0.15)" stroke="#1ABC9C" stroke-width="1"/>
+          <text x="460" y="72" text-anchor="middle" fill="#1ABC9C" font-size="10" font-weight="600">Network Service</text>
+
+          <rect x="535" y="50" width="100" height="35" rx="6" fill="rgba(74,144,217,0.15)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="585" y="72" text-anchor="middle" fill="#4A90D9" font-size="10" font-weight="600">Storage</text>
+
+          <!-- RenderProcessHost -->
+          <rect x="170" y="95" width="220" height="30" rx="5" fill="rgba(74,144,217,0.08)" stroke="#4A90D9" stroke-width="1" stroke-dasharray="3"/>
+          <text x="280" y="115" text-anchor="middle" fill="#8b949e" font-size="9">RenderProcessHost × N (one per renderer)</text>
+
+          <rect x="410" y="95" width="220" height="30" rx="5" fill="rgba(74,144,217,0.08)" stroke="#4A90D9" stroke-width="1" stroke-dasharray="3"/>
+          <text x="520" y="115" text-anchor="middle" fill="#8b949e" font-size="9">ChildProcessSecurityPolicy</text>
+
+          <!-- Mojo pipes -->
+          <line x1="250" y1="140" x2="150" y2="200" stroke="#9B59B6" stroke-width="2" class="ipc-arrow"/>
+          <line x1="400" y1="140" x2="400" y2="200" stroke="#9B59B6" stroke-width="2" class="ipc-arrow"/>
+          <line x1="550" y1="140" x2="650" y2="200" stroke="#9B59B6" stroke-width="2" class="ipc-arrow"/>
+          <text x="400" y="178" text-anchor="middle" fill="#9B59B6" font-size="10" font-weight="600">Mojo IPC</text>
+
+          <!-- Renderer 1 -->
+          <rect x="50" y="200" width="200" height="120" rx="10" fill="#1a1111" stroke="#E74C3C" stroke-width="2"/>
+          <text x="150" y="225" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="12">RENDERER (site A)</text>
+          <rect x="70" y="238" width="75" height="25" rx="4" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="107" y="255" text-anchor="middle" fill="#e6edf3" font-size="9">Blink</text>
+          <rect x="155" y="238" width="75" height="25" rx="4" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="192" y="255" text-anchor="middle" fill="#e6edf3" font-size="9">V8 (JS)</text>
+          <rect x="70" y="272" width="160" height="22" rx="4" fill="rgba(231,76,60,0.06)"/>
+          <text x="150" y="287" text-anchor="middle" fill="#8b949e" font-size="9">RenderFrame / RenderView</text>
+
+          <!-- Renderer 2 -->
+          <rect x="300" y="200" width="200" height="120" rx="10" fill="#1a1111" stroke="#E74C3C" stroke-width="2"/>
+          <text x="400" y="225" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="12">RENDERER (site B)</text>
+          <rect x="320" y="238" width="75" height="25" rx="4" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="357" y="255" text-anchor="middle" fill="#e6edf3" font-size="9">Blink</text>
+          <rect x="405" y="238" width="75" height="25" rx="4" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="442" y="255" text-anchor="middle" fill="#e6edf3" font-size="9">V8 (JS)</text>
+          <rect x="320" y="272" width="160" height="22" rx="4" fill="rgba(231,76,60,0.06)"/>
+          <text x="400" y="287" text-anchor="middle" fill="#8b949e" font-size="9">RenderFrame / RenderView</text>
+
+          <!-- GPU -->
+          <rect x="555" y="200" width="200" height="120" rx="10" fill="#111a11" stroke="#2ECC71" stroke-width="2"/>
+          <text x="655" y="225" text-anchor="middle" fill="#2ECC71" font-weight="700" font-size="12">GPU PROCESS</text>
+          <rect x="575" y="238" width="80" height="25" rx="4" fill="rgba(46,204,113,0.1)" stroke="#2ECC71" stroke-width="1"/>
+          <text x="615" y="255" text-anchor="middle" fill="#e6edf3" font-size="9">Cmd Buffer</text>
+          <rect x="665" y="238" width="70" height="25" rx="4" fill="rgba(46,204,113,0.1)" stroke="#2ECC71" stroke-width="1"/>
+          <text x="700" y="255" text-anchor="middle" fill="#e6edf3" font-size="9">GL/Vulkan</text>
+          <rect x="575" y="272" width="160" height="22" rx="4" fill="rgba(46,204,113,0.06)"/>
+          <text x="655" y="287" text-anchor="middle" fill="#8b949e" font-size="9">Compositor / Viz</text>
+
+          <!-- Sandbox boundary -->
+          <rect x="40" y="195" width="480" height="135" rx="12" fill="none" stroke="#E74C3C" stroke-width="1.5" stroke-dasharray="6" opacity="0.3"/>
+          <text x="280" y="345" text-anchor="middle" fill="#E74C3C" font-size="10" opacity="0.5">🔒 Renderer Sandbox: Untrusted integrity, no network/file access</text>
+
+          <!-- Utility -->
+          <rect x="200" y="380" width="180" height="50" rx="8" fill="#1a1a11" stroke="#F39C12" stroke-width="2"/>
+          <text x="290" y="410" text-anchor="middle" fill="#F39C12" font-weight="600" font-size="11">Utility: Audio/Video</text>
+          <rect x="420" y="380" width="180" height="50" rx="8" fill="#1a1a11" stroke="#F39C12" stroke-width="2"/>
+          <text x="510" y="410" text-anchor="middle" fill="#F39C12" font-weight="600" font-size="11">Utility: Network Svc</text>
+
+          <line x1="290" y1="380" x2="350" y2="140" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="3" opacity="0.5"/>
+          <line x1="510" y1="380" x2="450" y2="140" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="3" opacity="0.5"/>
+
+          <!-- Legend -->
+          <text x="50" y="475" fill="#8b949e" font-size="10">Legend:</text>
+          <line x1="100" y1="472" x2="130" y2="472" stroke="#9B59B6" stroke-width="2" class="ipc-arrow"/>
+          <text x="135" y="476" fill="#9B59B6" font-size="10">Mojo IPC</text>
+          <rect x="200" y="465" width="12" height="12" rx="2" fill="none" stroke="#E74C3C" stroke-width="1.5" stroke-dasharray="3"/>
+          <text x="218" y="476" fill="#E74C3C" font-size="10">Sandbox boundary</text>
+        </svg>
+      </div>
+
+      <h3>Key Architectural Relationships</h3>
+      <table>
+        <thead><tr><th>Browser-side class</th><th>↔</th><th>Renderer-side class</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>RenderProcessHost</code></td><td>↔</td><td><code>RenderProcess</code></td><td>Manages one browser↔renderer IPC connection</td></tr>
+          <tr><td><code>RenderFrameHost</code></td><td>↔</td><td><code>RenderFrame</code></td><td>Manages a single document/frame (the workhorse)</td></tr>
+          <tr><td><code>RenderViewHost</code></td><td>↔</td><td><code>RenderView</code></td><td>Legacy: represents a tab's view (being phased out)</td></tr>
+          <tr><td><code>RenderWidgetHost</code></td><td>↔</td><td><code>RenderWidget</code></td><td>Input events + painting for a widget</td></tr>
+        </tbody>
+      </table>
+
+      <div class="info-box tip">
+        <span class="info-icon">📐</span>
+        <div><strong>Design pattern:</strong> For every object in the renderer there's a "Host" counterpart in the browser process. The browser side is privileged and makes security decisions; the renderer side is sandboxed and does the actual work. Communication between them goes through Mojo.</div>
+      </div>
+
+      <h3>Process Sharing & Limits</h3>
+      <p>Chrome doesn't create unlimited processes. A <strong>soft process limit</strong> (based on available RAM) determines when Chrome starts reusing existing processes for same-site content. On desktop, iframes from site A in a page from site B get their own process (Out-of-Process iFrames — OOPIFs).</p>
+    </section>
+
+    <!-- ===================== LAYER 3: SOURCE CODE ===================== -->
+    <section class="onion-layer" data-depth="3">
+      <h2>Source Code Map</h2>
+
+      <p>The multi-process architecture is primarily implemented in the <code>content/</code> directory — Chromium's "content module" which provides the core multi-process web rendering infrastructure.</p>
+
+      <h3>Directory Structure</h3>
+      <pre><code>chromium/src/
+├── content/
+│   ├── browser/           # Browser process code
+│   │   ├── renderer_host/
+│   │   │   ├── render_process_host_impl.cc   # ★ Manages renderer processes
+│   │   │   ├── render_frame_host_impl.cc     # ★ Browser-side frame management
+│   │   │   └── render_view_host_impl.cc      # Tab view management
+│   │   ├── site_instance_impl.cc             # ★ SiteInstance (process grouping)
+│   │   ├── child_process_security_policy_impl.cc  # ★ Security decisions
+│   │   └── browser_main_runner_impl.cc       # Browser process startup
+│   ├── renderer/          # Renderer process code
+│   │   ├── render_frame_impl.cc              # ★ Renderer-side frame
+│   │   ├── render_view_impl.cc               # Renderer-side view
+│   │   └── render_process_impl.cc            # Renderer process setup
+│   ├── gpu/               # GPU process
+│   ├── utility/           # Utility process
+│   └── public/            # Public API (embeddable interface)
+├── third_party/blink/     # Blink rendering engine
+├── v8/                    # V8 JavaScript engine
+├── mojo/                  # Mojo IPC framework
+└── cc/                    # Chrome Compositor</code></pre>
+
+      <h3>Key Class: RenderProcessHostImpl</h3>
+      <p>This is the browser-side manager for a single renderer process. It handles process creation, IPC channel setup, security policy, and crash detection.</p>
+      <pre><code>// content/browser/renderer_host/render_process_host_impl.cc
+
+// Simplified: how a renderer process is spawned
+bool RenderProcessHostImpl::Init() {
+  // 1. Create the Mojo channel
+  mojo::OutgoingInvitation invitation;
+  
+  // 2. Configure the sandbox
+  sandbox::policy::SandboxType sandbox_type = 
+      sandbox::policy::SandboxType::kRenderer;
+  
+  // 3. Launch the child process
+  child_process_launcher_ = std::make_unique&lt;ChildProcessLauncher&gt;(
+      std::make_unique&lt;RendererSandboxedProcessLauncherDelegate&gt;(),
+      std::move(cmd_line),
+      GetID(),
+      this,   // delegate
+      std::move(invitation),
+      ...);
+  
+  // 4. Set up Mojo bindings for communication
+  // The renderer will receive the other end of these pipes
+  return true;
+}
+
+// When a renderer crashes
+void RenderProcessHostImpl::ProcessDied(...) {
+  // Notify all RenderFrameHosts using this process
+  // They will show "Aw, Snap!" / sad tab
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/renderer_host/render_process_host_impl.cc" target="_blank">content/browser/renderer_host/render_process_host_impl.cc</a></p>
+
+      <h3>Key Class: RenderFrameImpl (Renderer Side)</h3>
+      <pre><code>// content/renderer/render_frame_impl.cc
+
+// This is where Blink's DOM meets Chromium's multi-process architecture.
+// RenderFrameImpl bridges Blink's LocalFrame with the browser's RenderFrameHost.
+
+void RenderFrameImpl::Initialize(blink::WebFrame* frame) {
+  // Connect Blink's frame to Chromium's IPC layer
+  // This is how document.cookie calls become IPC messages to the browser
+}
+
+// When JavaScript calls window.open()
+void RenderFrameImpl::OpenURL(const blink::WebURLRequest& request) {
+  // Can't open URL directly (sandboxed!)
+  // Send IPC to browser process: "please navigate to this URL"
+  // Browser decides: new process? same process? block it?
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/renderer/render_frame_impl.cc" target="_blank">content/renderer/render_frame_impl.cc</a></p>
+
+      <h3>Visualize It: chrome:// Pages</h3>
+      <table>
+        <thead><tr><th>URL</th><th>What It Shows</th></tr></thead>
+        <tbody>
+          <tr><td><code>chrome://process-internals</code></td><td>Live SiteInstance → process mapping for every open tab/frame</td></tr>
+          <tr><td><code>chrome://discards/graph</code></td><td>Visual graph of documents → processes with connections</td></tr>
+          <tr><td><code>chrome://sandbox</code></td><td>Sandbox configuration and policy for each process</td></tr>
+          <tr><td><code>chrome://tracing</code></td><td>Full trace of process launches, IPC messages, and frame lifecycle</td></tr>
+          <tr><td><code>chrome://version</code></td><td>Build info, command line flags, profile path</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== LAYER 4: DETECTION ANGLE ===================== -->
+    <section class="onion-layer" data-depth="4">
+      <h2>Detection Angle: What JS Can Observe</h2>
+
+      <div class="info-box detection">
+        <span class="info-icon">🎯</span>
+        <div>The multi-process architecture creates <strong>observable boundaries</strong> that JavaScript can probe. Here's why this matters for detection.</div>
+      </div>
+
+      <h3>Process Boundaries Create Detectable Artifacts</h3>
+
+      <div class="card">
+        <h4>1. Sandboxed APIs Behave Differently</h4>
+        <p>The renderer can't access the network directly — it asks the browser process. This means <code>fetch()</code> calls go through IPC. In automated browsers like Electron (which Copilot uses), the IPC path differs because the browser process is VS Code, not Chrome.</p>
+        <pre><code>// In real Chrome: navigator.plugins has PDF viewer, etc.
+console.log(navigator.plugins.length);  // Chrome: 5, Electron: 0
+
+// The plugins list is populated by the browser process via IPC
+// Electron's browser process doesn't register Chrome's plugins</code></pre>
+      </div>
+
+      <div class="card">
+        <h4>2. Process Count & Memory</h4>
+        <p><code>performance.memory</code> (Chrome-only, deprecated) reflects the renderer's JS heap — a single process view. The values differ between a normal renderer and an Electron renderer.</p>
+        <pre><code>// Chrome-specific: JS heap info for THIS renderer process
+if (performance.memory) {
+  console.log({
+    jsHeapSizeLimit: performance.memory.jsHeapSizeLimit,
+    totalJSHeapSize: performance.memory.totalJSHeapSize,
+    usedJSHeapSize: performance.memory.usedJSHeapSize
+  });
+  // Electron/Copilot may have different heap limits
+}</code></pre>
+      </div>
+
+      <div class="card">
+        <h4>3. Cross-Origin Isolation</h4>
+        <p>Site Isolation means cross-origin iframes run in different processes. This creates timing differences when communicating with iframes (postMessage crosses process boundaries). Playwright's <code>page.evaluate</code> runs in the renderer but is injected via CDP (Chrome DevTools Protocol), which uses Mojo IPC — creating detectable side effects.</p>
+      </div>
+
+      <div class="card">
+        <h4>4. The CDP Connection (Chrome DevTools Protocol)</h4>
+        <p>When DevTools or Playwright connect to Chrome, they use CDP which enables <code>Runtime.enable</code> in the renderer's V8 inspector. This causes V8 to serialize console arguments — triggering Proxy traps that wouldn't fire otherwise. <strong>This is the #1 detection vector for CDP-controlled browsers.</strong></p>
+        <pre><code>// CDP detection: when Runtime.enable is active, console calls
+// serialize their arguments, triggering Proxy traps
+const detector = new Proxy({}, {
+  get: function(target, prop) {
+    if (prop === Symbol.toPrimitive) {
+      // This fires when CDP serializes console output
+      // but NOT in a normal browser without DevTools
+      window.__cdpDetected = true;
+    }
+    return undefined;
+  }
+});
+console.groupEnd(detector);</code></pre>
+      </div>
+
+      <h3>Key Takeaways for Detection</h3>
+      <table>
+        <thead><tr><th>Architecture Concept</th><th>Detection Implication</th></tr></thead>
+        <tbody>
+          <tr><td>Browser process populates <code>navigator.*</code></td><td>Electron/Copilot browser process provides different values</td></tr>
+          <tr><td>Renderer is sandboxed</td><td>Some APIs missing or restricted differently in Electron</td></tr>
+          <tr><td>Mojo IPC for all cross-process calls</td><td>CDP adds extra IPC → timing + side effects detectable</td></tr>
+          <tr><td>Site Isolation gives one process per site</td><td>Cross-origin timing differs between Chrome and Electron</td></tr>
+          <tr><td>GPU process composites frames</td><td>Canvas/WebGL fingerprinting reflects GPU process config</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== LAB ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>🧪 Lab: Explore Your Browser's Processes</h2>
+
+      <div class="lab-container" id="lab-processes">
+        <div class="lab-header">
+          <span class="lab-icon">🔬</span>
+          <h4>Lab 1: Probe the Current Process Environment</h4>
+        </div>
+        <div class="lab-body">
+          <div class="lab-instructions">
+            Run this code to see what your current renderer process exposes. Compare the output when opening this page in Chrome vs Electron vs Brave.
+          </div>
+          <textarea class="lab-code-area" rows="18">// Probe the multi-process environment from JavaScript
+const report = {};
+
+// 1. User Agent — reveals browser/Electron identity
+report.userAgent = navigator.userAgent;
+
+// 2. Brands — Chrome vs Chromium vs Electron
+report.brands = navigator.userAgentData?.brands?.map(b => `${b.brand} ${b.version}`) || 'N/A';
+
+// 3. Plugins — populated by browser process
+report.pluginCount = navigator.plugins.length;
+report.plugins = Array.from(navigator.plugins).map(p => p.name);
+
+// 4. PDF viewer — browser process feature
+report.pdfViewerEnabled = navigator.pdfViewerEnabled;
+
+// 5. Memory info (Chrome-only) — this renderer's heap
+report.memory = performance.memory ? {
+  heapLimit: (performance.memory.jsHeapSizeLimit / 1048576).toFixed(0) + ' MB',
+  heapUsed: (performance.memory.usedJSHeapSize / 1048576).toFixed(1) + ' MB'
+} : 'N/A (not Chrome)';
+
+// 6. Hardware concurrency — OS-level, same across processes
+report.cores = navigator.hardwareConcurrency;
+
+// 7. window.chrome object — differs in Electron
+report.windowChrome = typeof window.chrome;
+report.windowChromeKeys = window.chrome ? Object.keys(window.chrome) : [];
+
+// 8. Process type hint (Electron check)
+report.isElectron = !!(navigator.userAgent.match(/Electron/));
+report.hasCodeInUA = !!(navigator.userAgent.match(/Code\//));
+
+console.log(JSON.stringify(report, null, 2));</textarea>
+          <button class="lab-btn" onclick="Lab.run('lab-processes')">▶ Run</button>
+          <div class="lab-output"></div>
+        </div>
+      </div>
+
+      <div class="lab-container" id="lab-chrome-urls">
+        <div class="lab-header">
+          <span class="lab-icon">🗺️</span>
+          <h4>Lab 2: Manual Exploration — chrome:// Pages</h4>
+        </div>
+        <div class="lab-body">
+          <div class="lab-instructions">
+            <p>Open these URLs in Chrome to explore the real process architecture. <strong>These don't work in this page</strong> — copy and paste them into Chrome's address bar.</p>
+          </div>
+          <div style="display:grid; gap:1rem; grid-template-columns:1fr 1fr;">
+            <div class="card" style="margin:0">
+              <h4 style="margin-top:0">📊 chrome://process-internals</h4>
+              <p style="font-size:0.85rem;color:var(--text-secondary)">See the live SiteInstance → process mapping. Open multiple tabs to different sites and watch processes appear.</p>
+              <code style="display:block;margin-top:0.5em;user-select:all">chrome://process-internals/#web-contents</code>
+            </div>
+            <div class="card" style="margin:0">
+              <h4 style="margin-top:0">🗺️ chrome://discards/graph</h4>
+              <p style="font-size:0.85rem;color:var(--text-secondary)">Visual graph showing which documents share processes. Click any node for details.</p>
+              <code style="display:block;margin-top:0.5em;user-select:all">chrome://discards/graph</code>
+            </div>
+            <div class="card" style="margin:0">
+              <h4 style="margin-top:0">🔒 chrome://sandbox</h4>
+              <p style="font-size:0.85rem;color:var(--text-secondary)">See sandbox type and policy for each running process.</p>
+              <code style="display:block;margin-top:0.5em;user-select:all">chrome://sandbox</code>
+            </div>
+            <div class="card" style="margin:0">
+              <h4 style="margin-top:0">⚡ Task Manager</h4>
+              <p style="font-size:0.85rem;color:var(--text-secondary)">Press <code>Shift+Esc</code> in Chrome. See PIDs, memory, and CPU per process.</p>
+              <code style="display:block;margin-top:0.5em;user-select:all">Shift + Esc</code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Resources -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>📚 Resources</h2>
+      <ul class="resource-list">
+        <li><span class="resource-type doc">DOC</span><a href="https://www.chromium.org/developers/design-documents/multi-process-architecture/" target="_blank">Multi-Process Architecture — chromium.org</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://www.chromium.org/developers/design-documents/displaying-a-web-page-in-chrome/" target="_blank">How Chromium Displays Web Pages</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/main/docs/process_model_and_site_isolation.md" target="_blank">Process Model & Site Isolation</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/renderer_host/render_process_host_impl.cc" target="_blank">render_process_host_impl.cc</a></li>
+        <li><span class="resource-type paper">PAPER</span><a href="https://crypto.stanford.edu/websec/chromium/" target="_blank">Security Architecture of the Chromium Browser (Stanford 2008)</a></li>
+        <li><span class="resource-type video">VIDEO</span><a href="https://youtu.be/2Ds_RIACLbk" target="_blank">Chrome's Process Model & Site Isolation (16 min)</a></li>
+      </ul>
+    </section>
+
+    <!-- Navigation -->
+    <div class="module-nav">
+      <a href="../../index.html" class="nav-prev"><span class="nav-label">← Back</span> Hub</a>
+      <a href="../02-browser-process/index.html" class="nav-next">Module 2: Browser Process <span class="nav-label">→</span></a>
+    </div>
+  </main>
+</div>
+<script src="../../js/core.js"></script>
+</body>
+</html>

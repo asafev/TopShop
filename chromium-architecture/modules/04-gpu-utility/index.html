@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Module 4: GPU Process & Utility Processes</title>
+  <link rel="stylesheet" href="../../styles/main.css">
+</head>
+<body data-module="mod-04">
+<div class="page-wrapper">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h2>Phase 1</h2>
+      <span class="phase-badge">Chromium Architecture</span>
+      <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="../../index.html">← Hub</a></li>
+      <li><a href="../01-overview/index.html" data-module="mod-01"><span class="module-number browser">1</span> Multi-Process Overview</a></li>
+      <li><a href="../02-browser-process/index.html" data-module="mod-02"><span class="module-number browser">2</span> Browser Process</a></li>
+      <li><a href="../03-renderer-process/index.html" data-module="mod-03"><span class="module-number renderer">3</span> Renderer Process</a></li>
+      <li><a href="index.html" class="active" data-module="mod-04"><span class="module-number gpu">4</span> GPU &amp; Utility</a></li>
+      <li><a href="../05-mojo-ipc/index.html" data-module="mod-05"><span class="module-number mojo">5</span> Mojo IPC</a></li>
+      <li><a href="../06-site-isolation/index.html" data-module="mod-06"><span class="module-number isolation">6</span> Site Isolation</a></li>
+    </ul>
+  </nav>
+
+  <!-- Main -->
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../../index.html">Hub</a><span class="sep">/</span><span>Module 4</span>
+    </div>
+
+    <h1>Module 4 — GPU Process &amp; Utility Processes</h1>
+    <p>The GPU process is Chrome's sole gateway to graphics hardware. Utility processes are sandboxed specialists handling risky or expensive tasks. Together they keep the browser secure while enabling rich visuals and services.</p>
+
+    <!-- Depth Selector -->
+    <div class="depth-selector">
+      <button class="depth-btn active" data-depth="0">🧅 Layer 0 — Analogy</button>
+      <button class="depth-btn" data-depth="1">📘 Layer 1 — Concept</button>
+      <button class="depth-btn" data-depth="2">🏗️ Layer 2 — Architecture</button>
+      <button class="depth-btn" data-depth="3">💻 Layer 3 — Source Code</button>
+      <button class="depth-btn" data-depth="4">🔍 Layer 4 — Detection Angle</button>
+    </div>
+
+    <!-- ===================== LAYER 0: ANALOGY ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>The Graphics Card Driver &amp; Hired Specialists</h2>
+      <div class="card">
+        <p><strong>The GPU process is Chrome's dedicated graphics card driver</strong> — it's the only process allowed to talk to the actual GPU hardware.</p>
+        <p>Renderers can't directly draw to screen; they submit "drawing commands" (like a recipe) to the GPU process, which executes them. Think of it as a chef (renderer) writing instructions that only a kitchen porter (GPU process) is allowed to operate the oven.</p>
+      </div>
+
+      <div class="card">
+        <p><strong>Utility processes are hired specialists</strong> — sandboxed workers for specific tasks: decoding images, parsing PDFs, handling network requests.</p>
+        <p>Just as a company might hire a specialist contractor (who only gets access to one room) instead of giving permanent employees more privileges, Chromium creates short-lived sandboxed processes for risky or expensive work.</p>
+      </div>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 360" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Renderers -->
+          <rect x="30" y="30" width="140" height="50" rx="8" fill="#2a1a1a" stroke="#E74C3C" stroke-width="2"/>
+          <text x="100" y="60" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="11">Renderer A</text>
+          <rect x="30" y="100" width="140" height="50" rx="8" fill="#2a1a1a" stroke="#E74C3C" stroke-width="2"/>
+          <text x="100" y="130" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="11">Renderer B</text>
+          <rect x="30" y="170" width="140" height="50" rx="8" fill="#2a1a1a" stroke="#E74C3C" stroke-width="2"/>
+          <text x="100" y="200" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="11">Renderer C</text>
+
+          <!-- Command buffer arrows -->
+          <line x1="170" y1="55" x2="320" y2="100" stroke="#2ECC71" stroke-width="2" stroke-dasharray="4"/>
+          <line x1="170" y1="125" x2="320" y2="120" stroke="#2ECC71" stroke-width="2" stroke-dasharray="4"/>
+          <line x1="170" y1="195" x2="320" y2="140" stroke="#2ECC71" stroke-width="2" stroke-dasharray="4"/>
+          <text x="245" y="85" fill="#2ECC71" font-size="9" font-weight="600">GL commands</text>
+
+          <!-- GPU Process -->
+          <rect x="320" y="60" width="200" height="120" rx="12" fill="#111a11" stroke="var(--gpu-process, #2ECC71)" stroke-width="2.5"/>
+          <text x="420" y="90" text-anchor="middle" fill="#2ECC71" font-weight="700" font-size="14">GPU PROCESS</text>
+          <rect x="340" y="105" width="80" height="28" rx="5" fill="rgba(46,204,113,0.12)" stroke="#2ECC71" stroke-width="1"/>
+          <text x="380" y="123" text-anchor="middle" fill="#e6edf3" font-size="9">Cmd Buffer</text>
+          <rect x="430" y="105" width="70" height="28" rx="5" fill="rgba(46,204,113,0.12)" stroke="#2ECC71" stroke-width="1"/>
+          <text x="465" y="123" text-anchor="middle" fill="#e6edf3" font-size="9">ANGLE</text>
+          <rect x="340" y="142" width="160" height="25" rx="5" fill="rgba(46,204,113,0.08)"/>
+          <text x="420" y="159" text-anchor="middle" fill="#8b949e" font-size="9">Viz / Display Compositor</text>
+
+          <!-- GPU to Screen -->
+          <line x1="520" y1="120" x2="620" y2="120" stroke="#2ECC71" stroke-width="2.5"/>
+          <polygon points="615,115 625,120 615,125" fill="#2ECC71"/>
+          <rect x="630" y="95" width="130" height="50" rx="8" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+          <text x="695" y="118" text-anchor="middle" fill="#58a6ff" font-weight="600" font-size="11">🖥️ Screen</text>
+          <text x="695" y="135" text-anchor="middle" fill="#8b949e" font-size="9">Final composited frame</text>
+
+          <!-- Utility Processes -->
+          <rect x="250" y="240" width="150" height="45" rx="8" fill="#1a1a11" stroke="var(--utility-process, #F39C12)" stroke-width="2"/>
+          <text x="325" y="267" text-anchor="middle" fill="#F39C12" font-weight="600" font-size="11">🌐 Network Service</text>
+
+          <rect x="430" y="240" width="150" height="45" rx="8" fill="#1a1a11" stroke="#F39C12" stroke-width="2"/>
+          <text x="505" y="267" text-anchor="middle" fill="#F39C12" font-weight="600" font-size="11">🖼️ Data Decoder</text>
+
+          <rect x="610" y="240" width="150" height="45" rx="8" fill="#1a1a11" stroke="#F39C12" stroke-width="2"/>
+          <text x="685" y="267" text-anchor="middle" fill="#F39C12" font-weight="600" font-size="11">🔊 Audio Service</text>
+
+          <!-- Labels -->
+          <text x="400" y="310" text-anchor="middle" fill="#F39C12" font-size="10" opacity="0.7">Utility Processes — sandboxed specialists, one job each</text>
+          <text x="100" y="240" text-anchor="middle" fill="#E74C3C" font-size="10" opacity="0.6">Renderers: "Here's what to draw"</text>
+          <text x="420" y="45" text-anchor="middle" fill="#2ECC71" font-size="10" opacity="0.6">Only process with GPU hardware access</text>
+
+          <!-- Insight box -->
+          <rect x="120" y="330" width="560" height="25" rx="6" fill="rgba(88,166,255,0.08)" stroke="#58a6ff" stroke-width="1"/>
+          <text x="400" y="347" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">If the GPU process crashes → browser doesn't crash, just temporarily loses GPU acceleration</text>
+        </svg>
+      </div>
+
+      <div class="info-box tip">
+        <span class="info-icon">🧪</span>
+        <div><strong>Try it now:</strong> Open Chrome Task Manager (<code>Shift+Esc</code>). You'll see "GPU Process" with its own PID and memory. You'll also see utility processes like "Network Service" and "Audio Service".</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 1: CONCEPT ===================== -->
+    <section class="onion-layer" data-depth="1">
+      <h2>GPU Process &amp; Utility Processes — Concepts</h2>
+
+      <h3 style="color:var(--gpu-process, #2ECC71)">GPU Process</h3>
+
+      <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:1rem; margin:1.5rem 0;">
+        <div class="card">
+          <h4 style="color:#2ECC71">🔒 Security Isolation</h4>
+          <p style="font-size:0.88rem">Renderer processes <strong>cannot</strong> directly call GL/Vulkan/D3D APIs — the sandbox prevents it. All GPU work goes through a command buffer to the dedicated GPU process.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#2ECC71">📋 Command Buffer Pattern</h4>
+          <p style="font-size:0.88rem">Renderers serialize GL ES 2.0 commands into a <strong>shared memory ring buffer</strong>. The GPU process reads and executes them — a client/server architecture within the browser.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#2ECC71">🎨 Compositing (Viz)</h4>
+          <p style="font-size:0.88rem">The GPU process handles <strong>compositing</strong>: combining layers from all renderers into the final screen image. The Viz (Visual) system produces the final frame.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#2ECC71">💥 Crash Resilience</h4>
+          <p style="font-size:0.88rem">If the GPU process crashes, the browser doesn't crash — it just loses GPU acceleration temporarily. Chrome falls back to software rendering and restarts the GPU process.</p>
+        </div>
+      </div>
+
+      <div class="info-box detection">
+        <span class="info-icon">🔬</span>
+        <div><strong>Key fact:</strong> The GPU process runs as a single shared process for all renderers. On Android it's a thread within the browser process instead. Exactly 1 GPU process exists at a time.</div>
+      </div>
+
+      <h3 style="color:var(--utility-process, #F39C12)">Utility Processes</h3>
+
+      <p>Utility processes are sandboxed helper processes for risky or expensive tasks. They follow the <strong>Rule of Two</strong> security principle:</p>
+
+      <div class="card" style="border-color:#F39C12">
+        <p style="font-size:0.95rem"><strong>Rule of Two:</strong> If you have <em>untrusted data</em> + <em>complex code</em> → it <strong>must</strong> run in a sandbox. Utility processes enforce this by isolating dangerous work.</p>
+      </div>
+
+      <p>The <strong>Network Service</strong> was moved OUT of the browser process into its own utility process for better security isolation — a major architectural change showing Chromium's commitment to the Rule of Two.</p>
+
+      <h3>Process Table (visible in Task Manager)</h3>
+      <table>
+        <thead><tr><th>Process</th><th>Description</th><th>Sandbox Level</th></tr></thead>
+        <tbody>
+          <tr>
+            <td style="color:#2ECC71;font-weight:600">GPU Process</td>
+            <td>GL/Vulkan/D3D command execution, compositing</td>
+            <td>Low integrity</td>
+          </tr>
+          <tr>
+            <td style="color:#F39C12;font-weight:600">Network Service</td>
+            <td>All HTTP(S) requests, TLS, DNS</td>
+            <td>Sandbox varies by platform</td>
+          </tr>
+          <tr>
+            <td style="color:#F39C12;font-weight:600">Storage Service</td>
+            <td>IndexedDB, CacheStorage, blob storage</td>
+            <td>Sandboxed</td>
+          </tr>
+          <tr>
+            <td style="color:#F39C12;font-weight:600">Audio Service</td>
+            <td>Audio playback/capture</td>
+            <td>Sandboxed</td>
+          </tr>
+          <tr>
+            <td style="color:#F39C12;font-weight:600">Video Decode</td>
+            <td>Hardware video decode</td>
+            <td>Sandboxed</td>
+          </tr>
+          <tr>
+            <td style="color:#F39C12;font-weight:600">Data Decoder</td>
+            <td>Image decode, JSON parse for untrusted data</td>
+            <td>Sandboxed</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="info-box tip">
+        <span class="info-icon">📐</span>
+        <div><strong>Design principle:</strong> Each utility process has a specific sandbox policy based on its task. The Network Service needs network access but not file access. The Storage Service needs file access but not network. Minimal privileges for each.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 2: ARCHITECTURE ===================== -->
+    <section class="onion-layer" data-depth="2">
+      <h2>Command Buffer Architecture</h2>
+
+      <p>The GPU process uses a <strong>client-server architecture</strong> over shared memory. Renderers serialize GL commands; the GPU process deserializes, validates, and executes them on real hardware.</p>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 450" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Renderer side -->
+          <rect x="30" y="30" width="280" height="200" rx="12" fill="#1a1111" stroke="#E74C3C" stroke-width="2"/>
+          <text x="170" y="55" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="13">RENDERER PROCESS</text>
+
+          <rect x="50" y="70" width="240" height="35" rx="6" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="170" y="92" text-anchor="middle" fill="#e6edf3" font-size="11">WebGL / Canvas2D API calls</text>
+
+          <text x="170" y="120" text-anchor="middle" fill="#8b949e" font-size="10">↓ translated by client library</text>
+
+          <rect x="50" y="130" width="240" height="35" rx="6" fill="rgba(231,76,60,0.15)" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="170" y="152" text-anchor="middle" fill="#E74C3C" font-size="11" font-weight="600">GL ES 2.0 Client Library</text>
+
+          <text x="170" y="180" text-anchor="middle" fill="#8b949e" font-size="10">↓ serializes commands</text>
+
+          <rect x="50" y="190" width="240" height="30" rx="6" fill="rgba(155,89,182,0.12)" stroke="#9B59B6" stroke-width="1"/>
+          <text x="170" y="210" text-anchor="middle" fill="#9B59B6" font-size="10">Shared Memory Ring Buffer →</text>
+
+          <!-- Shared memory pipe -->
+          <rect x="330" y="185" width="140" height="40" rx="8" fill="rgba(155,89,182,0.15)" stroke="#9B59B6" stroke-width="2" stroke-dasharray="5"/>
+          <text x="400" y="200" text-anchor="middle" fill="#9B59B6" font-size="10" font-weight="600">SHARED MEMORY</text>
+          <text x="400" y="215" text-anchor="middle" fill="#9B59B6" font-size="9">Command Buffer</text>
+
+          <!-- GPU side -->
+          <rect x="490" y="30" width="280" height="280" rx="12" fill="#111a11" stroke="#2ECC71" stroke-width="2"/>
+          <text x="630" y="55" text-anchor="middle" fill="#2ECC71" font-weight="700" font-size="13">GPU PROCESS</text>
+
+          <rect x="510" y="70" width="240" height="35" rx="6" fill="rgba(46,204,113,0.1)" stroke="#2ECC71" stroke-width="1"/>
+          <text x="630" y="92" text-anchor="middle" fill="#e6edf3" font-size="11">Command Parser &amp; Validator</text>
+
+          <text x="630" y="120" text-anchor="middle" fill="#8b949e" font-size="10">↓ validated commands</text>
+
+          <rect x="510" y="130" width="240" height="35" rx="6" fill="rgba(46,204,113,0.15)" stroke="#2ECC71" stroke-width="1.5"/>
+          <text x="630" y="152" text-anchor="middle" fill="#2ECC71" font-size="11" font-weight="600">GLES2 Command Decoder</text>
+
+          <text x="630" y="180" text-anchor="middle" fill="#8b949e" font-size="10">↓ platform translation</text>
+
+          <rect x="510" y="190" width="240" height="35" rx="6" fill="rgba(46,204,113,0.12)" stroke="#2ECC71" stroke-width="1"/>
+          <text x="630" y="212" text-anchor="middle" fill="#e6edf3" font-size="11">ANGLE (GL ES → D3D/GL/Vulkan)</text>
+
+          <text x="630" y="242" text-anchor="middle" fill="#8b949e" font-size="10">↓ native API calls</text>
+
+          <rect x="510" y="252" width="240" height="45" rx="6" fill="rgba(46,204,113,0.2)" stroke="#2ECC71" stroke-width="2"/>
+          <text x="630" y="275" text-anchor="middle" fill="#2ECC71" font-size="12" font-weight="700">Real GPU Hardware</text>
+          <text x="630" y="290" text-anchor="middle" fill="#8b949e" font-size="9">D3D11/12, Vulkan, OpenGL, Metal</text>
+
+          <!-- Viz compositor -->
+          <rect x="200" y="340" width="400" height="60" rx="10" fill="rgba(46,204,113,0.08)" stroke="#2ECC71" stroke-width="1.5"/>
+          <text x="400" y="365" text-anchor="middle" fill="#2ECC71" font-weight="700" font-size="12">Viz / Display Compositor</text>
+          <text x="400" y="385" text-anchor="middle" fill="#8b949e" font-size="10">Combines quads from ALL renderers → single composited frame → swap buffers → screen</text>
+
+          <!-- Arrows to Viz -->
+          <line x1="170" y1="230" x2="300" y2="340" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="3" opacity="0.5"/>
+          <line x1="630" y1="297" x2="500" y2="340" stroke="#2ECC71" stroke-width="1.5" stroke-dasharray="3" opacity="0.5"/>
+
+          <!-- Screen output -->
+          <line x1="600" y1="370" x2="700" y2="370" stroke="#58a6ff" stroke-width="2"/>
+          <polygon points="695,365 705,370 695,375" fill="#58a6ff"/>
+          <text x="740" y="374" fill="#58a6ff" font-size="11" font-weight="600">🖥️</text>
+
+          <!-- Legend -->
+          <text x="50" y="430" fill="#8b949e" font-size="10">ANGLE = Almost Native Graphics Layer Engine (translates GL ES to platform-native API)</text>
+        </svg>
+      </div>
+
+      <h3>Command Buffer Client-Server Model</h3>
+      <pre><code>Renderer Process          GPU Process
+┌─────────────┐          ┌──────────────┐
+│ GL ES 2.0   │          │ Command      │
+│ Client Lib  │─shared──→│ Parser       │
+│             │  memory  │    ↓         │
+│ Serializes  │  ring    │ GL/D3D/Vulkan│
+│ GL commands │  buffer  │    ↓         │
+│             │          │ Real GPU HW  │
+└─────────────┘          └──────────────┘</code></pre>
+
+      <h3>Why This Design?</h3>
+      <table>
+        <thead><tr><th>Design Choice</th><th>Benefit</th></tr></thead>
+        <tbody>
+          <tr><td>Shared memory ring buffer</td><td>Low-overhead, zero-copy data transfer between processes</td></tr>
+          <tr><td>Command validation in GPU process</td><td>Malicious renderer can't crash GPU with bad commands</td></tr>
+          <tr><td>ANGLE translation layer</td><td>Write GL ES 2.0 once, runs on all platforms (D3D on Windows, GL on Linux, Metal on Mac)</td></tr>
+          <tr><td>Single GPU process for all renderers</td><td>Efficient GPU resource sharing, one context switch path</td></tr>
+          <tr><td>Viz composites all layers</td><td>Browser UI + all web content + video → one final frame at vsync</td></tr>
+        </tbody>
+      </table>
+
+      <div class="info-box detection">
+        <span class="info-icon">🔬</span>
+        <div><strong>Detection relevance:</strong> Canvas fingerprinting works because WebGL/Canvas2D commands go through this exact pipeline to real GPU hardware. The GPU produces hardware-specific rendering artifacts — meaning the same drawing commands produce slightly different pixels on different GPUs.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 3: SOURCE CODE ===================== -->
+    <section class="onion-layer" data-depth="3">
+      <h2>Source Code Map</h2>
+
+      <h3>Key Files — GPU Process</h3>
+      <pre><code>chromium/src/
+├── content/gpu/
+│   └── gpu_main.cc                    # ★ GPU process entry point
+├── gpu/command_buffer/
+│   ├── client/
+│   │   └── gles2_cmd_helper.cc        # Client: serialize GL calls
+│   └── service/
+│       └── gles2_cmd_decoder.cc       # ★ Server: decode & execute GL cmds
+├── components/viz/
+│   └── service/display/
+│       └── display_compositor.cc      # ★ Viz: final frame composition
+└── third_party/angle/                 # ANGLE: GL ES → native translation</code></pre>
+
+      <h3>Key Files — Utility Processes</h3>
+      <pre><code>chromium/src/
+├── content/utility/
+│   └── utility_main.cc               # ★ Utility process entry point
+├── content/browser/
+│   └── utility_process_host.cc        # Browser-side utility management
+├── services/network/                  # ★ Network service implementation
+│   ├── network_service.cc
+│   ├── url_loader.cc
+│   └── cors/
+└── services/audio/                    # Audio service
+    └── audio_service.cc</code></pre>
+
+      <h3>GPU Command Buffer — Client Side (Renderer)</h3>
+      <pre><code>// gpu/command_buffer/client/gles2_cmd_helper.cc
+// Client side: serialize GL calls into shared memory ring buffer
+
+void GLES2CmdHelper::DrawArrays(GLenum mode, GLint first, GLsizei count) {
+  // Write command into shared memory ring buffer
+  // GPU process will read this and execute the real GL call
+  auto* cmd = GetCmdSpace&lt;cmds::DrawArrays&gt;();
+  cmd-&gt;Init(mode, first, count);
+}
+
+void GLES2CmdHelper::TexImage2D(GLenum target, GLint level, ...) {
+  // Texture data is placed in transfer buffer (shared memory)
+  // Command references the shared memory offset
+  auto* cmd = GetCmdSpace&lt;cmds::TexImage2D&gt;();
+  cmd-&gt;Init(target, level, internalformat, width, height, ...);
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:gpu/command_buffer/client/gles2_cmd_helper.cc" target="_blank">gpu/command_buffer/client/gles2_cmd_helper.cc</a></p>
+
+      <h3>GPU Command Buffer — Server Side (GPU Process)</h3>
+      <pre><code>// gpu/command_buffer/service/gles2_cmd_decoder.cc
+// Server side (GPU process): validate and execute real GL commands
+
+error::Error GLES2DecoderImpl::HandleDrawArrays(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  // 1. Parse command from shared memory
+  const volatile cmds::DrawArrays& c =
+      *static_cast&lt;const volatile cmds::DrawArrays*&gt;(cmd_data);
+  GLenum mode = static_cast&lt;GLenum&gt;(c.mode);
+  GLint first = static_cast&lt;GLint&gt;(c.first);
+  GLsizei count = static_cast&lt;GLsizei&gt;(c.count);
+
+  // 2. Validate parameters (security!)
+  if (!validators_-&gt;draw_mode.IsValid(mode)) {
+    return error::kNoError;  // Silently ignore bad commands
+  }
+
+  // 3. Call the REAL GL function via ANGLE
+  api()-&gt;glDrawArraysFn(mode, first, count);
+  return error::kNoError;
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:gpu/command_buffer/service/gles2_cmd_decoder.cc" target="_blank">gpu/command_buffer/service/gles2_cmd_decoder.cc</a></p>
+
+      <h3>GPU Process Entry Point</h3>
+      <pre><code>// content/gpu/gpu_main.cc
+// The GPU process starts here
+
+int GpuMain(MainFunctionParams parameters) {
+  // Initialize GPU service
+  // Set up command buffer scheduler
+  // Start Viz display compositor
+  // Enter message loop waiting for commands from renderers
+  
+  gpu::GpuInit gpu_init;
+  gpu_init.InitializeAndStartSandbox(command_line, gpu_preferences);
+  
+  // The GPU process runs until Chrome exits or GPU crashes
+  base::RunLoop().Run();
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/gpu/gpu_main.cc" target="_blank">content/gpu/gpu_main.cc</a></p>
+
+      <h3>Utility Process Host (Browser manages utilities)</h3>
+      <pre><code>// content/browser/utility_process_host.cc
+// Browser process uses this to spawn and manage utility processes
+
+bool UtilityProcessHost::Start() {
+  // Configure sandbox based on the service being run
+  sandbox::policy::SandboxType sandbox_type = sandbox_type_;
+  
+  // Launch the utility process with appropriate restrictions
+  process_ = std::make_unique&lt;ChildProcessLauncher&gt;(
+      std::make_unique&lt;UtilitySandboxedProcessLauncherDelegate&gt;(sandbox_type),
+      std::move(cmd_line), ...);
+      
+  // Set up Mojo connection for service communication
+  return true;
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/browser/utility_process_host.cc" target="_blank">content/browser/utility_process_host.cc</a></p>
+
+      <h3>Visualize It: chrome:// Pages</h3>
+      <table>
+        <thead><tr><th>URL</th><th>What It Shows</th></tr></thead>
+        <tbody>
+          <tr><td><code>chrome://gpu</code></td><td>GPU features, driver info, compositing status, WebGL capabilities</td></tr>
+          <tr><td><code>chrome://gpu-internals</code></td><td>Detailed GPU process state and command buffer info</td></tr>
+          <tr><td><code>chrome://serviceworker-internals</code></td><td>Utility process / service worker status</td></tr>
+          <tr><td><code>chrome://tracing</code></td><td>Trace GPU commands, Viz compositing, service calls</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== LAYER 4: DETECTION ANGLE ===================== -->
+    <section class="onion-layer" data-depth="4">
+      <h2>Detection Angle: GPU &amp; Utility Fingerprinting</h2>
+
+      <div class="info-box detection">
+        <span class="info-icon">🎯</span>
+        <div>The GPU process executes drawing commands on real hardware, producing <strong>hardware-specific artifacts</strong> detectable from JavaScript. This is the foundation of canvas/WebGL fingerprinting.</div>
+      </div>
+
+      <h3>1. Canvas Fingerprinting via GPU Process</h3>
+      <div class="card">
+        <p>WebGL and Canvas2D commands are executed by the GPU process using real hardware. Different GPUs produce subtly different rendering results — anti-aliasing, color rounding, font rasterization all vary.</p>
+        <pre><code>// Canvas2D fingerprint — goes through GPU process pipeline
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d');
+ctx.fillText('test', 0, 0);
+const hash = canvas.toDataURL(); // GPU-specific pixels!</code></pre>
+      </div>
+
+      <h3>2. WebGL Renderer/Vendor Strings</h3>
+      <div class="card">
+        <p>The <code>WEBGL_debug_renderer_info</code> extension reports GPU process info. Electron may report differently than Chrome due to different GPU initialization.</p>
+        <pre><code>const gl = canvas.getContext('webgl');
+const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+// "ANGLE (NVIDIA GeForce RTX 3080, D3D11)"
+// vs Electron: might show different ANGLE backend</code></pre>
+      </div>
+
+      <h3>3. GPU Feature Detection</h3>
+      <div class="card">
+        <p><code>chrome://gpu</code> shows GPU capabilities. These are detectable via WebGL:</p>
+        <pre><code>gl.getParameter(gl.RENDERER)  // GPU identity
+gl.getParameter(gl.VENDOR)    // GPU vendor
+gl.getParameter(gl.MAX_TEXTURE_SIZE)  // Hardware limit
+gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)
+gl.getSupportedExtensions()   // Available GPU features</code></pre>
+        <p>Headless Chrome or Electron may report SwiftShader (software renderer) instead of real GPU.</p>
+      </div>
+
+      <h3>4. Compositor Timing</h3>
+      <div class="card">
+        <p><code>requestAnimationFrame</code> callback timing reflects compositor thread behavior. Headless Chrome / Playwright may use <strong>virtual time</strong>, causing rAF to fire immediately or at irregular intervals.</p>
+        <pre><code>const times = [];
+function measure(ts) {
+  times.push(ts);
+  if (times.length < 10) requestAnimationFrame(measure);
+  else {
+    const deltas = times.slice(1).map((t,i) => t - times[i]);
+    // Real browser: ~16.6ms deltas (60fps)
+    // Headless/virtual time: 0ms or irregular
+  }
+}
+requestAnimationFrame(measure);</code></pre>
+      </div>
+
+      <h3>5. Network Service Differences</h3>
+      <div class="card">
+        <p>Electron may handle network differently — Node.js <code>fetch</code> vs Chromium's Network Service utility process. This can affect request headers, connection pooling, and TLS fingerprints.</p>
+      </div>
+
+      <h3>Key Detection Signals</h3>
+      <table>
+        <thead><tr><th>Signal</th><th>Normal Chrome</th><th>Electron/Headless</th></tr></thead>
+        <tbody>
+          <tr><td>WebGL Renderer</td><td>Real GPU name (via ANGLE)</td><td>SwiftShader or different ANGLE config</td></tr>
+          <tr><td>Canvas hash</td><td>Hardware-specific pixels</td><td>Software-rendered pixels</td></tr>
+          <tr><td>Max texture size</td><td>GPU-dependent (8192–32768)</td><td>SwiftShader: typically 8192</td></tr>
+          <tr><td>rAF timing</td><td>~16.6ms intervals</td><td>May be 0ms (virtual time)</td></tr>
+          <tr><td>OffscreenCanvas</td><td>Fully supported</td><td>May differ in Electron</td></tr>
+          <tr><td>WebGL extensions count</td><td>30-50+ extensions</td><td>Fewer with SwiftShader</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== LAB ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>🧪 Lab: GPU &amp; WebGL Fingerprint Probe</h2>
+
+      <div class="lab-container" id="lab-gpu">
+        <div class="lab-header">
+          <span class="lab-icon">🔬</span>
+          <h4>Lab: Probe the GPU Process from JavaScript</h4>
+        </div>
+        <div class="lab-body">
+          <div class="lab-instructions">
+            Run this code to fingerprint the GPU process. Compare output in Chrome, Electron, Brave, and headless mode. Look for differences in renderer strings, texture limits, and canvas hashes.
+          </div>
+          <textarea class="lab-code-area" rows="30">const gpu = {};
+
+// 1. Canvas fingerprint — goes through GPU process
+const canvas = document.createElement('canvas');
+canvas.width = 200; canvas.height = 50;
+const ctx = canvas.getContext('2d');
+ctx.textBaseline = 'top';
+ctx.font = '14px Arial';
+ctx.fillStyle = '#f60';
+ctx.fillRect(0, 0, 200, 50);
+ctx.fillStyle = '#069';
+ctx.fillText('GPU Process Test 🎨', 2, 2);
+gpu.canvasHash = canvas.toDataURL().slice(-40);
+
+// 2. WebGL info — reveals GPU process configuration
+const gl = document.createElement('canvas').getContext('webgl');
+if (gl) {
+  gpu.vendor = gl.getParameter(gl.VENDOR);
+  gpu.renderer = gl.getParameter(gl.RENDERER);
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  if (dbg) {
+    gpu.unmaskedVendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
+    gpu.unmaskedRenderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+  }
+  gpu.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  gpu.maxRenderbufferSize = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE);
+  gpu.extensions = gl.getSupportedExtensions()?.length;
+
+  // 3. Check for SwiftShader (software renderer = possible headless)
+  const renderer = (gpu.unmaskedRenderer || gpu.renderer || '').toLowerCase();
+  gpu.isSwiftShader = renderer.includes('swiftshader');
+  gpu.isSoftware = renderer.includes('software') || renderer.includes('llvmpipe');
+} else {
+  gpu.webgl = 'not available (very suspicious!)';
+}
+
+// 4. rAF timing — compositor behavior
+gpu.rafTest = 'measuring...';
+const times = [];
+function measureRAF(ts) {
+  times.push(ts);
+  if (times.length < 6) {
+    requestAnimationFrame(measureRAF);
+  } else {
+    const deltas = times.slice(1).map((t, i) => (t - times[i]).toFixed(1) + 'ms');
+    gpu.rafDeltas = deltas;
+    console.log('rAF deltas:', deltas.join(', '));
+  }
+}
+requestAnimationFrame(measureRAF);
+
+console.log(JSON.stringify(gpu, null, 2));</textarea>
+          <button class="lab-btn" onclick="Lab.run('lab-gpu')">▶ Run</button>
+          <div class="lab-output"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Resources -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>📚 Resources</h2>
+      <ul class="resource-list">
+        <li><span class="resource-type doc">DOC</span><a href="https://www.chromium.org/developers/design-documents/gpu-accelerated-compositing-in-chrome/" target="_blank">GPU Accelerated Compositing in Chrome — chromium.org</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:content/gpu/gpu_main.cc" target="_blank">content/gpu/gpu_main.cc — GPU process entry point</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:gpu/command_buffer/" target="_blank">gpu/command_buffer/ — Command buffer implementation</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:services/network/" target="_blank">services/network/ — Network service utility</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/master/docs/security/rule-of-2.md" target="_blank">Rule of Two — Security principle for sandboxing decisions</a></li>
+      </ul>
+    </section>
+
+    <!-- Navigation -->
+    <div class="module-nav">
+      <a href="../03-renderer-process/index.html" class="nav-prev"><span class="nav-label">← Previous</span> Module 3: Renderer Process</a>
+      <a href="../05-mojo-ipc/index.html" class="nav-next">Module 5: Mojo IPC <span class="nav-label">→</span></a>
+    </div>
+  </main>
+</div>
+<script src="../../js/core.js"></script>
+</body>
+</html>
