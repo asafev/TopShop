@@ -32,6 +32,7 @@
 | [OPENCLAW_DETECTION_V2_NETWORK.md](OPENCLAW_DETECTION_V2_NETWORK.md) | Network communication analysis: web_fetch headers, fetch-guard, SSRF, TLS |
 | [OPENCLAW_DETECTION_V2_IDENTITY.md](OPENCLAW_DETECTION_V2_IDENTITY.md) | Self-identification: system prompt, AGENTS.md, CLAUDE.md, skills, asking if it's OpenClaw |
 | [OPENCLAW_DETECTION_V2_JS_DETECTION.md](OPENCLAW_DETECTION_V2_JS_DETECTION.md) | JS-based detection methods: what works, what doesn't, new vectors |
+| [OPENCLAW_DETECTION_V2_BROWSER_SNAPSHOT.md](OPENCLAW_DETECTION_V2_BROWSER_SNAPSHOT.md) | Browser snapshot deep dive: how the agent sees pages, aria snapshot format, tool flow, refs, detection vectors |
 
 ---
 
