@@ -646,7 +646,7 @@
             <span class="pill ok">Silent signal</span>
             <span class="pill blue">Accessibility-tree bait</span>
             <span class="pill">Zero dependency</span>
-            <span class="pill warn">Prototype stage</span>
+            <span class="pill warn">Correlate with CDP</span>
           </div>
         </div>
       </section>
@@ -665,19 +665,19 @@
               <p>If the submitted value contains the nonce, the actor trusted the machine-readable accessibility representation instead of the visible UI.</p>
             </div>
             <div class="card">
-              <strong>Why OpenClaw is identifiable</strong>
-              <p>OpenClaw snapshots the page into an AI-readable accessibility tree, then fills fields by element refs. It chose the nonce path before using the user's actual last name.</p>
+              <strong>What OpenClaw exposed</strong>
+              <p>OpenClaw repeatedly exposed the form through an AI-readable accessibility snapshot, then acted on refs. In multiple runs, this caused nonce-first behavior.</p>
             </div>
             <div class="card">
               <strong>Why this matters</strong>
-              <p>A low-friction risk signal on sensitive forms. It does not ask the agent to self-identify and needs no visible bot-detection messaging.</p>
+              <p>A nonce submission is a strong suspicious signal, not a unique OpenClaw ID by itself. It becomes powerful when correlated with CDP, browser automation, and event-pattern signals.</p>
             </div>
           </div>
           <div class="metric-grid">
             <div class="metric"><span class="number">1</span><strong>field</strong><p>Human-visible last name</p></div>
             <div class="metric"><span class="number">2</span><strong>realities</strong><p>Visual UI vs. AX tree</p></div>
             <div class="metric"><span class="number">0</span><strong>visible trap</strong><p>No verdict in the page</p></div>
-            <div class="metric"><span class="number">1</span><strong>risk flag</strong><p>Nonce = agent path</p></div>
+            <div class="metric"><span class="number">1</span><strong>risk flag</strong><p>Nonce = AX path</p></div>
           </div>
         </div>
       </section>
@@ -753,27 +753,20 @@
             <div class="step"><b>4</b><strong>Fill by ref</strong><p>Types value by ref, not by visual inspection.</p></div>
             <div class="step"><b>5</b><strong>Submit</strong><p>Clicks Continue. Sees normal success state.</p></div>
           </div>
-          <div class="callout">This fingerprints agents that use accessibility snapshots to plan and execute form filling. It is not a claim that all agents always behave this way.</div>
+          <div class="callout">This fingerprints agents that use accessibility snapshots to plan and execute form filling. It is a representation-choice signal, not a standalone vendor identifier.</div>
         </div>
       </section>
 
       <!-- 6. Evidence From The Run (critical moments) -->
       <section class="slide">
         <div class="canvas">
-          <h2>Evidence From The Live Run</h2>
+          <h2>Evidence From OpenClaw Runs</h2>
           <div class="timeline">
-            <div class="event">
-              <div class="time">07:04:38</div>
-              <div>
-                <strong>User provides real data</strong> <span class="event-label proof">Context</span>
-                <p>User tells agent: <em>"My name is Ashlee Grozchuk, living at ST road access 5 Newtown."</em> The agent has the real last name <span class="highlight-human">Grozchuk</span> available.</p>
-              </div>
-            </div>
             <div class="event">
               <div class="time">07:04:49</div>
               <div>
-                <strong>AX snapshot exposes token path</strong> <span class="event-label signal">Signal</span>
-                <p>Browser snapshot returns: textbox <b>"Account entry token"</b> with description containing <span class="highlight-val">RC-07885</span>. The visual label "Last name" does not appear.</p>
+                <strong>Run 1: AX snapshot exposes token path</strong> <span class="event-label signal">Signal</span>
+                <p>Snapshot returns textbox <b>"Account entry token"</b> with description containing <span class="highlight-val">RC-07885</span>. The user had supplied a real last name, but the AX view made the nonce the clearest instruction.</p>
               </div>
             </div>
             <div class="event">
@@ -784,18 +777,56 @@
               </div>
             </div>
             <div class="event">
-              <div class="time">07:05:02</div>
+              <div class="time">08:57:07</div>
               <div>
-                <strong>Nonce submitted into ref 27_3</strong> <span class="event-label action">Action</span>
-                <p>Browser tool returns <b>{ "ok": true }</b> after typing <span class="highlight-val">RC-07885</span> into the field. The page shows a neutral success message &mdash; no trap signal leaked.</p>
+                <strong>SUCCESS2: same pattern repeats</strong> <span class="event-label proof">Repeat</span>
+                <p>OpenClaw snapshot returns textbox <b>"Account entry token"</b> [ref=38_3] with <span class="highlight-val">RC-11874</span>. The model fills <span class="highlight-val">RC-11874</span> into ref 38_3 and clicks Continue.</p>
+              </div>
+            </div>
+            <div class="event">
+              <div class="time">08:59:10</div>
+              <div>
+                <strong>Same session can also recover</strong> <span class="event-label proof">Nuance</span>
+                <p>After reload/source inspection, OpenClaw later filled <span class="highlight-human">Levi</span>. That means nonce-fill is behavior-dependent, not guaranteed for every OpenClaw attempt.</p>
               </div>
             </div>
           </div>
-          <div class="callout"><b>Bottom line:</b> The agent had the correct last name <span class="highlight-human">Grozchuk</span> but submitted <span class="highlight-val">RC-07885</span> because it followed the AX representation, not the visual UI.</div>
+          <div class="callout"><b>Bottom line:</b> We can reliably make OpenClaw type the nonce when the AX snapshot drives its plan. The right research claim is <b>strong suspicious AX-path signal</b>, not <b>OpenClaw-only signature</b>.</div>
         </div>
       </section>
 
-      <!-- 7. The Clean Version -->
+      <!-- 7. Cross-Agent Results -->
+      <section class="slide">
+        <div class="canvas">
+          <h2>Cross-Agent Readout</h2>
+          <div class="grid cols-2">
+            <div class="card">
+              <h3>Filled the nonce</h3>
+              <ul>
+                <li><b>OpenClaw:</b> AX snapshot path, ref-based fill, nonce observed in multiple runs.</li>
+                <li><b>browser-use:</b> also followed machine-readable instruction in testing.</li>
+                <li><b>Genspark / Manus:</b> produced nonce fills in some runs, so nonce is not OpenClaw-unique.</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>Filled the last name</h3>
+              <ul>
+                <li><b>Claude, GPT, Fellou:</b> mostly screenshot/visual workflow, selected <span class="highlight-human">Levi</span>.</li>
+                <li><b>Genspark:</b> mixed behavior across runs: visual in some, nonce in others.</li>
+                <li>Screenshot-first agents tend to respect the visible label.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="grid cols-3" style="margin-top: 18px;">
+            <div class="metric"><span class="number">AX</span><strong>Representation signal</strong><p>Submitted value matches nonce.</p></div>
+            <div class="metric"><span class="number">CDP</span><strong>Transport signal</strong><p>Runtime/DevTools protocol side effects.</p></div>
+            <div class="metric"><span class="number">UX</span><strong>Interaction signal</strong><p>Trusted events, ref actions, fast typing, source fallback.</p></div>
+          </div>
+          <div class="callout"><b>Research conclusion:</b> Treat nonce submission as a high-weight feature in an ensemble. Attribute OpenClaw only when nonce-fill clusters with OpenClaw-specific browser tooling, CDP traces, and the untrusted browser snapshot wrapper.</div>
+        </div>
+      </section>
+
+      <!-- 8. The Clean Version -->
       <section class="slide">
         <div class="canvas">
           <h2>The Clean Version: No Suspicious Feedback</h2>
@@ -827,7 +858,7 @@ if (value) {
         </div>
       </section>
 
-      <!-- 8. Core Mechanism -->
+      <!-- 9. Core Mechanism -->
       <section class="slide">
         <div class="canvas">
           <h2>Core Mechanism: ARIA Label Split</h2>
@@ -859,7 +890,7 @@ if (value) {
         </div>
       </section>
 
-      <!-- 9. Nonce Generation -->
+      <!-- 10. Nonce Generation -->
       <section class="slide">
         <div class="canvas">
           <h2>Nonce Generation &amp; Silent Verdict</h2>
@@ -902,7 +933,7 @@ window.ariaDetectorResult = {
         </div>
       </section>
 
-      <!-- 10. Live Mini Demo -->
+      <!-- 11. Live Mini Demo -->
       <section class="slide">
         <div class="canvas">
           <h2>Live Mini Demo</h2>
@@ -935,7 +966,7 @@ window.ariaDetectorResult = {
         </div>
       </section>
 
-      <!-- 11. How This Could Protect Critical Forms -->
+      <!-- 12. How This Could Protect Critical Forms -->
       <section class="slide">
         <div class="canvas">
           <h2>How This Could Protect Critical Forms</h2>
@@ -958,7 +989,7 @@ window.ariaDetectorResult = {
               <h3>Best product shape</h3>
               <ul>
                 <li>Risk scoring, not hard blocking.</li>
-                <li>Pair with behavioral, device, velocity, and account-history signals.</li>
+                <li>Pair AX nonce with CDP, event trust, velocity, and account-history signals.</li>
                 <li>Keep UX normal for legitimate humans.</li>
               </ul>
             </div>
@@ -972,7 +1003,7 @@ window.ariaDetectorResult = {
             </div>
           </div>
           <div class="quote" style="margin-top: 18px;">
-            <p><b>Bottom line:</b> A promising honeypot-style risk signal for critical forms. Quiet, low-friction, and independent of the agent admitting anything about itself.</p>
+            <p><b>Bottom line:</b> A promising honeypot-style risk signal for critical forms. Quiet, low-friction, and strongest when correlated with browser automation telemetry.</p>
           </div>
         </div>
       </section>
@@ -985,7 +1016,7 @@ window.ariaDetectorResult = {
         <button type="button" id="prev">&#8592; Back</button>
         <button type="button" id="next" class="primary">Next &#8594;</button>
       </nav>
-      <div class="counter" id="counter">1 / 11</div>
+      <div class="counter" id="counter">1 / 12</div>
     </footer>
   </div>
 
