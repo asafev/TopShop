@@ -269,6 +269,7 @@
       const fillFallbackLikely = state.emptySubmitWithoutInput && timing.inputCount > 0;
 
       if (value) {
+        form.hidden = true;
         setResult('human', 'Thank you, your details have been saved.');
       } else {
         setResult('unclear', 'Please enter a value.');
