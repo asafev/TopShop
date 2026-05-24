@@ -117,7 +117,7 @@
 
     .metrics {
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(8, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 14px;
     }
@@ -145,6 +145,10 @@
       font-size: 18px;
       overflow-wrap: anywhere;
     }
+
+    .metric.score-low { border-color: var(--line); }
+    .metric.score-mid { border-color: var(--warm); background: color-mix(in srgb, var(--warm) 18%, Canvas 82%); }
+    .metric.score-high { border-color: var(--hot); background: color-mix(in srgb, var(--hot) 22%, Canvas 78%); }
 
     .cell-grid {
       display: grid;
@@ -381,6 +385,8 @@
     </div>
 
     <section class="metrics">
+      <div class="metric score-low" id="overlayScoreCard"><strong>Overlay Score</strong><span id="overlayScore">0</span></div>
+      <div class="metric"><strong>Score Reason</strong><span id="overlayStatus">baseline</span></div>
       <div class="metric"><strong>Runs</strong><span id="runCount">0</span></div>
       <div class="metric"><strong>Changed Now</strong><span id="changedNow">0</span></div>
       <div class="metric"><strong>Page Events</strong><span id="eventCount">0</span></div>
@@ -453,6 +459,9 @@
     const hitGrid = document.getElementById('hitGrid');
     const eventMap = document.getElementById('eventMap');
     const timeline = document.getElementById('timeline');
+    const overlayScoreCard = document.getElementById('overlayScoreCard');
+    const overlayScoreEl = document.getElementById('overlayScore');
+    const overlayStatusEl = document.getElementById('overlayStatus');
     const runCountEl = document.getElementById('runCount');
     const changedNowEl = document.getElementById('changedNow');
     const eventCountEl = document.getElementById('eventCount');
@@ -506,6 +515,8 @@
     let frameCount = 0;
     let stallCount = 0;
     let lastFrameTime = 0;
+    let lastEventTime = 0;
+    let lastStallTime = 0;
     let maxFrameGap = 0;
     let lastPointer = null;
     let lastClick = null;
@@ -617,6 +628,56 @@
       changedNowEl.textContent = String(changed);
     }
 
+    function renderOverlayScore(score, reasons) {
+      overlayScoreEl.textContent = String(score);
+      overlayStatusEl.textContent = reasons.length ? short(reasons.join(' + ')) : 'baseline';
+      overlayScoreCard.classList.toggle('score-high', score >= 70);
+      overlayScoreCard.classList.toggle('score-mid', score >= 35 && score < 70);
+      overlayScoreCard.classList.toggle('score-low', score < 35);
+    }
+
+    function computeOverlayScore(now) {
+      const reasons = [];
+      let score = 0;
+      const visible = document.visibilityState === 'visible' && !document.hidden;
+      const hasFocus = document.hasFocus();
+      const selectionLength = window.getSelection ? String(window.getSelection()).length : 0;
+      const eventSilenceMs = lastEventTime ? now - lastEventTime : 0;
+      const recentRenderStall = lastStallTime && now - lastStallTime < 2500;
+
+      if (visible) {
+        score += 10;
+      }
+      if (visible && !hasFocus) {
+        score += 25;
+        reasons.push('visible page lost focus');
+      }
+      if (selectionLength > 0) {
+        score += 15;
+        reasons.push(`${selectionLength} selected chars`);
+      }
+      if (totalEvents > 0 && visible && eventSilenceMs > 1200) {
+        score += eventSilenceMs > 2500 ? 25 : 15;
+        reasons.push(`no page events for ${Math.round(eventSilenceMs)}ms`);
+      }
+      if (recentRenderStall) {
+        score += 25;
+        reasons.push('recent RAF stall');
+      } else if (maxFrameGap > 250) {
+        score += 10;
+        reasons.push(`max RAF gap ${Math.round(maxFrameGap)}ms`);
+      }
+      if (navigator.userActivation && navigator.userActivation.hasBeenActive) {
+        score += 5;
+      }
+      if (!visible) {
+        score = Math.min(score, 20);
+        reasons.push('page not visible, suppressing score');
+      }
+
+      renderOverlayScore(Math.min(100, score), reasons);
+    }
+
     function renderHitState(points) {
       const previousPoints = previousState ? previousState.__hitPoints : [];
       const baselinePoints = baselineState ? baselineState.__hitPoints : [];
@@ -664,6 +725,7 @@
 
     function recordEvent(event) {
       totalEvents += 1;
+      lastEventTime = performance.now();
       eventCounts.set(event.type, (eventCounts.get(event.type) || 0) + 1);
       const target = cssPath(event.target);
       const detail = 'clientX' in event
@@ -698,6 +760,7 @@
       renderHeatmap();
       previousState = { ...current, __hitPoints: [...current.__hitPoints] };
       runCountEl.textContent = String(runs);
+      computeOverlayScore(performance.now());
     }
 
     function resetAllBaseline() {
@@ -718,6 +781,8 @@
       frameCount = 0;
       stallCount = 0;
       lastFrameTime = 0;
+      lastEventTime = 0;
+      lastStallTime = 0;
       maxFrameGap = 0;
       lastPointer = null;
       lastClick = null;
@@ -726,6 +791,7 @@
       eventCountEl.textContent = '0';
       frameCountEl.textContent = '0';
       stallCountEl.textContent = '0';
+      renderOverlayScore(0, []);
       lastEventEl.textContent = 'none';
       monitorState.textContent = 'Heatmap cleared. Monitoring live.';
       renderHeatmap();
@@ -735,7 +801,10 @@
       if (lastFrameTime) {
         const gap = now - lastFrameTime;
         maxFrameGap = Math.max(maxFrameGap, gap);
-        if (gap > 250) stallCount += 1;
+        if (gap > 250) {
+          stallCount += 1;
+          lastStallTime = now;
+        }
       }
       lastFrameTime = now;
       frameCount += 1;
