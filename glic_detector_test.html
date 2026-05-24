@@ -3,15 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GLIC Detector Test</title>
+  <title>GLIC Page Change Map</title>
   <style>
     :root {
       color-scheme: light dark;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      line-height: 1.45;
+      line-height: 1.35;
       background: Canvas;
       color: CanvasText;
+      --panel: color-mix(in srgb, Canvas 94%, CanvasText 6%);
+      --line: color-mix(in srgb, CanvasText 14%, transparent);
+      --muted: color-mix(in srgb, CanvasText 66%, transparent);
+      --cold: color-mix(in srgb, CanvasText 8%, Canvas 92%);
+      --warm: #fff59d;
+      --hot: #ff8a65;
+      --good: #34a853;
+      --bad: #ea4335;
+      --blue: #1a73e8;
     }
+
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -19,56 +30,28 @@
     }
 
     main {
-      box-sizing: border-box;
-      max-width: 1280px;
+      width: min(1480px, 100%);
       margin: 0 auto;
-      padding: 24px;
+      padding: 18px;
     }
 
     header {
       display: grid;
       gap: 8px;
-      margin-bottom: 20px;
+      margin-bottom: 14px;
     }
 
-    h1,
-    h2 {
+    h1, h2, h3, p {
       margin: 0;
       letter-spacing: 0;
     }
 
-    h1 {
-      font-size: 28px;
-    }
+    h1 { font-size: 26px; }
+    h2 { font-size: 17px; }
 
-    h2 {
-      font-size: 18px;
-    }
-
-    p {
-      margin: 0;
-      max-width: 78ch;
-    }
-
-    button {
-      width: fit-content;
-      border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
-      border-radius: 6px;
-      padding: 9px 13px;
-      background: ButtonFace;
-      color: ButtonText;
-      font: inherit;
-      cursor: pointer;
-    }
-
-    button:hover {
-      border-color: color-mix(in srgb, Highlight 55%, CanvasText 15%);
-    }
-
-    button.primary {
-      background: Highlight;
-      color: HighlightText;
-      border-color: Highlight;
+    .subhead {
+      max-width: 1040px;
+      color: var(--muted);
     }
 
     .toolbar {
@@ -76,690 +59,627 @@
       flex-wrap: wrap;
       gap: 10px;
       align-items: center;
-      margin: 18px 0;
+      margin: 14px 0;
     }
 
-    .dashboard {
-      display: grid;
-      grid-template-columns: minmax(0, 0.92fr) minmax(360px, 1.08fr);
-      gap: 16px;
-      align-items: start;
-      margin-bottom: 16px;
-    }
-
-    section {
-      display: grid;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    .panel {
-      border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
-      border-radius: 8px;
-      padding: 16px;
-      background: color-mix(in srgb, Canvas 94%, CanvasText 6%);
-    }
-
-    .status {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .metric {
-      border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+    button {
+      border: 1px solid var(--line);
       border-radius: 6px;
-      padding: 12px;
-      background: Canvas;
-    }
-
-    .metric strong {
-      display: block;
-      font-size: 13px;
-      color: color-mix(in srgb, CanvasText 72%, transparent);
-    }
-
-    .metric span {
-      display: block;
-      margin-top: 4px;
-      font-size: 20px;
-      overflow-wrap: anywhere;
-    }
-
-    ul {
-      margin: 0;
-      padding-left: 20px;
-    }
-
-    li + li {
-      margin-top: 5px;
-    }
-
-    pre {
-      box-sizing: border-box;
-      min-height: 180px;
-      max-height: 420px;
-      margin: 0;
-      overflow: auto;
-      border-radius: 6px;
-      padding: 12px;
-      background: color-mix(in srgb, CanvasText 8%, Canvas 92%);
-      color: CanvasText;
-      font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-
-    .sample {
-      user-select: text;
-      border-left: 4px solid Highlight;
-      padding: 12px 14px;
-      background: color-mix(in srgb, Highlight 8%, Canvas 92%);
-    }
-
-    .event-log {
-      max-height: 220px;
-    }
-
-    details.panel {
-      display: block;
-    }
-
-    summary {
+      padding: 8px 12px;
+      background: ButtonFace;
+      color: ButtonText;
+      font: inherit;
       cursor: pointer;
-      font-size: 18px;
-      font-weight: 700;
-      list-style-position: inside;
     }
 
-    .hint {
-      color: color-mix(in srgb, CanvasText 74%, transparent);
-      font-size: 14px;
+    button.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: white;
     }
 
-    .probe-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-      table-layout: fixed;
-    }
-
-    .probe-table th,
-    .probe-table td {
-      border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
-      padding: 8px 6px;
-      text-align: left;
-      vertical-align: top;
-      overflow-wrap: anywhere;
-    }
-
-    .probe-table th:nth-child(1),
-    .probe-table td:nth-child(1) {
-      width: 34%;
-    }
-
-    .probe-table th:nth-child(2),
-    .probe-table td:nth-child(2) {
-      width: 72px;
-    }
-
-    .probe-table th:nth-child(3),
-    .probe-table td:nth-child(3) {
-      width: 96px;
-    }
-
-    .probe-table th {
-      color: color-mix(in srgb, CanvasText 72%, transparent);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
-    .pill {
-      display: inline-block;
-      min-width: 42px;
-      border-radius: 999px;
-      padding: 2px 8px;
-      text-align: center;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .pill.true {
-      background: color-mix(in srgb, Mark 28%, Canvas 72%);
-      color: CanvasText;
-    }
-
-    .pill.false {
-      background: color-mix(in srgb, CanvasText 10%, Canvas 90%);
-      color: color-mix(in srgb, CanvasText 72%, transparent);
-    }
-
-    .pill.signal {
-      background: color-mix(in srgb, Highlight 22%, Canvas 78%);
-      color: CanvasText;
-    }
-
-    .pill.realm {
-      background: color-mix(in srgb, CanvasText 12%, Canvas 88%);
-      color: color-mix(in srgb, CanvasText 78%, transparent);
-    }
-
-    .live-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .live-item {
-      border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
-      border-radius: 6px;
-      padding: 10px;
-      background: Canvas;
-      min-width: 0;
-    }
-
-    .live-item strong {
-      display: block;
-      margin-bottom: 4px;
-      font-size: 12px;
-      color: color-mix(in srgb, CanvasText 70%, transparent);
-      text-transform: uppercase;
-    }
-
-    .live-item span {
-      overflow-wrap: anywhere;
-    }
-
-    .monitor-state {
+    .status-line {
       display: inline-flex;
-      align-items: center;
       gap: 8px;
-      color: color-mix(in srgb, CanvasText 74%, transparent);
+      align-items: center;
+      color: var(--muted);
     }
 
     .dot {
       width: 9px;
       height: 9px;
       border-radius: 50%;
-      background: color-mix(in srgb, CanvasText 28%, transparent);
+      background: var(--muted);
     }
 
-    .dot.running {
-      background: #188038;
+    .dot.running { background: var(--good); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(420px, 1.05fr) minmax(360px, 0.95fr);
+      gap: 14px;
+      align-items: start;
     }
 
-    @media (max-width: 820px) {
-      main {
-        padding: 16px;
-      }
+    .stack {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
 
-      .dashboard,
-      .status,
-      .live-grid {
-        grid-template-columns: 1fr;
-      }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: var(--panel);
+      min-width: 0;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 10px;
+      background: Canvas;
+      min-width: 0;
+    }
+
+    .metric strong,
+    .cell strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .metric span {
+      display: block;
+      min-height: 23px;
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }
+
+    .cell-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .cell {
+      min-height: 76px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 9px;
+      background: Canvas;
+      transition: background-color 120ms linear, border-color 120ms linear, transform 120ms linear;
+      min-width: 0;
+    }
+
+    .cell.changed {
+      border-color: color-mix(in srgb, var(--hot) 80%, var(--line));
+      background: color-mix(in srgb, var(--warm) 55%, Canvas 45%);
+      transform: translateY(-1px);
+    }
+
+    .cell.hot {
+      border-color: color-mix(in srgb, var(--bad) 80%, var(--line));
+      background: color-mix(in srgb, var(--hot) 45%, Canvas 55%);
+    }
+
+    .cell span {
+      display: block;
+      overflow-wrap: anywhere;
+      font-size: 14px;
+    }
+
+    .map {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 3px;
+      margin-top: 12px;
+      user-select: none;
+    }
+
+    .map-cell {
+      aspect-ratio: 1;
+      border: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+      border-radius: 3px;
+      background: var(--cold);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .map-cell::after {
+      content: attr(data-count);
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-size: 10px;
+      color: color-mix(in srgb, CanvasText 70%, transparent);
+    }
+
+    .map-cell.warm {
+      background: color-mix(in srgb, var(--warm) 70%, Canvas 30%);
+      border-color: color-mix(in srgb, var(--warm) 70%, CanvasText 20%);
+    }
+
+    .map-cell.hot {
+      background: color-mix(in srgb, var(--hot) 65%, Canvas 35%);
+      border-color: color-mix(in srgb, var(--hot) 80%, CanvasText 20%);
+    }
+
+    .map-cell.dead {
+      background: repeating-linear-gradient(135deg, var(--cold), var(--cold) 5px, color-mix(in srgb, var(--bad) 18%, Canvas 82%) 5px, color-mix(in srgb, var(--bad) 18%, Canvas 82%) 10px);
+    }
+
+    .sample-zone {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+      border: 1px dashed color-mix(in srgb, var(--blue) 60%, var(--line));
+      border-radius: 8px;
+      padding: 14px;
+      background: color-mix(in srgb, var(--blue) 5%, Canvas 95%);
+    }
+
+    .sample-text {
+      user-select: text;
+      border-left: 4px solid var(--blue);
+      padding: 10px 12px;
+      background: Canvas;
+    }
+
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    input, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: Canvas;
+      color: CanvasText;
+      font: inherit;
+    }
+
+    textarea {
+      min-height: 72px;
+      resize: vertical;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 6px;
+      max-height: 330px;
+      overflow: auto;
+      margin-top: 12px;
+      padding-right: 4px;
+    }
+
+    .event-row {
+      display: grid;
+      grid-template-columns: 92px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px 8px;
+      background: Canvas;
+      font-size: 13px;
+    }
+
+    .event-row.changed { background: color-mix(in srgb, var(--warm) 35%, Canvas 65%); }
+
+    .event-row code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      overflow-wrap: anywhere;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .swatch {
+      width: 13px;
+      height: 13px;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      background: var(--cold);
+    }
+
+    .swatch.warm { background: var(--warm); }
+    .swatch.hot { background: var(--hot); }
+
+    .note {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .layout, .metrics, .cell-grid { grid-template-columns: 1fr; }
+      main { padding: 12px; }
     }
   </style>
 </head>
 <body>
   <main>
     <header>
-      <h1>GLIC Detector Test</h1>
-      <p>This is a page-level monitor for Gemini/GLIC actions on this page. It cannot read GLIC's own chrome-untrusted DOM; it watches only effects that leak back to the page, like focus, visibility, selection, and page events.</p>
+      <h1>GLIC Page Change Map</h1>
+      <p class="subhead">A visual monitor for the smallest page-visible changes while Gemini/GLIC interacts with this page. It does not inspect GLIC's private chrome-untrusted DOM; it maps focus, selection, viewport, hit-testing, events, and interaction loss in this page.</p>
     </header>
 
     <div class="toolbar">
-      <button id="baselineDetector" type="button">Reset baseline</button>
+      <button id="resetBaseline" type="button">Reset baseline</button>
       <button id="toggleMonitor" class="primary" type="button">Pause monitor</button>
-      <button id="clearEvents" type="button">Clear events</button>
-      <span class="monitor-state"><span id="monitorDot" class="dot"></span><span id="loadedState">Loading detector...</span></span>
+      <button id="clearMap" type="button">Clear heatmap</button>
+      <span class="status-line"><span id="monitorDot" class="dot"></span><span id="monitorState">Starting monitor...</span></span>
     </div>
 
-    <div class="dashboard">
-      <section>
-        <div class="panel">
-          <h2>Result</h2>
-          <div class="status" aria-live="polite">
-            <div class="metric">
-              <strong>Detected</strong>
-              <span id="detected">-</span>
-            </div>
-            <div class="metric">
-              <strong>Confidence</strong>
-              <span id="confidence">-</span>
-            </div>
-            <div class="metric">
-              <strong>Signals</strong>
-              <span id="signalCount">-</span>
-            </div>
-            <div class="metric">
-              <strong>Runs</strong>
-              <span id="runCount">-</span>
-            </div>
+    <section class="metrics">
+      <div class="metric"><strong>Runs</strong><span id="runCount">0</span></div>
+      <div class="metric"><strong>Changed Now</strong><span id="changedNow">0</span></div>
+      <div class="metric"><strong>Page Events</strong><span id="eventCount">0</span></div>
+      <div class="metric"><strong>Last Event</strong><span id="lastEvent">none</span></div>
+    </section>
+
+    <div class="layout">
+      <div class="stack">
+        <section class="panel">
+          <h2>State Change Matrix</h2>
+          <p class="note">Cells flash when sampled page state changes from the previous sample. Hot cells differ from the baseline.</p>
+          <div id="stateGrid" class="cell-grid"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Pointer / Click Reception Heatmap</h2>
+          <p class="note">Move and click across the page before and while GLIC is active. If an overlay consumes interaction, this map stops receiving new pointer/click cells.</p>
+          <div id="eventMap" class="map" aria-label="Pointer and click heatmap"></div>
+          <div class="legend">
+            <span><span class="swatch"></span>no recent page event</span>
+            <span><span class="swatch warm"></span>pointer/mouse event</span>
+            <span><span class="swatch hot"></span>click/pointerdown</span>
           </div>
-        </div>
+        </section>
 
-        <div class="panel">
-          <h2>Signals</h2>
-          <p class="hint">For your current test, watch the live page state and changes. The GLIC selector rows are realm-only: they become true only if this script runs inside chrome-untrusted://glic, which a normal page cannot do.</p>
-          <ul id="signals">
-            <li>No run yet.</li>
-          </ul>
-        </div>
-
-        <div class="panel">
-          <h2>Live Page State</h2>
-          <div class="live-grid">
-            <div class="live-item">
-              <strong>Focus</strong>
-              <span id="liveFocus">-</span>
+        <section class="panel">
+          <h2>Page Test Surface</h2>
+          <div class="sample-zone" id="sampleZone">
+            <p class="sample-text" id="sampleText">Select this sentence and ask Gemini/GLIC to act on it. While the GLIC overlay is up, try clicking the buttons, text field, and blank areas here. The page will map every event it still receives.</p>
+            <div class="buttons">
+              <button type="button">Test button A</button>
+              <button type="button">Test button B</button>
+              <button type="button">Test button C</button>
             </div>
-            <div class="live-item">
-              <strong>Visibility</strong>
-              <span id="liveVisibility">-</span>
-            </div>
-            <div class="live-item">
-              <strong>Selection</strong>
-              <span id="liveSelection">-</span>
-            </div>
-            <div class="live-item">
-              <strong>Last Page Event</strong>
-              <span id="liveLastEvent">-</span>
-            </div>
+            <input id="testInput" value="Focusable input: try focusing this while GLIC is active">
+            <textarea id="testTextarea">Editable textarea: try selecting, typing, or clicking here while GLIC is active.</textarea>
           </div>
-        </div>
+        </section>
+      </div>
 
-        <div class="panel">
-          <h2>Probe Status</h2>
-          <table class="probe-table">
-            <thead>
-              <tr>
-                <th>Probe</th>
-                <th>Set</th>
-                <th>Use</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody id="probeRows">
-              <tr><td colspan="4">No run yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="stack">
+        <section class="panel">
+          <h2>Hit-Test Matrix</h2>
+          <p class="note">Samples document.elementFromPoint() at 25 points. This will not return GLIC nodes, but it can reveal page hit-test/layout changes.</p>
+          <div id="hitGrid" class="cell-grid"></div>
+        </section>
 
-      </section>
-
-      <section>
-        <div class="panel">
-          <h2>Changes Since Baseline</h2>
-          <ul id="changes">
-            <li>No baseline captured yet.</li>
-          </ul>
-        </div>
-
-        <div class="panel">
-          <h2>Selection Sample</h2>
-          <p class="sample">Select this text, then invoke any GLIC or Gemini selection workflow you want to test. If GLIC reads selection outside the page, the page may only see the normal selection length and focus/event changes; it will not see GLIC's internal overlay nodes.</p>
-        </div>
-
-        <div class="panel">
-          <h2>Live Page Events</h2>
-          <pre id="eventLog" class="event-log">Waiting for focus, blur, visibilitychange, selectionchange, pointer, and click events...</pre>
-        </div>
-      </section>
+        <section class="panel">
+          <h2>Event Timeline</h2>
+          <p class="note">Latest page events. If GLIC consumes input, this timeline may go quiet even while you are clicking.</p>
+          <div id="timeline" class="timeline"></div>
+        </section>
+      </div>
     </div>
-
-    <details class="panel" open>
-      <summary>Raw JSON</summary>
-      <pre id="rawJson">{}</pre>
-    </details>
   </main>
 
-  <script src="./glic_detector.js"></script>
   <script>
-    const loadedState = document.getElementById('loadedState');
-    const detected = document.getElementById('detected');
-    const confidence = document.getElementById('confidence');
-    const signalCount = document.getElementById('signalCount');
-    const runCount = document.getElementById('runCount');
-    const signals = document.getElementById('signals');
-    const rawJson = document.getElementById('rawJson');
-    const eventLog = document.getElementById('eventLog');
-    const toggleMonitorButton = document.getElementById('toggleMonitor');
+    const stateGrid = document.getElementById('stateGrid');
+    const hitGrid = document.getElementById('hitGrid');
+    const eventMap = document.getElementById('eventMap');
+    const timeline = document.getElementById('timeline');
+    const runCountEl = document.getElementById('runCount');
+    const changedNowEl = document.getElementById('changedNow');
+    const eventCountEl = document.getElementById('eventCount');
+    const lastEventEl = document.getElementById('lastEvent');
+    const monitorState = document.getElementById('monitorState');
     const monitorDot = document.getElementById('monitorDot');
-    const baselineDetectorButton = document.getElementById('baselineDetector');
-    const clearEventsButton = document.getElementById('clearEvents');
-    const probeRows = document.getElementById('probeRows');
-    const changes = document.getElementById('changes');
-    const liveFocus = document.getElementById('liveFocus');
-    const liveVisibility = document.getElementById('liveVisibility');
-    const liveSelection = document.getElementById('liveSelection');
-    const liveLastEvent = document.getElementById('liveLastEvent');
-    const eventLines = [];
-    let baselineResult = null;
-    let latestResult = null;
-    let monitorRunning = true;
-    let monitorBusy = false;
-    let monitorTimer = 0;
-    let totalRuns = 0;
-    let lastEventSummary = 'No page event yet.';
+    const toggleMonitor = document.getElementById('toggleMonitor');
+    const resetBaseline = document.getElementById('resetBaseline');
+    const clearMap = document.getElementById('clearMap');
 
-    function getPath(object, path) {
-      return path.split('.').reduce((value, key) => value == null ? undefined : value[key], object);
+    const stateKeys = [
+      ['focus', 'Document focus'],
+      ['visibility', 'Visibility'],
+      ['activeElement', 'Active element'],
+      ['selection', 'Selection'],
+      ['selectionNodes', 'Selection nodes'],
+      ['viewport', 'Viewport'],
+      ['visualViewport', 'Visual viewport'],
+      ['scroll', 'Scroll'],
+      ['userActivation', 'User activation'],
+      ['pointerLock', 'Pointer lock'],
+      ['fullscreen', 'Fullscreen'],
+      ['hoverTarget', 'Last hover target'],
+      ['lastPointer', 'Last pointer'],
+      ['lastClick', 'Last click'],
+      ['eventTotals', 'Event totals'],
+    ];
+
+    const eventTypes = [
+      'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave',
+      'mousedown', 'mouseup', 'mousemove', 'click', 'dblclick', 'contextmenu',
+      'focus', 'blur', 'focusin', 'focusout', 'selectionchange', 'selectstart',
+      'keydown', 'keyup', 'beforeinput', 'input', 'copy', 'cut', 'paste', 'visibilitychange', 'scroll', 'resize',
+    ];
+
+    const stateCells = new Map();
+    const hitCells = new Map();
+    const eventCounts = new Map();
+    const heat = Array.from({ length: 96 }, () => ({ count: 0, heat: 0, hot: false }));
+    let previousState = null;
+    let baselineState = null;
+    let running = true;
+    let runs = 0;
+    let totalEvents = 0;
+    let lastPointer = null;
+    let lastClick = null;
+    let lastHoverTarget = '';
+
+    function cssPath(node) {
+      if (!node) return 'none';
+      if (node === window) return 'window';
+      if (node === document) return 'document';
+      if (node.nodeType === Node.TEXT_NODE) return '#text';
+      if (!(node instanceof Element)) return node.nodeName || String(node);
+      const id = node.id ? `#${node.id}` : '';
+      const cls = typeof node.className === 'string' && node.className.trim()
+        ? `.${node.className.trim().split(/\s+/).slice(0, 2).join('.')}`
+        : '';
+      return `${node.tagName.toLowerCase()}${id}${cls}`;
     }
 
-    function formatValue(value) {
-      if (Array.isArray(value)) {
-        return value.length ? JSON.stringify(value) : '[]';
+    function short(value) {
+      const text = String(value);
+      return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+    }
+
+    function makeCell(container, title) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.innerHTML = '<strong></strong><span></span>';
+      cell.querySelector('strong').textContent = title;
+      container.appendChild(cell);
+      return cell;
+    }
+
+    for (const [key, title] of stateKeys) {
+      stateCells.set(key, makeCell(stateGrid, title));
+    }
+
+    for (let index = 0; index < 25; index += 1) {
+      hitCells.set(String(index), makeCell(hitGrid, `Point ${index + 1}`));
+    }
+
+    for (let index = 0; index < 96; index += 1) {
+      const cell = document.createElement('div');
+      cell.className = 'map-cell';
+      cell.dataset.count = '';
+      eventMap.appendChild(cell);
+    }
+
+    function getSelectionState() {
+      const selection = window.getSelection ? window.getSelection() : null;
+      if (!selection) return { selection: 'unsupported', selectionNodes: 'unsupported' };
+      return {
+        selection: `${selection.type || 'None'} / ${String(selection).length} chars / ${selection.rangeCount} ranges`,
+        selectionNodes: `${cssPath(selection.anchorNode)} -> ${cssPath(selection.focusNode)}`,
+      };
+    }
+
+    function getHitState() {
+      const points = [];
+      for (let row = 0; row < 5; row += 1) {
+        for (let col = 0; col < 5; col += 1) {
+          const x = Math.round((innerWidth * (col + 0.5)) / 5);
+          const y = Math.round((innerHeight * (row + 0.5)) / 5);
+          const element = document.elementFromPoint(x, y);
+          points.push(`${x},${y}: ${cssPath(element)}`);
+        }
       }
-      if (value && typeof value === 'object') {
-        return JSON.stringify(value);
-      }
-      return String(value);
+      return points;
     }
 
-    function boolPill(value) {
-      const span = document.createElement('span');
-      span.className = `pill ${value ? 'true' : 'false'}`;
-      span.textContent = value ? 'TRUE' : 'false';
-      return span;
+    function collectState() {
+      const selectionState = getSelectionState();
+      const visual = window.visualViewport;
+      return {
+        focus: `hasFocus=${document.hasFocus()}`,
+        visibility: `state=${document.visibilityState}, hidden=${document.hidden}`,
+        activeElement: cssPath(document.activeElement),
+        selection: selectionState.selection,
+        selectionNodes: selectionState.selectionNodes,
+        viewport: `${innerWidth}x${innerHeight}, dpr=${devicePixelRatio}`,
+        visualViewport: visual ? `${Math.round(visual.width)}x${Math.round(visual.height)}, offset=${Math.round(visual.offsetLeft)},${Math.round(visual.offsetTop)}, scale=${visual.scale}` : 'none',
+        scroll: `${Math.round(scrollX)},${Math.round(scrollY)}`,
+        userActivation: navigator.userActivation ? `active=${navigator.userActivation.isActive}, ever=${navigator.userActivation.hasBeenActive}` : 'unsupported',
+        pointerLock: cssPath(document.pointerLockElement),
+        fullscreen: cssPath(document.fullscreenElement),
+        hoverTarget: lastHoverTarget || 'none',
+        lastPointer: lastPointer ? `${lastPointer.type} ${lastPointer.x},${lastPointer.y} on ${lastPointer.target}` : 'none',
+        lastClick: lastClick ? `${lastClick.type} ${lastClick.x},${lastClick.y} on ${lastClick.target}` : 'none',
+        eventTotals: Array.from(eventCounts.entries()).map(([name, count]) => `${name}:${count}`).join(' ') || 'none',
+      };
     }
 
-    function usePill(kind) {
-      const span = document.createElement('span');
-      span.className = `pill ${kind === 'Page signal' ? 'signal' : kind === 'Realm-only' || kind === 'Extension' ? 'realm' : 'false'}`;
-      span.textContent = kind;
-      return span;
+    function setCell(cell, value, changed, hot) {
+      cell.querySelector('span').textContent = short(value);
+      cell.classList.toggle('changed', changed);
+      cell.classList.toggle('hot', hot);
     }
 
-    function renderEvents() {
-      eventLog.textContent = eventLines.length ? eventLines.join('\n') : 'No page events logged.';
-      eventLog.scrollTop = eventLog.scrollHeight;
-    }
-
-    function logEvent(name, detail) {
-      const selection = window.getSelection ? String(window.getSelection()) : '';
-      const line = JSON.stringify({
-        index: eventLines.length + 1,
-        event: name,
-        detail,
-        hasFocus: document.hasFocus(),
-        visibilityState: document.visibilityState,
-        selectionLength: selection.length,
-      });
-      lastEventSummary = `${name} (${selection.length} selected chars)`;
-      eventLines.push(line);
-      if (eventLines.length > 80) {
-        eventLines.shift();
-      }
-      renderEvents();
-    }
-
-    function makeProbeSummary(result) {
-      const raw = result.raw || {};
-      const details = raw.signalDetails || [];
-      const hasSignal = label => details.some(item => item.label === label);
-      const debuggerMatches = raw.extensionDebuggerTargets && raw.extensionDebuggerTargets.matches || [];
-      const customElements = raw.customElements && raw.customElements.found || [];
-      const domMarkers = raw.domMarkers && raw.domMarkers.found || [];
-      const cssVars = raw.cssVariables && raw.cssVariables.found || [];
-      const globals = raw.windowGlobals && raw.windowGlobals.suspiciousNames || [];
-      const focus = raw.focusVisibility || {};
-      const focusCapture = focus.visibilityState === 'visible' && focus.hasFocus === false && focus.userActivation && focus.userActivation.isActive;
-
-      return [
-        {
-          name: 'Current page is chrome-untrusted://glic',
-          set: Boolean(raw.location && raw.location.isGlicRealm),
-          use: 'Realm-only',
-          value: raw.location && raw.location.href,
-        },
-        {
-          name: 'GLIC custom elements registered here',
-          set: customElements.some(item => item.name === 'selection-overlay-app' || item.name === 'glic-selection-overlay'),
-          use: 'Realm-only',
-          value: customElements,
-        },
-        {
-          name: 'GLIC overlay DOM exists in this document',
-          set: domMarkers.some(item => item.selector === 'selection-overlay-app' || item.selector === 'glic-selection-overlay'),
-          use: 'Realm-only',
-          value: domMarkers,
-        },
-        {
-          name: 'Mojo bindings visible in GLIC realm',
-          set: hasSignal('Mojo bindings are present inside the GLIC WebUI realm'),
-          use: 'Realm-only',
-          value: raw.mojoSurface || {},
-        },
-        {
-          name: 'Extension debugger sees GLIC target',
-          set: debuggerMatches.some(item => /^chrome-untrusted:\/\/glic/i.test(item.url || '')),
-          use: 'Extension',
-          value: debuggerMatches,
-        },
-        {
-          name: 'Visible page lost focus during active user gesture',
-          set: Boolean(focusCapture),
-          use: 'Page signal',
-          value: focus,
-        },
-        {
-          name: 'Selection length snapshot',
-          set: Boolean(raw.selectionState && raw.selectionState.textLength),
-          use: 'Page state',
-          value: raw.selectionState ? `${raw.selectionState.textLength} chars` : 'unavailable',
-        },
-        {
-          name: 'GLIC-like globals, excluding detector globals',
-          set: globals.length > 0,
-          use: 'Diagnostic',
-          value: globals,
-        },
-        {
-          name: 'CSS paint(post-selection) accepted by this page',
-          set: Boolean(raw.cssPaint && raw.cssPaint.supportsPostSelectionPaint),
-          use: 'Diagnostic',
-          value: raw.cssPaint ? raw.cssPaint.computedBackgroundImage : 'unavailable',
-        },
-        {
-          name: 'Current document adoptedStyleSheets contain GLIC CSS',
-          set: Boolean(raw.adoptedStyleSheets && raw.adoptedStyleSheets.hasGlicCss),
-          use: raw.location && raw.location.isGlicRealm ? 'Realm-only' : 'Diagnostic',
-          value: raw.adoptedStyleSheets ? {
-            documentSheetCount: raw.adoptedStyleSheets.documentSheetCount,
-            shadowHostCount: raw.adoptedStyleSheets.shadowHostCount,
-            note: raw.adoptedStyleSheets.note,
-          } : 'unavailable',
-        },
-        {
-          name: 'GLIC CSS variables leaked to page root/body',
-          set: cssVars.length > 0,
-          use: raw.location && raw.location.isGlicRealm ? 'Realm-only' : 'Diagnostic',
-          value: cssVars,
-        },
-      ];
-    }
-
-    function renderLiveState(result) {
-      const raw = result.raw || {};
-      const focus = raw.focusVisibility || {};
-      const selection = raw.selectionState || {};
-      liveFocus.textContent = `hasFocus=${formatValue(focus.hasFocus)}, active=${formatValue(focus.activeElement)}`;
-      liveVisibility.textContent = `visibilityState=${formatValue(focus.visibilityState)}, hidden=${formatValue(focus.hidden)}`;
-      liveSelection.textContent = `${formatValue(selection.textLength || 0)} chars, type=${formatValue(selection.type || 'None')}`;
-      liveLastEvent.textContent = lastEventSummary;
-    }
-
-    function renderProbeRows(result) {
-      probeRows.replaceChildren();
-      for (const probe of makeProbeSummary(result)) {
-        const row = document.createElement('tr');
-        const name = document.createElement('td');
-        const set = document.createElement('td');
-        const use = document.createElement('td');
-        const value = document.createElement('td');
-        name.textContent = probe.name;
-        set.appendChild(boolPill(probe.set));
-        use.appendChild(usePill(probe.use));
-        value.textContent = formatValue(probe.value);
-        row.append(name, set, use, value);
-        probeRows.appendChild(row);
-      }
-    }
-
-    function renderChanges() {
-      changes.replaceChildren();
-      if (!baselineResult || !latestResult) {
-        const item = document.createElement('li');
-        item.textContent = baselineResult ? 'Baseline captured. Run after a GLIC action to compare.' : 'No baseline captured yet.';
-        changes.appendChild(item);
-        return;
-      }
-
-      const checks = [
-        ['detected', 'detected'],
-        ['confidence', 'confidence'],
-        ['signals', 'signals'],
-        ['focus', 'raw.focusVisibility.hasFocus'],
-        ['visibility', 'raw.focusVisibility.visibilityState'],
-        ['selection length', 'raw.selectionState.textLength'],
-        ['GLIC-like globals', 'raw.windowGlobals.suspiciousNames'],
-        ['debugger targets', 'raw.extensionDebuggerTargets.matches'],
-      ];
+    function renderState(current) {
       let changed = 0;
-
-      for (const [label, path] of checks) {
-        const before = getPath(baselineResult, path);
-        const after = getPath(latestResult, path);
-        if (JSON.stringify(before) !== JSON.stringify(after)) {
-          const item = document.createElement('li');
-          item.textContent = `${label}: ${formatValue(before)} -> ${formatValue(after)}`;
-          changes.appendChild(item);
-          changed += 1;
-        }
+      for (const [key] of stateKeys) {
+        const before = previousState ? previousState[key] : undefined;
+        const baseline = baselineState ? baselineState[key] : undefined;
+        const didChange = before !== undefined && before !== current[key];
+        const differsFromBaseline = baseline !== undefined && baseline !== current[key];
+        if (didChange) changed += 1;
+        setCell(stateCells.get(key), current[key], didChange, differsFromBaseline);
       }
-
-      if (!changed) {
-        const item = document.createElement('li');
-        item.textContent = 'No tracked probe changed from baseline.';
-        changes.appendChild(item);
-      }
+      changedNowEl.textContent = String(changed);
     }
 
-    function renderResult(result) {
-      detected.textContent = String(result.detected);
-      confidence.textContent = result.confidence;
-      signalCount.textContent = String(result.signals.length);
-      runCount.textContent = String(totalRuns);
-      signals.replaceChildren();
-      renderProbeRows(result);
-      renderLiveState(result);
-
-      if (result.signals.length === 0) {
-        const item = document.createElement('li');
-        item.textContent = 'No signals fired. This is the expected baseline for an ordinary page in a normal Chrome tab.';
-        signals.appendChild(item);
-      } else {
-        for (const signal of result.signals) {
-          const item = document.createElement('li');
-          item.textContent = signal;
-          signals.appendChild(item);
-        }
-      }
-
-      rawJson.textContent = JSON.stringify(result, null, 2);
-      renderChanges();
+    function renderHitState(points) {
+      const previousPoints = previousState ? previousState.__hitPoints : [];
+      const baselinePoints = baselineState ? baselineState.__hitPoints : [];
+      points.forEach((value, index) => {
+        const changed = previousPoints[index] !== undefined && previousPoints[index] !== value;
+        const hot = baselinePoints[index] !== undefined && baselinePoints[index] !== value;
+        setCell(hitCells.get(String(index)), value, changed, hot);
+      });
     }
 
-    function setMonitorUi() {
-      toggleMonitorButton.textContent = monitorRunning ? 'Pause monitor' : 'Resume monitor';
-      monitorDot.classList.toggle('running', monitorRunning);
+    function renderHeatmap() {
+      Array.from(eventMap.children).forEach((cell, index) => {
+        const item = heat[index];
+        item.heat = Math.max(0, item.heat - 0.06);
+        cell.dataset.count = item.count ? String(item.count) : '';
+        cell.classList.toggle('warm', item.heat > 0.12 && !item.hot);
+        cell.classList.toggle('hot', item.heat > 0.12 && item.hot);
+        cell.classList.toggle('dead', item.count === 0 && runs > 8);
+        if (item.heat <= 0.12) item.hot = false;
+      });
     }
 
-    async function runDetector(mode) {
-      if (monitorBusy) {
-        return;
-      }
-      if (typeof window.runGlicDetection !== 'function') {
-        loadedState.textContent = 'Detector failed to load.';
-        renderResult({
-          detected: false,
-          confidence: 'LOW',
-          signals: ['runGlicDetection is not available'],
-          raw: {},
-        });
-        return;
-      }
-
-      monitorBusy = true;
-      baselineDetectorButton.disabled = true;
-      loadedState.textContent = mode === 'baseline' ? 'Capturing baseline...' : 'Monitoring...';
-      try {
-        const result = await window.runGlicDetection();
-        totalRuns += 1;
-        if (mode === 'baseline') {
-          baselineResult = result;
-          latestResult = result;
-        } else {
-          latestResult = result;
-        }
-        renderResult(result);
-        loadedState.textContent = mode === 'baseline' ? 'Baseline captured. Monitoring live.' : 'Monitoring live.';
-      } catch (error) {
-        loadedState.textContent = 'Detector threw an error.';
-        rawJson.textContent = JSON.stringify({
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
-        }, null, 2);
-      } finally {
-        baselineDetectorButton.disabled = false;
-        monitorBusy = false;
-      }
+    function addTimeline(event, detail) {
+      const row = document.createElement('div');
+      row.className = 'event-row changed';
+      row.innerHTML = '<strong></strong><code></code><span></span>';
+      row.querySelector('strong').textContent = event.type;
+      row.querySelector('code').textContent = detail;
+      row.querySelector('span').textContent = `#${totalEvents}`;
+      timeline.prepend(row);
+      while (timeline.children.length > 80) timeline.lastElementChild.remove();
+      window.setTimeout(() => row.classList.remove('changed'), 700);
     }
 
-    function monitorTick() {
-      if (monitorRunning) {
-        runDetector(baselineResult ? 'monitor' : 'baseline');
+    function markEventMap(event) {
+      if (typeof event.clientX !== 'number' || typeof event.clientY !== 'number') return;
+      const col = Math.max(0, Math.min(11, Math.floor((event.clientX / Math.max(1, innerWidth)) * 12)));
+      const row = Math.max(0, Math.min(7, Math.floor((event.clientY / Math.max(1, innerHeight)) * 8)));
+      const index = row * 12 + col;
+      const item = heat[index];
+      item.count += 1;
+      item.heat = 1;
+      item.hot = /click|down|contextmenu|dblclick/.test(event.type);
+    }
+
+    function recordEvent(event) {
+      totalEvents += 1;
+      eventCounts.set(event.type, (eventCounts.get(event.type) || 0) + 1);
+      const target = cssPath(event.target);
+      const detail = 'clientX' in event
+        ? `${Math.round(event.clientX)},${Math.round(event.clientY)} target=${target}`
+        : `target=${target}`;
+
+      lastEventEl.textContent = short(`${event.type} ${detail}`);
+      eventCountEl.textContent = String(totalEvents);
+      lastHoverTarget = target;
+
+      if (/pointer|mouse/.test(event.type) && 'clientX' in event) {
+        lastPointer = { type: event.type, x: Math.round(event.clientX), y: Math.round(event.clientY), target };
       }
-    }
-
-    for (const name of ['focus', 'blur', 'visibilitychange', 'selectionchange']) {
-      document.addEventListener(name, event => logEvent(name, { target: event.target.nodeName }), true);
-      window.addEventListener(name, event => logEvent(`window:${name}`, { target: event.target === window ? 'window' : event.target.nodeName }), true);
-    }
-
-    for (const name of ['pointerdown', 'pointerup', 'click']) {
-      document.addEventListener(name, event => logEvent(name, {
-        x: event.clientX,
-        y: event.clientY,
-        target: event.target.id || event.target.tagName,
-      }), true);
-    }
-
-    toggleMonitorButton.addEventListener('click', () => {
-      monitorRunning = !monitorRunning;
-      setMonitorUi();
-      loadedState.textContent = monitorRunning ? 'Monitoring live.' : 'Monitor paused.';
-      if (monitorRunning) {
-        monitorTick();
+      if (/click|down|contextmenu|dblclick/.test(event.type) && 'clientX' in event) {
+        lastClick = { type: event.type, x: Math.round(event.clientX), y: Math.round(event.clientY), target };
       }
+
+      markEventMap(event);
+      addTimeline(event, detail);
+    }
+
+    function sample() {
+      if (!running) return;
+      runs += 1;
+      const current = collectState();
+      current.__hitPoints = getHitState();
+      if (!baselineState) {
+        baselineState = { ...current, __hitPoints: [...current.__hitPoints] };
+      }
+      renderState(current);
+      renderHitState(current.__hitPoints);
+      renderHeatmap();
+      previousState = { ...current, __hitPoints: [...current.__hitPoints] };
+      runCountEl.textContent = String(runs);
+    }
+
+    function resetAllBaseline() {
+      baselineState = null;
+      previousState = null;
+      sample();
+      monitorState.textContent = 'Baseline reset. Monitoring live.';
+    }
+
+    function clearHeatmap() {
+      for (const item of heat) {
+        item.count = 0;
+        item.heat = 0;
+        item.hot = false;
+      }
+      eventCounts.clear();
+      totalEvents = 0;
+      lastPointer = null;
+      lastClick = null;
+      lastHoverTarget = '';
+      timeline.replaceChildren();
+      eventCountEl.textContent = '0';
+      lastEventEl.textContent = 'none';
+      monitorState.textContent = 'Heatmap cleared. Monitoring live.';
+      renderHeatmap();
+    }
+
+    for (const type of eventTypes) {
+      window.addEventListener(type, recordEvent, true);
+      document.addEventListener(type, recordEvent, true);
+    }
+
+    toggleMonitor.addEventListener('click', () => {
+      running = !running;
+      monitorDot.classList.toggle('running', running);
+      toggleMonitor.textContent = running ? 'Pause monitor' : 'Resume monitor';
+      monitorState.textContent = running ? 'Monitoring live.' : 'Monitor paused.';
     });
-    baselineDetectorButton.addEventListener('click', () => runDetector('baseline'));
-    clearEventsButton.addEventListener('click', () => {
-      eventLines.length = 0;
-      renderEvents();
-    });
 
-    if (typeof window.runGlicDetection === 'function') {
-      setMonitorUi();
-      loadedState.textContent = 'Detector loaded. Monitoring live.';
-      runDetector('baseline');
-      monitorTimer = window.setInterval(monitorTick, 1000);
-    } else {
-      loadedState.textContent = 'Detector failed to load.';
-    }
+    resetBaseline.addEventListener('click', resetAllBaseline);
+    clearMap.addEventListener('click', clearHeatmap);
+
+    monitorDot.classList.add('running');
+    monitorState.textContent = 'Monitoring live.';
+    sample();
+    window.setInterval(sample, 250);
   </script>
 </body>
 </html>
