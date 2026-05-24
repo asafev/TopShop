@@ -240,6 +240,37 @@
       color: CanvasText;
     }
 
+    .pill.realm {
+      background: color-mix(in srgb, CanvasText 12%, Canvas 88%);
+      color: color-mix(in srgb, CanvasText 78%, transparent);
+    }
+
+    .live-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .live-item {
+      border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+      border-radius: 6px;
+      padding: 10px;
+      background: Canvas;
+      min-width: 0;
+    }
+
+    .live-item strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: color-mix(in srgb, CanvasText 70%, transparent);
+      text-transform: uppercase;
+    }
+
+    .live-item span {
+      overflow-wrap: anywhere;
+    }
+
     .monitor-state {
       display: inline-flex;
       align-items: center;
@@ -264,7 +295,8 @@
       }
 
       .dashboard,
-      .status {
+      .status,
+      .live-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -274,7 +306,7 @@
   <main>
     <header>
       <h1>GLIC Detector Test</h1>
-      <p>The page continuously samples the detector and compares every run to the first clean baseline. A normal page should stay <strong>false</strong> unless a real WebUI, extension-debugger, or focus/input signal appears.</p>
+      <p>This is a page-level monitor for Gemini/GLIC actions on this page. It cannot read GLIC's own chrome-untrusted DOM; it watches only effects that leak back to the page, like focus, visibility, selection, and page events.</p>
     </header>
 
     <div class="toolbar">
@@ -310,10 +342,32 @@
 
         <div class="panel">
           <h2>Signals</h2>
-          <p class="hint">Only rows marked as signals affect the detected/confidence result. Diagnostics are shown to explain raw browser state without creating a detection.</p>
+          <p class="hint">For your current test, watch the live page state and changes. The GLIC selector rows are realm-only: they become true only if this script runs inside chrome-untrusted://glic, which a normal page cannot do.</p>
           <ul id="signals">
             <li>No run yet.</li>
           </ul>
+        </div>
+
+        <div class="panel">
+          <h2>Live Page State</h2>
+          <div class="live-grid">
+            <div class="live-item">
+              <strong>Focus</strong>
+              <span id="liveFocus">-</span>
+            </div>
+            <div class="live-item">
+              <strong>Visibility</strong>
+              <span id="liveVisibility">-</span>
+            </div>
+            <div class="live-item">
+              <strong>Selection</strong>
+              <span id="liveSelection">-</span>
+            </div>
+            <div class="live-item">
+              <strong>Last Page Event</strong>
+              <span id="liveLastEvent">-</span>
+            </div>
+          </div>
         </div>
 
         <div class="panel">
@@ -345,7 +399,7 @@
 
         <div class="panel">
           <h2>Selection Sample</h2>
-          <p class="sample">Select this text, then invoke any GLIC or Gemini selection workflow you want to test. The monitor keeps running and records selection/focus state without clearing or modifying the selection.</p>
+          <p class="sample">Select this text, then invoke any GLIC or Gemini selection workflow you want to test. If GLIC reads selection outside the page, the page may only see the normal selection length and focus/event changes; it will not see GLIC's internal overlay nodes.</p>
         </div>
 
         <div class="panel">
@@ -377,6 +431,10 @@
     const clearEventsButton = document.getElementById('clearEvents');
     const probeRows = document.getElementById('probeRows');
     const changes = document.getElementById('changes');
+    const liveFocus = document.getElementById('liveFocus');
+    const liveVisibility = document.getElementById('liveVisibility');
+    const liveSelection = document.getElementById('liveSelection');
+    const liveLastEvent = document.getElementById('liveLastEvent');
     const eventLines = [];
     let baselineResult = null;
     let latestResult = null;
@@ -384,6 +442,7 @@
     let monitorBusy = false;
     let monitorTimer = 0;
     let totalRuns = 0;
+    let lastEventSummary = 'No page event yet.';
 
     function getPath(object, path) {
       return path.split('.').reduce((value, key) => value == null ? undefined : value[key], object);
@@ -408,7 +467,7 @@
 
     function usePill(kind) {
       const span = document.createElement('span');
-      span.className = `pill ${kind === 'Signal' ? 'signal' : 'false'}`;
+      span.className = `pill ${kind === 'Page signal' ? 'signal' : kind === 'Realm-only' || kind === 'Extension' ? 'realm' : 'false'}`;
       span.textContent = kind;
       return span;
     }
@@ -428,6 +487,7 @@
         visibilityState: document.visibilityState,
         selectionLength: selection.length,
       });
+      lastEventSummary = `${name} (${selection.length} selected chars)`;
       eventLines.push(line);
       if (eventLines.length > 80) {
         eventLines.shift();
@@ -451,43 +511,43 @@
         {
           name: 'Current page is chrome-untrusted://glic',
           set: Boolean(raw.location && raw.location.isGlicRealm),
-          use: 'Signal',
+          use: 'Realm-only',
           value: raw.location && raw.location.href,
         },
         {
           name: 'GLIC custom elements registered here',
           set: customElements.some(item => item.name === 'selection-overlay-app' || item.name === 'glic-selection-overlay'),
-          use: 'Signal',
+          use: 'Realm-only',
           value: customElements,
         },
         {
           name: 'GLIC overlay DOM exists in this document',
           set: domMarkers.some(item => item.selector === 'selection-overlay-app' || item.selector === 'glic-selection-overlay'),
-          use: 'Signal',
+          use: 'Realm-only',
           value: domMarkers,
         },
         {
           name: 'Mojo bindings visible in GLIC realm',
           set: hasSignal('Mojo bindings are present inside the GLIC WebUI realm'),
-          use: 'Signal',
+          use: 'Realm-only',
           value: raw.mojoSurface || {},
         },
         {
           name: 'Extension debugger sees GLIC target',
           set: debuggerMatches.some(item => /^chrome-untrusted:\/\/glic/i.test(item.url || '')),
-          use: 'Signal',
+          use: 'Extension',
           value: debuggerMatches,
         },
         {
           name: 'Visible page lost focus during active user gesture',
           set: Boolean(focusCapture),
-          use: 'Signal',
+          use: 'Page signal',
           value: focus,
         },
         {
           name: 'Selection length snapshot',
           set: Boolean(raw.selectionState && raw.selectionState.textLength),
-          use: 'Diagnostic',
+          use: 'Page state',
           value: raw.selectionState ? `${raw.selectionState.textLength} chars` : 'unavailable',
         },
         {
@@ -503,12 +563,32 @@
           value: raw.cssPaint ? raw.cssPaint.computedBackgroundImage : 'unavailable',
         },
         {
+          name: 'Current document adoptedStyleSheets contain GLIC CSS',
+          set: Boolean(raw.adoptedStyleSheets && raw.adoptedStyleSheets.hasGlicCss),
+          use: raw.location && raw.location.isGlicRealm ? 'Realm-only' : 'Diagnostic',
+          value: raw.adoptedStyleSheets ? {
+            documentSheetCount: raw.adoptedStyleSheets.documentSheetCount,
+            shadowHostCount: raw.adoptedStyleSheets.shadowHostCount,
+            note: raw.adoptedStyleSheets.note,
+          } : 'unavailable',
+        },
+        {
           name: 'GLIC CSS variables leaked to page root/body',
           set: cssVars.length > 0,
-          use: raw.location && raw.location.isGlicRealm ? 'Signal' : 'Diagnostic',
+          use: raw.location && raw.location.isGlicRealm ? 'Realm-only' : 'Diagnostic',
           value: cssVars,
         },
       ];
+    }
+
+    function renderLiveState(result) {
+      const raw = result.raw || {};
+      const focus = raw.focusVisibility || {};
+      const selection = raw.selectionState || {};
+      liveFocus.textContent = `hasFocus=${formatValue(focus.hasFocus)}, active=${formatValue(focus.activeElement)}`;
+      liveVisibility.textContent = `visibilityState=${formatValue(focus.visibilityState)}, hidden=${formatValue(focus.hidden)}`;
+      liveSelection.textContent = `${formatValue(selection.textLength || 0)} chars, type=${formatValue(selection.type || 'None')}`;
+      liveLastEvent.textContent = lastEventSummary;
     }
 
     function renderProbeRows(result) {
@@ -574,6 +654,7 @@
       runCount.textContent = String(totalRuns);
       signals.replaceChildren();
       renderProbeRows(result);
+      renderLiveState(result);
 
       if (result.signals.length === 0) {
         const item = document.createElement('li');

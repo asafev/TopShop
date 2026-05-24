@@ -312,25 +312,62 @@
     };
   }
 
-  async function inspectChromeUntrustedFetch(state) {
-    if (!global.fetch) {
-      return { supported: false };
+  function describeStyleSheet(sheet) {
+    const result = {
+      disabled: sheet.disabled,
+      href: sheet.href || null,
+      ruleCount: null,
+      ruleSample: [],
+      error: null,
+    };
+
+    try {
+      result.ruleCount = sheet.cssRules.length;
+      result.ruleSample = Array.from(sheet.cssRules).slice(0, 8).map(rule => rule.cssText.slice(0, 220));
+    } catch (error) {
+      result.error = toPlainError(error);
     }
 
-    const url = 'chrome-untrusted://glic/selection-overlay/strings.m.js';
-    try {
-      const response = await fetch(url, { mode: 'no-cors', credentials: 'omit', cache: 'no-store' });
-      const data = {
-        ok: response.ok,
-        status: response.status,
-        type: response.type,
-        url: response.url,
-      };
-      addSignal(state, 'LOW', 'Page fetch to chrome-untrusted://glic did not reject', data);
-      return data;
-    } catch (error) {
-      return { rejected: true, error: toPlainError(error) };
+    return result;
+  }
+
+  function inspectAdoptedStyleSheets(state) {
+    const documentSheets = Array.from(document.adoptedStyleSheets || []).map(describeStyleSheet);
+    const shadowHosts = [];
+
+    for (const element of document.querySelectorAll('*')) {
+      if (!element.shadowRoot) {
+        continue;
+      }
+
+      const sheets = Array.from(element.shadowRoot.adoptedStyleSheets || []).map(describeStyleSheet);
+      shadowHosts.push({
+        tagName: element.tagName,
+        id: element.id || null,
+        className: typeof element.className === 'string' ? element.className : null,
+        sheetCount: sheets.length,
+        sheets,
+      });
     }
+
+    const combinedText = JSON.stringify({ documentSheets, shadowHosts });
+    const hasGlicCss = /google-blue|selectionOverlay|selection-corners|post-selection|glic-selection/i.test(combinedText);
+
+    if (GLIC_URL_RE.test(String(global.location && global.location.href || '')) && hasGlicCss) {
+      addSignal(state, 'HIGH', 'GLIC adoptedStyleSheets are visible in this realm', {
+        documentSheetCount: documentSheets.length,
+        shadowHostCount: shadowHosts.length,
+      });
+    }
+
+    return {
+      documentSheetCount: documentSheets.length,
+      documentSheets,
+      shadowHostCount: shadowHosts.length,
+      shadowHosts,
+      hasGlicCss,
+      note: 'DevTools #adopted-style-sheets reflects constructed stylesheets in the inspected document/shadow root. Normal pages cannot read the GLIC document adoptedStyleSheets.',
+    };
   }
 
   async function inspectExtensionDebuggerTargets(state) {
@@ -408,8 +445,8 @@
     // Compositor-layer model: page hit testing should continue to return page DOM, never overlay DOM.
     await runProbe(state, 'hitTestSnapshot', inspectHitTestSnapshot);
 
-    // URL isolation: normal pages should not be able to fetch chrome-untrusted://glic resources.
-    await runProbe(state, 'chromeUntrustedFetch', () => inspectChromeUntrustedFetch(state));
+    // DevTools #adopted-style-sheets: useful only in the current document or open shadow roots.
+    await runProbe(state, 'adoptedStyleSheets', () => inspectAdoptedStyleSheets(state));
 
     // Extension-only nuclear option: chrome.debugger target enumeration.
     await runProbe(state, 'extensionDebuggerTargets', () => inspectExtensionDebuggerTargets(state));
