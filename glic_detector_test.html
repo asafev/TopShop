@@ -117,7 +117,7 @@
 
     .metrics {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 14px;
     }
@@ -229,6 +229,48 @@
       border-radius: 8px;
       padding: 14px;
       background: color-mix(in srgb, var(--blue) 5%, Canvas 95%);
+    }
+
+    .motion-stage {
+      height: 130px;
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--blue) 9%, transparent) 1px, transparent 1px),
+        linear-gradient(0deg, color-mix(in srgb, var(--blue) 9%, transparent) 1px, transparent 1px),
+        Canvas;
+      background-size: 22px 22px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .motion-ball {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #ffffff, var(--blue) 36%, #174ea6 100%);
+      box-shadow: 0 7px 18px color-mix(in srgb, var(--blue) 38%, transparent);
+      position: absolute;
+      left: 0;
+      top: 48px;
+      transform: translate(0, 0);
+      will-change: transform;
+    }
+
+    .motion-bar {
+      height: 8px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--blue) 16%, Canvas 84%);
+      overflow: hidden;
+      margin-top: 10px;
+    }
+
+    .motion-bar-fill {
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, var(--blue), var(--hot));
+      will-change: width;
     }
 
     .sample-text {
@@ -343,6 +385,8 @@
       <div class="metric"><strong>Changed Now</strong><span id="changedNow">0</span></div>
       <div class="metric"><strong>Page Events</strong><span id="eventCount">0</span></div>
       <div class="metric"><strong>Last Event</strong><span id="lastEvent">none</span></div>
+      <div class="metric"><strong>Render Frames</strong><span id="frameCount">0</span></div>
+      <div class="metric"><strong>Render Stalls</strong><span id="stallCount">0</span></div>
     </section>
 
     <div class="layout">
@@ -351,6 +395,15 @@
           <h2>State Change Matrix</h2>
           <p class="note">Cells flash when sampled page state changes from the previous sample. Hot cells differ from the baseline.</p>
           <div id="stateGrid" class="cell-grid"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Continuous Render Probe</h2>
+          <p class="note">This animation is driven by requestAnimationFrame. If it keeps moving while clicks are blocked, GLIC is intercepting input but not freezing page rendering.</p>
+          <div class="motion-stage" id="motionStage" aria-label="Continuous render animation">
+            <div class="motion-ball" id="motionBall"></div>
+          </div>
+          <div class="motion-bar"><div class="motion-bar-fill" id="motionBarFill"></div></div>
         </section>
 
         <section class="panel">
@@ -404,11 +457,16 @@
     const changedNowEl = document.getElementById('changedNow');
     const eventCountEl = document.getElementById('eventCount');
     const lastEventEl = document.getElementById('lastEvent');
+    const frameCountEl = document.getElementById('frameCount');
+    const stallCountEl = document.getElementById('stallCount');
     const monitorState = document.getElementById('monitorState');
     const monitorDot = document.getElementById('monitorDot');
     const toggleMonitor = document.getElementById('toggleMonitor');
     const resetBaseline = document.getElementById('resetBaseline');
     const clearMap = document.getElementById('clearMap');
+    const motionStage = document.getElementById('motionStage');
+    const motionBall = document.getElementById('motionBall');
+    const motionBarFill = document.getElementById('motionBarFill');
 
     const stateKeys = [
       ['focus', 'Document focus'],
@@ -425,6 +483,7 @@
       ['hoverTarget', 'Last hover target'],
       ['lastPointer', 'Last pointer'],
       ['lastClick', 'Last click'],
+      ['renderLoop', 'Render loop'],
       ['eventTotals', 'Event totals'],
     ];
 
@@ -444,6 +503,10 @@
     let running = true;
     let runs = 0;
     let totalEvents = 0;
+    let frameCount = 0;
+    let stallCount = 0;
+    let lastFrameTime = 0;
+    let maxFrameGap = 0;
     let lastPointer = null;
     let lastClick = null;
     let lastHoverTarget = '';
@@ -530,6 +593,7 @@
         hoverTarget: lastHoverTarget || 'none',
         lastPointer: lastPointer ? `${lastPointer.type} ${lastPointer.x},${lastPointer.y} on ${lastPointer.target}` : 'none',
         lastClick: lastClick ? `${lastClick.type} ${lastClick.x},${lastClick.y} on ${lastClick.target}` : 'none',
+        renderLoop: `frames=${frameCount}, stalls=${stallCount}, maxGap=${Math.round(maxFrameGap)}ms`,
         eventTotals: Array.from(eventCounts.entries()).map(([name, count]) => `${name}:${count}`).join(' ') || 'none',
       };
     }
@@ -651,14 +715,41 @@
       }
       eventCounts.clear();
       totalEvents = 0;
+      frameCount = 0;
+      stallCount = 0;
+      lastFrameTime = 0;
+      maxFrameGap = 0;
       lastPointer = null;
       lastClick = null;
       lastHoverTarget = '';
       timeline.replaceChildren();
       eventCountEl.textContent = '0';
+      frameCountEl.textContent = '0';
+      stallCountEl.textContent = '0';
       lastEventEl.textContent = 'none';
       monitorState.textContent = 'Heatmap cleared. Monitoring live.';
       renderHeatmap();
+    }
+
+    function animateFrame(now) {
+      if (lastFrameTime) {
+        const gap = now - lastFrameTime;
+        maxFrameGap = Math.max(maxFrameGap, gap);
+        if (gap > 250) stallCount += 1;
+      }
+      lastFrameTime = now;
+      frameCount += 1;
+
+      const stageWidth = Math.max(1, motionStage.clientWidth - motionBall.offsetWidth);
+      const phase = (now / 1200) % 1;
+      const wave = (Math.sin(phase * Math.PI * 2) + 1) / 2;
+      const x = Math.round(wave * stageWidth);
+      const y = Math.round(Math.sin(now / 260) * 18);
+      motionBall.style.transform = `translate(${x}px, ${y}px)`;
+      motionBarFill.style.width = `${Math.round(phase * 100)}%`;
+      frameCountEl.textContent = String(frameCount);
+      stallCountEl.textContent = String(stallCount);
+      requestAnimationFrame(animateFrame);
     }
 
     for (const type of eventTypes) {
@@ -680,6 +771,7 @@
     monitorState.textContent = 'Monitoring live.';
     sample();
     window.setInterval(sample, 250);
+    requestAnimationFrame(animateFrame);
   </script>
 </body>
 </html>
