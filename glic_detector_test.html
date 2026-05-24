@@ -150,6 +150,57 @@
     .metric.score-mid { border-color: var(--warm); background: color-mix(in srgb, var(--warm) 18%, Canvas 82%); }
     .metric.score-high { border-color: var(--hot); background: color-mix(in srgb, var(--hot) 22%, Canvas 78%); }
 
+    .score-explainer {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .score-row {
+      display: grid;
+      grid-template-columns: minmax(160px, 220px) minmax(0, 1fr) 56px;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 8px 10px;
+      background: Canvas;
+    }
+
+    .score-row strong {
+      font-size: 13px;
+    }
+
+    .score-row small {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .score-track {
+      height: 10px;
+      border-radius: 999px;
+      background: color-mix(in srgb, CanvasText 9%, Canvas 91%);
+      overflow: hidden;
+    }
+
+    .score-fill {
+      height: 100%;
+      width: 0;
+      background: var(--blue);
+      transition: width 120ms linear, background-color 120ms linear;
+    }
+
+    .score-row.active .score-fill { background: var(--hot); }
+    .score-row.warn .score-fill { background: var(--warm); }
+
+    .score-value {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+
     .cell-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -379,6 +430,7 @@
 
     <div class="toolbar">
       <button id="resetBaseline" type="button">Reset baseline</button>
+      <button id="armOverlayTest" type="button">Arm 10s overlay test</button>
       <button id="toggleMonitor" class="primary" type="button">Pause monitor</button>
       <button id="clearMap" type="button">Clear heatmap</button>
       <span class="status-line"><span id="monitorDot" class="dot"></span><span id="monitorState">Starting monitor...</span></span>
@@ -393,6 +445,12 @@
       <div class="metric"><strong>Last Event</strong><span id="lastEvent">none</span></div>
       <div class="metric"><strong>Render Frames</strong><span id="frameCount">0</span></div>
       <div class="metric"><strong>Render Stalls</strong><span id="stallCount">0</span></div>
+    </section>
+
+    <section class="panel score-explainer">
+      <h2>Overlay Score Breakdown</h2>
+      <p class="note">This is not a GLIC identity check. It scores page-visible symptoms. DevTools pause, main-thread stalls, and some browser UI can raise the same components.</p>
+      <div id="scoreBreakdown"></div>
     </section>
 
     <div class="layout">
@@ -472,7 +530,9 @@
     const monitorDot = document.getElementById('monitorDot');
     const toggleMonitor = document.getElementById('toggleMonitor');
     const resetBaseline = document.getElementById('resetBaseline');
+    const armOverlayTest = document.getElementById('armOverlayTest');
     const clearMap = document.getElementById('clearMap');
+    const scoreBreakdown = document.getElementById('scoreBreakdown');
     const motionStage = document.getElementById('motionStage');
     const motionBall = document.getElementById('motionBall');
     const motionBarFill = document.getElementById('motionBarFill');
@@ -516,7 +576,10 @@
     let stallCount = 0;
     let lastFrameTime = 0;
     let lastEventTime = 0;
+    let lastMeaningfulEventTime = 0;
     let lastStallTime = 0;
+    let overlayTestStartedAt = 0;
+    let overlayTestUntil = 0;
     let maxFrameGap = 0;
     let lastPointer = null;
     let lastClick = null;
@@ -636,46 +699,121 @@
       overlayScoreCard.classList.toggle('score-low', score < 35);
     }
 
+    function renderScoreBreakdown(parts) {
+      scoreBreakdown.replaceChildren();
+      for (const part of parts) {
+        const row = document.createElement('div');
+        row.className = `score-row ${part.active ? 'active' : ''} ${part.warn ? 'warn' : ''}`;
+        row.innerHTML = '<div><strong></strong><small></small></div><div class="score-track"><div class="score-fill"></div></div><div class="score-value"></div>';
+        row.querySelector('strong').textContent = part.label;
+        row.querySelector('small').textContent = part.detail;
+        row.querySelector('.score-fill').style.width = `${Math.min(100, Math.round((part.points / Math.max(1, part.max)) * 100))}%`;
+        row.querySelector('.score-value').textContent = `${part.points}/${part.max}`;
+        scoreBreakdown.appendChild(row);
+      }
+    }
+
     function computeOverlayScore(now) {
       const reasons = [];
+      const parts = [];
       let score = 0;
       const visible = document.visibilityState === 'visible' && !document.hidden;
       const hasFocus = document.hasFocus();
       const selectionLength = window.getSelection ? String(window.getSelection()).length : 0;
-      const eventSilenceMs = lastEventTime ? now - lastEventTime : 0;
+      const eventSilenceAnchor = Math.max(lastEventTime || 0, overlayTestStartedAt || 0);
+      const eventSilenceMs = eventSilenceAnchor ? now - eventSilenceAnchor : 0;
       const recentRenderStall = lastStallTime && now - lastStallTime < 2500;
+      const overlayTestActive = now < overlayTestUntil;
+      const meaningfulActivityMs = lastMeaningfulEventTime ? now - lastMeaningfulEventTime : Infinity;
 
-      if (visible) {
+      parts.push({
+        label: 'Page visible',
+        detail: visible ? 'page is visible, so symptoms are usable' : 'page hidden: score is suppressed',
+        points: visible ? 0 : 0,
+        max: 0,
+        active: visible,
+      });
+
+      if (overlayTestActive) {
         score += 10;
+        reasons.push('overlay test armed');
       }
+      parts.push({
+        label: 'Armed test window',
+        detail: overlayTestActive ? `${Math.ceil((overlayTestUntil - now) / 1000)}s remaining` : 'click Arm before testing GLIC rectangle selection',
+        points: overlayTestActive ? 10 : 0,
+        max: 10,
+        active: overlayTestActive,
+      });
+
       if (visible && !hasFocus) {
         score += 25;
         reasons.push('visible page lost focus');
       }
+      parts.push({
+        label: 'Visible focus loss',
+        detail: visible && !hasFocus ? 'window/document focus is gone while page remains visible' : `hasFocus=${hasFocus}, visible=${visible}`,
+        points: visible && !hasFocus ? 25 : 0,
+        max: 25,
+        active: visible && !hasFocus,
+      });
+
       if (selectionLength > 0) {
-        score += 15;
+        const selectionPoints = overlayTestActive || !hasFocus || recentRenderStall ? 10 : 0;
+        score += selectionPoints;
         reasons.push(`${selectionLength} selected chars`);
       }
-      if (totalEvents > 0 && visible && eventSilenceMs > 1200) {
-        score += eventSilenceMs > 2500 ? 25 : 15;
+      parts.push({
+        label: 'Selection context',
+        detail: selectionLength > 0 ? `${selectionLength} chars selected` : 'no page selection',
+        points: selectionLength > 0 && (overlayTestActive || !hasFocus || recentRenderStall) ? 10 : 0,
+        max: 10,
+        active: selectionLength > 0,
+        warn: selectionLength > 0 && !(overlayTestActive || !hasFocus || recentRenderStall),
+      });
+
+      const silenceCounts = visible && overlayTestActive && eventSilenceMs > 1200;
+      if (silenceCounts) {
+        const silencePoints = eventSilenceMs > 2500 ? 25 : 15;
+        score += silencePoints;
         reasons.push(`no page events for ${Math.round(eventSilenceMs)}ms`);
       }
+      parts.push({
+        label: 'Event silence',
+        detail: overlayTestActive ? `${Math.round(eventSilenceMs)}ms since last page event/test start` : 'ignored unless test is armed, to avoid idle false positives',
+        points: silenceCounts ? (eventSilenceMs > 2500 ? 25 : 15) : 0,
+        max: 25,
+        active: silenceCounts,
+      });
+
       if (recentRenderStall) {
-        score += 25;
+        score += 20;
         reasons.push('recent RAF stall');
-      } else if (maxFrameGap > 250) {
-        score += 10;
-        reasons.push(`max RAF gap ${Math.round(maxFrameGap)}ms`);
       }
-      if (navigator.userActivation && navigator.userActivation.hasBeenActive) {
-        score += 5;
-      }
+      parts.push({
+        label: 'RAF/render stall',
+        detail: recentRenderStall ? `recent stall, max gap ${Math.round(maxFrameGap)}ms; DevTools pause can cause this` : `no recent stall, max gap ${Math.round(maxFrameGap)}ms`,
+        points: recentRenderStall ? 20 : 0,
+        max: 20,
+        active: recentRenderStall,
+        warn: recentRenderStall,
+      });
+
+      parts.push({
+        label: 'Recent user activity',
+        detail: Number.isFinite(meaningfulActivityMs) ? `${Math.round(meaningfulActivityMs)}ms since pointer/key/selection activity` : 'none yet',
+        points: 0,
+        max: 0,
+        active: meaningfulActivityMs < 3000,
+      });
+
       if (!visible) {
         score = Math.min(score, 20);
         reasons.push('page not visible, suppressing score');
       }
 
       renderOverlayScore(Math.min(100, score), reasons);
+      renderScoreBreakdown(parts);
     }
 
     function renderHitState(points) {
@@ -726,6 +864,9 @@
     function recordEvent(event) {
       totalEvents += 1;
       lastEventTime = performance.now();
+      if (/pointer|mouse|click|key|input|select|copy|cut|paste/.test(event.type)) {
+        lastMeaningfulEventTime = lastEventTime;
+      }
       eventCounts.set(event.type, (eventCounts.get(event.type) || 0) + 1);
       const target = cssPath(event.target);
       const detail = 'clientX' in event
@@ -783,6 +924,9 @@
       lastFrameTime = 0;
       lastEventTime = 0;
       lastStallTime = 0;
+      lastMeaningfulEventTime = 0;
+      overlayTestStartedAt = 0;
+      overlayTestUntil = 0;
       maxFrameGap = 0;
       lastPointer = null;
       lastClick = null;
@@ -795,6 +939,15 @@
       lastEventEl.textContent = 'none';
       monitorState.textContent = 'Heatmap cleared. Monitoring live.';
       renderHeatmap();
+    }
+
+    function armOverlayWindow() {
+      const now = performance.now();
+      overlayTestStartedAt = now;
+      overlayTestUntil = now + 10000;
+      lastEventTime = now;
+      monitorState.textContent = 'Overlay test armed for 10 seconds.';
+      computeOverlayScore(now);
     }
 
     function animateFrame(now) {
@@ -834,6 +987,7 @@
     });
 
     resetBaseline.addEventListener('click', resetAllBaseline);
+    armOverlayTest.addEventListener('click', armOverlayWindow);
     clearMap.addEventListener('click', clearHeatmap);
 
     monitorDot.classList.add('running');
