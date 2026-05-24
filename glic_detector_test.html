@@ -437,8 +437,9 @@
     </div>
 
     <section class="metrics">
-      <div class="metric score-low" id="overlayScoreCard"><strong>Overlay Score</strong><span id="overlayScore">0</span></div>
-      <div class="metric"><strong>Score Reason</strong><span id="overlayStatus">baseline</span></div>
+      <div class="metric score-low" id="inputScoreCard"><strong>Input Capture</strong><span id="inputScore">0</span></div>
+      <div class="metric score-low" id="stallScoreCard"><strong>JS/Render Stall</strong><span id="stallScore">0</span></div>
+      <div class="metric"><strong>Interpretation</strong><span id="scoreStatus">baseline</span></div>
       <div class="metric"><strong>Runs</strong><span id="runCount">0</span></div>
       <div class="metric"><strong>Changed Now</strong><span id="changedNow">0</span></div>
       <div class="metric"><strong>Page Events</strong><span id="eventCount">0</span></div>
@@ -449,7 +450,7 @@
 
     <section class="panel score-explainer">
       <h2>Overlay Score Breakdown</h2>
-      <p class="note">This is not a GLIC identity check. It scores page-visible symptoms. DevTools pause, main-thread stalls, and some browser UI can raise the same components.</p>
+      <p class="note">Input Capture is the GLIC-like pattern: same visible tab, page keeps rendering, but focus/events are captured elsewhere. JS/Render Stall is a separate debugger/tab-throttle/main-thread-freeze symptom.</p>
       <div id="scoreBreakdown"></div>
     </section>
 
@@ -517,9 +518,11 @@
     const hitGrid = document.getElementById('hitGrid');
     const eventMap = document.getElementById('eventMap');
     const timeline = document.getElementById('timeline');
-    const overlayScoreCard = document.getElementById('overlayScoreCard');
-    const overlayScoreEl = document.getElementById('overlayScore');
-    const overlayStatusEl = document.getElementById('overlayStatus');
+    const inputScoreCard = document.getElementById('inputScoreCard');
+    const inputScoreEl = document.getElementById('inputScore');
+    const stallScoreCard = document.getElementById('stallScoreCard');
+    const stallScoreEl = document.getElementById('stallScore');
+    const scoreStatusEl = document.getElementById('scoreStatus');
     const runCountEl = document.getElementById('runCount');
     const changedNowEl = document.getElementById('changedNow');
     const eventCountEl = document.getElementById('eventCount');
@@ -573,11 +576,15 @@
     let runs = 0;
     let totalEvents = 0;
     let frameCount = 0;
+    let previousSampleFrameCount = 0;
     let stallCount = 0;
     let lastFrameTime = 0;
     let lastEventTime = 0;
     let lastMeaningfulEventTime = 0;
     let lastStallTime = 0;
+    let lastHiddenAt = document.hidden ? performance.now() : 0;
+    let lastVisibleAt = document.hidden ? 0 : performance.now();
+    let ignoredTabSwitchStalls = 0;
     let overlayTestStartedAt = 0;
     let overlayTestUntil = 0;
     let maxFrameGap = 0;
@@ -691,12 +698,18 @@
       changedNowEl.textContent = String(changed);
     }
 
-    function renderOverlayScore(score, reasons) {
-      overlayScoreEl.textContent = String(score);
-      overlayStatusEl.textContent = reasons.length ? short(reasons.join(' + ')) : 'baseline';
-      overlayScoreCard.classList.toggle('score-high', score >= 70);
-      overlayScoreCard.classList.toggle('score-mid', score >= 35 && score < 70);
-      overlayScoreCard.classList.toggle('score-low', score < 35);
+    function styleScoreCard(card, score) {
+      card.classList.toggle('score-high', score >= 70);
+      card.classList.toggle('score-mid', score >= 35 && score < 70);
+      card.classList.toggle('score-low', score < 35);
+    }
+
+    function renderScores(inputScore, stallScore, interpretation) {
+      inputScoreEl.textContent = String(inputScore);
+      stallScoreEl.textContent = String(stallScore);
+      scoreStatusEl.textContent = short(interpretation);
+      styleScoreCard(inputScoreCard, inputScore);
+      styleScoreCard(stallScoreCard, stallScore);
     }
 
     function renderScoreBreakdown(parts) {
@@ -713,11 +726,15 @@
       }
     }
 
-    function computeOverlayScore(now) {
-      const reasons = [];
+    function computeScores(now) {
+      const inputReasons = [];
+      const stallReasons = [];
       const parts = [];
-      let score = 0;
+      let inputScore = 0;
+      let stallScore = 0;
       const visible = document.visibilityState === 'visible' && !document.hidden;
+      const visibleStableMs = visible ? now - lastVisibleAt : 0;
+      const recentlyReturnedFromHidden = visible && lastHiddenAt && visibleStableMs < 1500;
       const hasFocus = document.hasFocus();
       const selectionLength = window.getSelection ? String(window.getSelection()).length : 0;
       const eventSilenceAnchor = Math.max(lastEventTime || 0, overlayTestStartedAt || 0);
@@ -725,18 +742,29 @@
       const recentRenderStall = lastStallTime && now - lastStallTime < 2500;
       const overlayTestActive = now < overlayTestUntil;
       const meaningfulActivityMs = lastMeaningfulEventTime ? now - lastMeaningfulEventTime : Infinity;
+      const framesSinceSample = frameCount - previousSampleFrameCount;
+      const rafAlive = framesSinceSample > 0;
+      const lastEventWasExit = /blur|focusout|pointerleave|pointerout/.test(lastEventEl.textContent || '');
 
       parts.push({
         label: 'Page visible',
-        detail: visible ? 'page is visible, so symptoms are usable' : 'page hidden: score is suppressed',
+        detail: visible ? `visible for ${Math.round(visibleStableMs)}ms` : 'page hidden: score is suppressed',
         points: visible ? 0 : 0,
         max: 0,
         active: visible,
       });
 
+      parts.push({
+        label: 'Tab switch suppression',
+        detail: recentlyReturnedFromHidden ? 'recently returned from hidden tab; RAF gaps ignored' : `ignored tab-switch stalls=${ignoredTabSwitchStalls}`,
+        points: 0,
+        max: 0,
+        active: recentlyReturnedFromHidden,
+      });
+
       if (overlayTestActive) {
-        score += 10;
-        reasons.push('overlay test armed');
+        inputScore += 10;
+        inputReasons.push('test armed');
       }
       parts.push({
         label: 'Armed test window',
@@ -747,8 +775,8 @@
       });
 
       if (visible && !hasFocus) {
-        score += 25;
-        reasons.push('visible page lost focus');
+        inputScore += 25;
+        inputReasons.push('visible page lost focus');
       }
       parts.push({
         label: 'Visible focus loss',
@@ -758,10 +786,22 @@
         active: visible && !hasFocus,
       });
 
+      if (visible && !hasFocus && rafAlive && !recentlyReturnedFromHidden) {
+        inputScore += 25;
+        inputReasons.push('RAF alive while focus is elsewhere');
+      }
+      parts.push({
+        label: 'RAF alive while unfocused',
+        detail: `frames this sample=${framesSinceSample}, hasFocus=${hasFocus}`,
+        points: visible && !hasFocus && rafAlive && !recentlyReturnedFromHidden ? 25 : 0,
+        max: 25,
+        active: visible && !hasFocus && rafAlive && !recentlyReturnedFromHidden,
+      });
+
       if (selectionLength > 0) {
-        const selectionPoints = overlayTestActive || !hasFocus || recentRenderStall ? 10 : 0;
-        score += selectionPoints;
-        reasons.push(`${selectionLength} selected chars`);
+        const selectionPoints = overlayTestActive || !hasFocus ? 10 : 0;
+        inputScore += selectionPoints;
+        inputReasons.push(`${selectionLength} selected chars`);
       }
       parts.push({
         label: 'Selection context',
@@ -772,31 +812,46 @@
         warn: selectionLength > 0 && !(overlayTestActive || !hasFocus || recentRenderStall),
       });
 
-      const silenceCounts = visible && overlayTestActive && eventSilenceMs > 1200;
+      const silenceCounts = visible && !recentlyReturnedFromHidden && overlayTestActive && eventSilenceMs > 1200;
       if (silenceCounts) {
         const silencePoints = eventSilenceMs > 2500 ? 25 : 15;
-        score += silencePoints;
-        reasons.push(`no page events for ${Math.round(eventSilenceMs)}ms`);
+        inputScore += silencePoints;
+        inputReasons.push(`no page events for ${Math.round(eventSilenceMs)}ms`);
       }
       parts.push({
         label: 'Event silence',
-        detail: overlayTestActive ? `${Math.round(eventSilenceMs)}ms since last page event/test start` : 'ignored unless test is armed, to avoid idle false positives',
+        detail: recentlyReturnedFromHidden ? 'ignored after tab switch/resume' : overlayTestActive ? `${Math.round(eventSilenceMs)}ms since last page event/test start` : 'ignored unless test is armed, to avoid idle false positives',
         points: silenceCounts ? (eventSilenceMs > 2500 ? 25 : 15) : 0,
         max: 25,
         active: silenceCounts,
       });
 
-      if (recentRenderStall) {
-        score += 20;
-        reasons.push('recent RAF stall');
+      if (lastEventWasExit && visible && !hasFocus && !recentlyReturnedFromHidden) {
+        inputScore += 10;
+        inputReasons.push('last event was page-exit/focus-exit');
       }
       parts.push({
-        label: 'RAF/render stall',
-        detail: recentRenderStall ? `recent stall, max gap ${Math.round(maxFrameGap)}ms; DevTools pause can cause this` : `no recent stall, max gap ${Math.round(maxFrameGap)}ms`,
-        points: recentRenderStall ? 20 : 0,
-        max: 20,
-        active: recentRenderStall,
-        warn: recentRenderStall,
+        label: 'Exit event before capture',
+        detail: lastEventWasExit ? `last event: ${lastEventEl.textContent}` : 'last event is not blur/pointerleave/focusout',
+        points: lastEventWasExit && visible && !hasFocus && !recentlyReturnedFromHidden ? 10 : 0,
+        max: 10,
+        active: lastEventWasExit && visible && !hasFocus && !recentlyReturnedFromHidden,
+      });
+
+      if (recentRenderStall && visibleStableMs > 1500) {
+        stallScore += 70;
+        stallReasons.push('recent same-tab RAF stall');
+      } else if (maxFrameGap > 250 && visibleStableMs > 1500) {
+        stallScore += 25;
+        stallReasons.push(`historical RAF gap ${Math.round(maxFrameGap)}ms`);
+      }
+      parts.push({
+        label: 'JS/render stall score',
+        detail: recentlyReturnedFromHidden ? `ignored after tab switch, max gap ${Math.round(maxFrameGap)}ms` : recentRenderStall ? `recent same-tab stall, max gap ${Math.round(maxFrameGap)}ms; DevTools pause can cause this` : `no recent same-tab stall, max gap ${Math.round(maxFrameGap)}ms`,
+        points: recentRenderStall && visibleStableMs > 1500 ? 70 : (maxFrameGap > 250 && visibleStableMs > 1500 ? 25 : 0),
+        max: 70,
+        active: recentRenderStall && visibleStableMs > 1500,
+        warn: recentRenderStall && visibleStableMs > 1500,
       });
 
       parts.push({
@@ -808,12 +863,26 @@
       });
 
       if (!visible) {
-        score = Math.min(score, 20);
-        reasons.push('page not visible, suppressing score');
+        inputScore = Math.min(inputScore, 10);
+        stallScore = Math.min(stallScore, 10);
+        inputReasons.push('page hidden, suppressing scores');
       }
 
-      renderOverlayScore(Math.min(100, score), reasons);
+      inputScore = Math.min(100, inputScore);
+      stallScore = Math.min(100, stallScore);
+      let interpretation = 'baseline';
+      if (inputScore >= 70 && stallScore < 35) {
+        interpretation = `probable same-tab input capture: ${inputReasons.join(' + ')}`;
+      } else if (stallScore >= 70) {
+        interpretation = `JS/render stall, not GLIC-specific: ${stallReasons.join(' + ')}`;
+      } else if (inputScore >= 35) {
+        interpretation = `possible input capture: ${inputReasons.join(' + ')}`;
+      } else if (stallScore >= 35) {
+        interpretation = `possible page stall: ${stallReasons.join(' + ')}`;
+      }
+      renderScores(inputScore, stallScore, interpretation);
       renderScoreBreakdown(parts);
+      previousSampleFrameCount = frameCount;
     }
 
     function renderHitState(points) {
@@ -901,7 +970,7 @@
       renderHeatmap();
       previousState = { ...current, __hitPoints: [...current.__hitPoints] };
       runCountEl.textContent = String(runs);
-      computeOverlayScore(performance.now());
+      computeScores(performance.now());
     }
 
     function resetAllBaseline() {
@@ -920,11 +989,15 @@
       eventCounts.clear();
       totalEvents = 0;
       frameCount = 0;
+      previousSampleFrameCount = 0;
       stallCount = 0;
       lastFrameTime = 0;
       lastEventTime = 0;
       lastStallTime = 0;
       lastMeaningfulEventTime = 0;
+      lastHiddenAt = document.hidden ? performance.now() : 0;
+      lastVisibleAt = document.hidden ? 0 : performance.now();
+      ignoredTabSwitchStalls = 0;
       overlayTestStartedAt = 0;
       overlayTestUntil = 0;
       maxFrameGap = 0;
@@ -935,7 +1008,7 @@
       eventCountEl.textContent = '0';
       frameCountEl.textContent = '0';
       stallCountEl.textContent = '0';
-      renderOverlayScore(0, []);
+      renderScores(0, 0, 'baseline');
       lastEventEl.textContent = 'none';
       monitorState.textContent = 'Heatmap cleared. Monitoring live.';
       renderHeatmap();
@@ -947,7 +1020,7 @@
       overlayTestUntil = now + 10000;
       lastEventTime = now;
       monitorState.textContent = 'Overlay test armed for 10 seconds.';
-      computeOverlayScore(now);
+      computeScores(now);
     }
 
     function animateFrame(now) {
@@ -955,8 +1028,13 @@
         const gap = now - lastFrameTime;
         maxFrameGap = Math.max(maxFrameGap, gap);
         if (gap > 250) {
-          stallCount += 1;
-          lastStallTime = now;
+          const resumedFromHidden = lastHiddenAt && lastVisibleAt && now - lastVisibleAt < 1500;
+          if (document.hidden || resumedFromHidden) {
+            ignoredTabSwitchStalls += 1;
+          } else {
+            stallCount += 1;
+            lastStallTime = now;
+          }
         }
       }
       lastFrameTime = now;
@@ -978,6 +1056,19 @@
       window.addEventListener(type, recordEvent, true);
       document.addEventListener(type, recordEvent, true);
     }
+
+    document.addEventListener('visibilitychange', () => {
+      const now = performance.now();
+      if (document.hidden) {
+        lastHiddenAt = now;
+      } else {
+        lastVisibleAt = now;
+        lastFrameTime = 0;
+        lastEventTime = now;
+        monitorState.textContent = 'Returned from hidden tab; suppressing resume stalls briefly.';
+      }
+      computeScores(now);
+    }, true);
 
     toggleMonitor.addEventListener('click', () => {
       running = !running;
