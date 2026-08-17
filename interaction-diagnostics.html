@@ -22,6 +22,10 @@
            padding:14px 16px;border:2px solid var(--line);border-radius:8px;
            background:var(--card);word-break:break-word}
   #verdict.hit{border-color:var(--hit);color:var(--hit);background:var(--hitbg)}
+  #evidence{font:600 15px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;
+            margin-top:8px;padding:11px 14px;border:1px solid var(--line);
+            border-radius:8px;background:var(--card);color:var(--mut);
+            word-break:break-word}
   .wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
   table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
   th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);
@@ -53,6 +57,7 @@
 <div class="sub">Passive instrumentation of pointer, keyboard and console activity on this page.</div>
 
 <div id="verdict">NO INDICATORS OBSERVED</div>
+<div id="evidence">EVIDENCE: pending</div>
 
 <h2>Interaction targets</h2>
 <div class="targets">
@@ -220,6 +225,16 @@
     var w=function __pspW(a){try{__pspClassify(label,a);}catch(e){}return orig.apply(this,arguments);};
     try{Object.defineProperty(w,'toString',{value:function(){return 'function '+n+'() { [native code] }';}});}catch(e){}
     o[n]=w;}catch(e){}}
+  /* Content getters. An operator can route around querySelectorAll - the
+     observed session explicitly preferred getElementById - but it cannot read
+     the page without pulling text or markup through one of these. */
+  function hookGet(o,n,label){try{
+    var d=Object.getOwnPropertyDescriptor(o,n);
+    if(!d||!d.get||!d.configurable)return;
+    var g=d.get;
+    Object.defineProperty(o,n,{configurable:true,enumerable:d.enumerable,set:d.set,
+      get:function __pspW(){try{__pspClassify(label,null);}catch(e){}return g.call(this);}});
+  }catch(e){}}
   var E=Element.prototype,D=Document.prototype;
   hook(D,'querySelectorAll','Document.querySelectorAll');
   hook(D,'querySelector','Document.querySelector');
@@ -231,6 +246,13 @@
   hook(E,'getBoundingClientRect','Element.getBoundingClientRect');
   hook(E,'scrollIntoView','Element.scrollIntoView');
   hook(window,'getComputedStyle','window.getComputedStyle');
+  hook(D,'getElementById','Document.getElementById');
+  hook(D,'getElementsByTagName','Document.getElementsByTagName');
+  hook(D,'getElementsByClassName','Document.getElementsByClassName');
+  hookGet(Node.prototype,'textContent','Node.textContent');
+  hookGet(window.HTMLElement.prototype,'innerText','HTMLElement.innerText');
+  hookGet(E,'outerHTML','Element.outerHTML');
+  hookGet(E,'innerHTML','Element.innerHTML');
   try{ if(!(('getEventListeners') in window)){
     Object.defineProperty(window,'getEventListeners',
       {configurable:true,get:function(){cliProbe++;return undefined;}}); } }catch(e){}
@@ -268,7 +290,18 @@ var IND = [
   /* --- passive: fire with no user action at all --- */
   ['full_dom_enumeration','querySelectorAll("*") issued from a non-page origin',         'high'],
   ['iframe_sweep',       'blanket iframe scan issued from a non-page origin',            'high'],
+  /* CONFIRMED TRUE POSITIVE against the hosted service (session v4, 2026-08-17):
+     querySelectorAll("button"), ("input"), ("button,input") followed by
+     getBoundingClientRect mapped over the results, all from <anonymous>:1:N -
+     i.e. one-line scripts evaluated in over the debugger protocol.
+     The hosted service does NOT reproduce the open-source library's DOM path
+     (no "*" sweep, no iframe sweep, no DevTools-global probe), so this query
+     surface is currently the only passive vector that fires against it.
+     Keep scored. Extension content scripts resolve to chrome-extension:// URLs,
+     not <anonymous>, so they do not land here. */
   ['foreign_dom_query',  'any DOM query whose stack frame is not a first-party script',  'high'],
+  ['injected_one_liner', 'call issued from a single-line evaluated script (<anonymous>:1:N)', 'high'],
+  ['text_harvest',      'page text or markup read from a non-page origin',              'high'],
   ['periodic_foreign',   'foreign-origin calls recurring in evenly spaced bursts',       'high'],
   ['cli_api_probe',      'lookup of a DevTools-only global on this page',                'high'],
   ['foreign_console',    'console output whose stack frame is not a first-party script', 'high'],
@@ -313,10 +346,24 @@ setInterval(function(){
 }, 1500);
 
 /* ---- passive surface ---- */
+var CONTENT_API = /textContent|innerText|outerHTML|innerHTML/;
 window.__psp.onHit(function(c){
-  hit('foreign_dom_query', c.api + '(' + JSON.stringify(c.selector) + ') @ ' + c.frame.slice(0,60));
-  if (c.selector === '*')                       hit('full_dom_enumeration', c.api + '("*") @ ' + c.frame.slice(0,60));
-  if (c.selector && /^iframe\b/i.test(c.selector)) hit('iframe_sweep', c.api + '("' + c.selector + '") @ ' + c.frame.slice(0,60));
+  var where = ' @ ' + c.frame.slice(0,60);
+  hit('foreign_dom_query', c.api + '(' + JSON.stringify(c.selector) + ')' + where);
+
+  if (c.selector === '*') hit('full_dom_enumeration', c.api + '("*")' + where);
+  if (c.selector && /^iframe\b/i.test(c.selector)) hit('iframe_sweep', c.api + '("' + c.selector + '")' + where);
+
+  // Content extraction is the one thing a page reader cannot skip. The observed
+  // session avoided querySelectorAll on purpose but still had to pull text out.
+  if (CONTENT_API.test(c.api)) hit('text_harvest', c.api + where);
+
+  // A minified snippet evaluated in over the debugger protocol reports line 1
+  // with a large column. Bundled first-party code spans many lines; extension
+  // content scripts resolve to chrome-extension:// and never reach here.
+  var m = /:1:(\d+)\s*$/.exec(c.frame);
+  if (/^<anonymous>/.test(c.frame) && m && Number(m[1]) > 40)
+    hit('injected_one_liner', c.api + ' from one-line eval at col ' + m[1]);
 });
 setInterval(function(){
   var s = window.__psp.snapshot();
@@ -424,12 +471,41 @@ function env(){
   };
 }
 
-/* ---- render ---- */
+/* ---- render ----
+ * QUIET MODE (?quiet=1): collect everything, display nothing.
+ *
+ * Not cosmetic. A session driven against the visible build read our own verdict
+ * back, concluded "the page's diagnostics changed after a structural
+ * inspection", reloaded, and switched to getElementById to avoid the hooks it
+ * had just seen listed. Rendering results hands the subject a live scoreboard
+ * to tune against. Production must never paint; the visible build exists only
+ * so an operator can read findings back when no collector is available.
+ */
+var QUIET = /[?&]quiet=1\b/.test(location.search);
+
 function paint(){
+  if (QUIET){ buildReport(); return; }
+  paintVisible();
+}
+
+function buildReport(){
+  window.__report = {
+    observedAt: new Date().toISOString(),
+    indicators: state,
+    consoleSnapshot: window.__clp.snapshot(),
+    passiveSnapshot: window.__psp.snapshot(),
+    pointerSample: pointerLog.slice(-20),
+    downUpMs: downUp, moveDownMs: moveDown,
+    environment: env()
+  };
+  return window.__report;
+}
+
+function paintVisible(){
   var tb = document.querySelector('#indicators tbody');
   tb.innerHTML = IND.map(function(r){
     var fired = state[r[0]];
-    return '<tr><td><code>'+r[0]+'</code></td><td>'+r[1]+
+    return '<tr><td><code>'+r[0]+'</code></td><td>'+String(r[1]).replace(/</g,'&lt;')+
            '</td><td class="'+(fired?'fired':'quiet')+'">'+(fired?'OBSERVED':'—')+
            '</td><td class="ev">'+(fired?String(fired).replace(/</g,'&lt;'):'')+'</td></tr>';
   }).join('');
@@ -461,17 +537,38 @@ function paint(){
            String(e[k]).slice(0,220).replace(/</g,'&lt;')+'</td></tr>';
   }).join('');
 
-  var on = IND.map(function(r){return r[0];}).filter(function(n){return state[n];});
+  // Informational indicators never contribute to the verdict - they fire on
+  // ordinary browser extensions and would swamp the signal with false positives.
+  var scored = IND.filter(function(r){return r[2]!=='info' && state[r[0]];})
+                  .map(function(r){return r[0];});
+  var info   = IND.filter(function(r){return r[2]==='info' && state[r[0]];})
+                  .map(function(r){return r[0];});
   var strong = IND.filter(function(r){return r[2]==='high' && state[r[0]];}).length;
   var v = document.getElementById('verdict');
-  if (on.length){
+  if (scored.length){
     v.className = 'hit';
-    v.textContent = 'INDICATORS OBSERVED (' + on.length + ', ' + strong +
-                    ' high-strength): ' + on.join(', ');
+    v.textContent = 'INDICATORS OBSERVED (' + scored.length + ', ' + strong +
+                    ' high-strength): ' + scored.join(', ') +
+                    (info.length ? '  [informational: ' + info.join(', ') + ']' : '');
   } else {
     v.className = '';
-    v.textContent = 'NO INDICATORS OBSERVED';
+    v.textContent = 'NO SCORED INDICATORS OBSERVED' +
+                    (info.length ? '  [informational only: ' + info.join(', ') + ']' : '');
   }
+
+  // Compact, readable-by-anything evidence line. Lets an operator driving the
+  // page report back what was seen without needing the whole JSON blob.
+  var cad = psp.cadence;
+  document.getElementById('evidence').textContent =
+    'EVIDENCE: foreignCalls=' + psp.foreignCount +
+    ' selectors=' + (psp.distinctSelectors.length ? psp.distinctSelectors.join('|') : 'none') +
+    ' fullSweep=' + psp.fullDocumentEnumeration +
+    ' iframeSweep=' + psp.iframeSweeps +
+    ' devtoolsProbe=' + psp.commandLineApiProbes +
+    ' consoleLeaks=' + snap.count +
+    ' cadence=' + (cad ? cad.meanGapMs + 'ms/sd' + cad.sdMs + (cad.periodic ? '/periodic' : '') : 'none') +
+    ' clicks=' + downUp.length +
+    ' dwellMs=' + (downUp.length ? downUp.map(function(x){return Math.round(x);}).join(',') : 'none');
 
   document.getElementById('json').value = JSON.stringify({
     observedAt: new Date().toISOString(),
