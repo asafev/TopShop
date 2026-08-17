@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Interaction Diagnostics</title>
+<style>
+  :root{--bg:#fff;--fg:#16181d;--mut:#5c6270;--line:#d9dde5;--card:#f6f7f9;
+        --hit:#b3261e;--hitbg:#fdeceb;--idle:#3a7d44;--accent:#1f4e8c}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14161a;--fg:#e7e9ee;--mut:#9aa2b1;--line:#2c313a;--card:#1c1f25;
+          --hit:#ff6b5e;--hitbg:#3a1d1a;--idle:#6cc47a;--accent:#7aa9e6}}
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--bg);color:var(--fg);
+       font:14px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif}
+  h1{font-size:19px;margin:0 0 2px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);
+     margin:26px 0 8px;font-weight:600}
+  .sub{color:var(--mut);margin-bottom:18px}
+  #verdict{font:700 20px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;
+           padding:14px 16px;border:2px solid var(--line);border-radius:8px;
+           background:var(--card);word-break:break-word}
+  #verdict.hit{border-color:var(--hit);color:var(--hit);background:var(--hitbg)}
+  .wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);
+        vertical-align:top}
+  th{background:var(--card);font-weight:600;color:var(--mut);
+     text-transform:uppercase;font-size:11px;letter-spacing:.06em}
+  tr:last-child td{border-bottom:none}
+  td.ev{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;
+        color:var(--mut);word-break:break-all}
+  .fired{color:var(--hit);font-weight:700}
+  .quiet{color:var(--idle)}
+  .pill{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;
+        border:1px solid var(--line);color:var(--mut)}
+  .targets{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+           padding:16px;border:1px dashed var(--line);border-radius:8px;background:var(--card)}
+  button{font:inherit;padding:9px 18px;border:1px solid var(--accent);border-radius:6px;
+         background:var(--accent);color:#fff;cursor:pointer}
+  input{font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:6px;
+        background:var(--bg);color:var(--fg);min-width:200px}
+  textarea{width:100%;height:200px;font:12px/1.45 ui-monospace,Consolas,monospace;
+           background:var(--card);color:var(--fg);border:1px solid var(--line);
+           border-radius:8px;padding:11px}
+  footer{margin-top:26px;color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+
+<h1>Interaction Diagnostics</h1>
+<div class="sub">Passive instrumentation of pointer, keyboard and console activity on this page.</div>
+
+<div id="verdict">NO INDICATORS OBSERVED</div>
+
+<h2>Interaction targets</h2>
+<div class="targets">
+  <button id="target">Continue</button>
+  <input id="field" type="text" placeholder="Enter reference code">
+  <button id="target2">Verify</button>
+  <span class="pill" id="counter">0 interactions</span>
+</div>
+
+<h2>Indicators</h2>
+<div class="wrap">
+  <table id="indicators">
+    <thead><tr><th>Indicator</th><th>Mechanism</th><th>State</th><th>Evidence</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<h2>Console emissions from non-page origins</h2>
+<div class="wrap">
+  <table id="leaks">
+    <thead><tr><th>Method</th><th>Text</th><th>Origin frame</th><th>Δt</th></tr></thead>
+    <tbody><tr><td colspan="4" class="ev">none</td></tr></tbody>
+  </table>
+</div>
+
+<h2>DOM queries from non-page origins</h2>
+<div class="wrap">
+  <table id="queries">
+    <thead><tr><th>API</th><th>Selector</th><th>Origin frame</th><th>t</th></tr></thead>
+    <tbody><tr><td colspan="4" class="ev">none</td></tr></tbody>
+  </table>
+</div>
+
+<h2>Environment</h2>
+<div class="wrap">
+  <table id="env"><tbody></tbody></table>
+</div>
+
+<h2>Report</h2>
+<textarea id="json" readonly spellcheck="false"></textarea>
+
+<footer>Self-contained. No network calls; nothing leaves this page.</footer>
+
+<script>
+/* ===================================================================
+ * Part 1 - console origin probe (compact inline copy of
+ * consoleLeakProbe.js so this file stays standalone)
+ * =================================================================== */
+(function(){
+  if (window.__clp) return;
+  var SELF='__clpFrame_'+Math.random().toString(36).slice(2,10);
+  var METHODS=['log','info','warn','error','debug','trace','dir','table','assert'];
+  var native={},wrappers={},records=[],integrity=[],listeners=[],last=null;
+  var pageScripts=new Set(),docUrl='';
+  try{docUrl=String(location.href).split('#')[0];}catch(e){}
+  function note(s){if(!s)return;try{pageScripts.add(new URL(s,docUrl).href.split('#')[0]);}catch(e){}}
+  function collect(){try{var e=document.getElementsByTagName('script');
+    for(var i=0;i<e.length;i++)note(e[i].src);}catch(x){}}
+  function frames(st){var o=[],l=String(st||'').split('\n');
+    for(var i=0;i<l.length;i++){var t=l[i].trim();if(t.indexOf('at ')===0)o.push(t);}return o;}
+  function loc(f){var m=/\(([^()]*)\)\s*$/.exec(f);return (m?m[1]:f.replace(/^at\s+/,'')).trim();}
+  function foreign(L){
+    if(!L)return true;
+    if(/^<anonymous>/.test(L)||/\bVM\d+:\d+/.test(L))return true;
+    if(/^eval\b/.test(L)||/\beval at\b/.test(L))return true;
+    if(/^(blob|data):/.test(L)||/^about:/.test(L))return true;
+    if(/^(chrome|moz|safari|ms-browser)-extension:/.test(L))return true;
+    var m=/((?:https?|file):\/\/[^\s:]+(?::\d+)?[^\s:]*?)(?::\d+:\d+)?$/.exec(L);
+    if(!m)return true;
+    var u=m[1].split('#')[0];
+    if(u===docUrl||pageScripts.has(u))return false;
+    try{if(new URL(u).origin===location.origin)return false;}catch(e){}
+    return true;
+  }
+  function desc(a){try{
+    if(typeof a==='string')return a;
+    if(a instanceof Error)return a.name+': '+a.message;
+    if(a&&typeof a==='object')return a.nodeType===1?'<'+a.tagName.toLowerCase()+'>':JSON.stringify(a);
+    return String(a);}catch(e){return '[unserialisable]';}}
+  // Our own frames must be dropped first, otherwise every emission looks
+  // first-party (this probe lives at the page URL) and nothing is reported.
+  var OWN=/\b__clpW\b|\b__clpR\b/;
+  function __clpR(method,args){
+    var st='';try{throw new Error(SELF);}catch(e){st=e.stack||'';}
+    var fr=frames(st).filter(function(f){return f.indexOf(SELF)===-1&&!OWN.test(f);});
+    var first=fr.length?loc(fr[0]):'';
+    if(!foreign(first))return;
+    var now=0;try{now=performance.now();}catch(e){}
+    var gap=last===null?null:Math.round(now-last); last=now;
+    var r={method:method,text:Array.prototype.map.call(args,desc).join(' '),
+           firstFrame:first,frames:fr.slice(0,5),sincePreviousMs:gap,
+           tRelative:Math.round(now),tWall:Date.now()};
+    records.push(r); if(records.length>500)records.shift();
+    listeners.forEach(function(c){try{c(r);}catch(e){}});
+    try{window.dispatchEvent(new CustomEvent('consoleLeak',{detail:r}));}catch(e){}
+  }
+  METHODS.forEach(function(m){
+    if(typeof console==='undefined'||typeof console[m]!=='function')return;
+    native[m]=console[m];
+    var w=function __clpW(){try{__clpR(m,arguments);}catch(e){}return native[m].apply(console,arguments);};
+    try{Object.defineProperty(w,'toString',{value:function(){return 'function '+m+'() { [native code] }';}});}catch(e){}
+    w[SELF]=true; wrappers[m]=w; console[m]=w;
+  });
+  function integrityCheck(){METHODS.forEach(function(m){
+    if(wrappers[m]&&console[m]!==wrappers[m]&&!integrity.some(function(r){return r.method===m;}))
+      integrity.push({method:m,at:Date.now()});});}
+  try{collect();document.addEventListener('DOMContentLoaded',collect);
+      setInterval(integrityCheck,1000);
+      new MutationObserver(function(ms){ms.forEach(function(mu){
+        (mu.addedNodes||[]).forEach(function(n){if(n&&n.tagName==='SCRIPT')note(n.src);});});})
+        .observe(document.documentElement,{childList:true,subtree:true});}catch(e){}
+  window.__clp={snapshot:function(){integrityCheck();return{
+      foreignEmissions:records.slice(),count:records.length,
+      distinctTexts:Array.from(new Set(records.map(function(r){return r.text;}))),
+      consoleReplacedAfterInstall:integrity.slice()};},
+    onLeak:function(c){listeners.push(c);},nativeConsole:native};
+  if(!window.__nativeConsoleMethods)window.__nativeConsoleMethods=native;
+})();
+
+/* ===================================================================
+ * Part 2 - passive surface probe (compact inline copy of
+ * passiveSurfaceProbe.js). Fires while the page sits idle: no click,
+ * no keystroke, no DOM marker, no log line required.
+ * =================================================================== */
+(function(){
+  if (window.__psp) return;
+  var SELF='__pspFrame_'+Math.random().toString(36).slice(2,10);
+  var OWN=/\b__pspW\b|\b__pspClassify\b/;
+  var calls=[],totals={},subs=[],pageScripts=new Set(),docUrl='',cliProbe=0;
+  try{docUrl=String(location.href).split('#')[0];}catch(e){}
+  function note(s){if(!s)return;try{pageScripts.add(new URL(s,docUrl).href.split('#')[0]);}catch(e){}}
+  function collect(){try{var e=document.getElementsByTagName('script');
+    for(var i=0;i<e.length;i++)note(e[i].src);}catch(x){}}
+  function fr(st){var o=[],l=String(st||'').split('\n');
+    for(var i=0;i<l.length;i++){var t=l[i].trim();
+      if(t.indexOf('at ')===0&&!OWN.test(t))o.push(t);}return o;}
+  function fl(f){var m=/\(([^()]*)\)\s*$/.exec(f);return (m?m[1]:f.replace(/^at\s+/,'')).trim();}
+  function foreign(L){
+    if(!L)return true;
+    if(/^<anonymous>/.test(L)||/\bVM\d+:\d+/.test(L))return true;
+    if(/^eval\b/.test(L)||/\beval at\b/.test(L))return true;
+    if(/^(blob|data|about):/.test(L))return true;
+    if(/^(chrome|moz|safari|ms-browser)-extension:/.test(L))return true;
+    var m=/((?:https?|file):\/\/[^\s:]+(?::\d+)?[^\s:]*?)(?::\d+:\d+)?$/.exec(L);
+    if(!m)return true;
+    var u=m[1].split('#')[0];
+    if(u===docUrl||pageScripts.has(u))return false;
+    try{if(new URL(u).origin===location.origin)return false;}catch(e){}
+    return true;
+  }
+  function __pspClassify(api,arg){
+    totals[api]=(totals[api]||0)+1;
+    var st='';try{throw new Error(SELF);}catch(e){st=e.stack||'';}
+    var f=fr(st),first=f.length?fl(f[0]):'';
+    if(!foreign(first))return;
+    var t=0;try{t=performance.now();}catch(e){}
+    var rec={api:api,selector:typeof arg==='string'?arg.slice(0,120):null,
+             frame:first,chain:f.slice(0,3),t:Math.round(t)};
+    calls.push(rec); if(calls.length>400)calls.shift();
+    subs.forEach(function(c){try{c(rec);}catch(e){}});
+  }
+  function hook(o,n,label){try{
+    if(!o||typeof o[n]!=='function')return;
+    var orig=o[n];
+    var w=function __pspW(a){try{__pspClassify(label,a);}catch(e){}return orig.apply(this,arguments);};
+    try{Object.defineProperty(w,'toString',{value:function(){return 'function '+n+'() { [native code] }';}});}catch(e){}
+    o[n]=w;}catch(e){}}
+  var E=Element.prototype,D=Document.prototype;
+  hook(D,'querySelectorAll','Document.querySelectorAll');
+  hook(D,'querySelector','Document.querySelector');
+  hook(D,'evaluate','Document.evaluate');
+  hook(D,'elementFromPoint','Document.elementFromPoint');
+  hook(D,'elementsFromPoint','Document.elementsFromPoint');
+  hook(E,'querySelectorAll','Element.querySelectorAll');
+  hook(E,'querySelector','Element.querySelector');
+  hook(E,'getBoundingClientRect','Element.getBoundingClientRect');
+  hook(E,'scrollIntoView','Element.scrollIntoView');
+  hook(window,'getComputedStyle','window.getComputedStyle');
+  try{ if(!(('getEventListeners') in window)){
+    Object.defineProperty(window,'getEventListeners',
+      {configurable:true,get:function(){cliProbe++;return undefined;}}); } }catch(e){}
+  try{collect();document.addEventListener('DOMContentLoaded',collect);
+    new MutationObserver(function(ms){ms.forEach(function(m){
+      (m.addedNodes||[]).forEach(function(n){if(n&&n.tagName==='SCRIPT')note(n.src);});});})
+      .observe(document.documentElement,{childList:true,subtree:true});}catch(e){}
+  function cadence(){
+    if(calls.length<4)return null;
+    var b=[],cur=[calls[0]];
+    for(var i=1;i<calls.length;i++){
+      if(calls[i].t-calls[i-1].t>250){b.push(cur);cur=[];}
+      cur.push(calls[i]);}
+    b.push(cur);
+    if(b.length<3)return null;
+    var g=[];for(var k=1;k<b.length;k++)g.push(b[k][0].t-b[k-1][0].t);
+    var m=g.reduce(function(x,y){return x+y;},0)/g.length;
+    var sd=Math.sqrt(g.reduce(function(x,y){return x+(y-m)*(y-m);},0)/g.length);
+    return {bursts:b.length,meanGapMs:Math.round(m),sdMs:Math.round(sd),
+            periodic:g.length>=2&&sd<m*0.45};
+  }
+  window.__psp={snapshot:function(){return{
+      foreignCalls:calls.slice(),foreignCount:calls.length,
+      fullDocumentEnumeration:calls.filter(function(c){return c.selector==='*';}).length,
+      iframeSweeps:calls.filter(function(c){return c.selector&&/^iframe\b/i.test(c.selector);}).length,
+      distinctSelectors:Array.from(new Set(calls.map(function(c){return c.selector;}).filter(Boolean))),
+      apiTotals:totals,commandLineApiProbes:cliProbe,cadence:cadence()};},
+    onHit:function(c){subs.push(c);},reset:function(){calls.length=0;}};
+})();
+
+/* ===================================================================
+ * Part 3 - indicator battery
+ * =================================================================== */
+var IND = [
+  /* --- passive: fire with no user action at all --- */
+  ['full_dom_enumeration','querySelectorAll("*") issued from a non-page origin',         'high'],
+  ['iframe_sweep',       'blanket iframe scan issued from a non-page origin',            'high'],
+  ['foreign_dom_query',  'any DOM query whose stack frame is not a first-party script',  'high'],
+  ['periodic_foreign',   'foreign-origin calls recurring in evenly spaced bursts',       'high'],
+  ['cli_api_probe',      'lookup of a DevTools-only global on this page',                'high'],
+  ['foreign_console',    'console output whose stack frame is not a first-party script', 'high'],
+  ['console_rehooked',   'console method replaced after instrumentation installed',      'medium'],
+  /* --- require an interaction --- */
+  ['pointer_pressure',   'pointerdown reports buttons=1 while pressure=0',               'high'],
+  ['zero_move_click',    'click with no preceding pointermove at all',                   'high'],
+  ['teleport_pointer',   'single move carries the whole displacement, no approach',      'high'],
+  ['centre_landing',     'press lands within 1px of the element geometric centre',       'high'],
+  ['fixed_cadence',      'press/release intervals repeat with near-zero variance',       'medium'],
+  ['integer_coords',     'every press at whole-pixel coordinates',                       'low'],
+  ['value_replay',       'untrusted input event replaying the entire field value',       'high'],
+  ['uniform_keystrokes', 'inter-key intervals with near-zero variance',                  'medium']
+];
+
+var state = {};
+IND.forEach(function(r){ state[r[0]] = null; });
+
+var pointerLog = [], keyTimes = [], downUp = [], moveDown = [], pressPts = [];
+var movesSinceDown = 0, lastMoveTs = 0, lastDownTs = 0, interactions = 0;
+
+function hit(name, evidence){
+  if (state[name]) return;
+  state[name] = String(evidence);
+  paint();
+}
+
+function sd(a){
+  if (a.length < 3) return null;
+  var m = a.reduce(function(x,y){return x+y;},0)/a.length;
+  return Math.sqrt(a.reduce(function(x,y){return x+(y-m)*(y-m);},0)/a.length);
+}
+
+/* ---- console ---- */
+window.__clp.onLeak(function(r){
+  hit('foreign_console', r.method + ': "' + r.text.slice(0,90) + '" @ ' + r.firstFrame.slice(0,60));
+});
+setInterval(function(){
+  var s = window.__clp.snapshot();
+  if (s.consoleReplacedAfterInstall.length)
+    hit('console_rehooked', s.consoleReplacedAfterInstall.map(function(x){return x.method;}).join(','));
+}, 1500);
+
+/* ---- passive surface ---- */
+window.__psp.onHit(function(c){
+  hit('foreign_dom_query', c.api + '(' + JSON.stringify(c.selector) + ') @ ' + c.frame.slice(0,60));
+  if (c.selector === '*')                       hit('full_dom_enumeration', c.api + '("*") @ ' + c.frame.slice(0,60));
+  if (c.selector && /^iframe\b/i.test(c.selector)) hit('iframe_sweep', c.api + '("' + c.selector + '") @ ' + c.frame.slice(0,60));
+});
+setInterval(function(){
+  var s = window.__psp.snapshot();
+  if (s.cadence && s.cadence.periodic)
+    hit('periodic_foreign', s.cadence.bursts + ' bursts, gap ' +
+        s.cadence.meanGapMs + 'ms sd ' + s.cadence.sdMs + 'ms');
+  if (s.commandLineApiProbes)
+    hit('cli_api_probe', s.commandLineApiProbes + ' lookup(s)');
+}, 1200);
+
+/* ---- pointer ---- */
+addEventListener('pointermove', function(e){
+  if (e.pointerType && e.pointerType !== 'mouse') return;
+  movesSinceDown++; lastMoveTs = e.timeStamp;
+  pointerLog.push({x:e.clientX,y:e.clientY,mx:e.movementX,my:e.movementY,ts:Math.round(e.timeStamp)});
+  if (pointerLog.length > 200) pointerLog.shift();
+}, true);
+
+addEventListener('pointerdown', function(e){
+  if (e.pointerType && e.pointerType !== 'mouse') return;
+  lastDownTs = e.timeStamp;
+  interactions++; document.getElementById('counter').textContent = interactions + ' interactions';
+
+  if (e.buttons === 1 && e.pressure === 0)
+    hit('pointer_pressure', 'buttons=1 pressure=0 pointerType=' + e.pointerType);
+
+  if (movesSinceDown === 0)
+    hit('zero_move_click', 'no pointermove before press');
+
+  var lastMv = pointerLog[pointerLog.length-1];
+  if (movesSinceDown > 0 && movesSinceDown <= 2 && lastMv &&
+      (Math.abs(lastMv.mx) > 150 || Math.abs(lastMv.my) > 150))
+    hit('teleport_pointer', 'moves=' + movesSinceDown + ' jump=' + lastMv.mx + ',' + lastMv.my);
+
+  var el = e.target;
+  if (el && el.getBoundingClientRect){
+    var r = el.getBoundingClientRect();
+    if (r.width > 4 && r.height > 4){
+      var dx = Math.abs(e.clientX-(r.x+r.width/2)), dy = Math.abs(e.clientY-(r.y+r.height/2));
+      if (dx < 1 && dy < 1) hit('centre_landing','dx='+dx.toFixed(2)+' dy='+dy.toFixed(2));
+    }
+  }
+
+  pressPts.push([e.clientX, e.clientY]);
+  if (pressPts.length >= 3 && pressPts.every(function(p){
+        return Number.isInteger(p[0]) && Number.isInteger(p[1]); }))
+    hit('integer_coords', pressPts.length + ' presses, all whole-pixel');
+
+  if (lastMoveTs) moveDown.push(lastDownTs - lastMoveTs);
+  movesSinceDown = 0;
+}, true);
+
+addEventListener('pointerup', function(e){
+  if (lastDownTs) downUp.push(e.timeStamp - lastDownTs);
+  var a = sd(downUp), b = sd(moveDown);
+  if ((a !== null && a < 8) || (b !== null && b < 8))
+    hit('fixed_cadence','down-up sd='+(a===null?'-':a.toFixed(1))+'ms move-down sd='+(b===null?'-':b.toFixed(1))+'ms');
+  paint();
+}, true);
+
+/* ---- keyboard / input ---- */
+addEventListener('keydown', function(e){
+  keyTimes.push(e.timeStamp);
+  if (keyTimes.length >= 6){
+    var g = [];
+    for (var i=1;i<keyTimes.length;i++) g.push(keyTimes[i]-keyTimes[i-1]);
+    var s = sd(g);
+    if (s !== null && s < 12) hit('uniform_keystrokes','n='+g.length+' sd='+s.toFixed(1)+'ms');
+  }
+}, true);
+
+var typeState = new WeakMap();
+addEventListener('input', function(e){
+  var el = e.target; if (!el || !('value' in el)) return;
+  var r = typeState.get(el) || {trusted:0,lastTrusted:0};
+  if (e.isTrusted){ r.trusted++; r.lastTrusted = e.timeStamp; }
+  else if (e.inputType === 'insertText' && typeof e.data === 'string' &&
+           e.data.length > 1 && e.data === el.value &&
+           r.trusted >= 2 && (e.timeStamp - r.lastTrusted) < 500)
+    hit('value_replay', JSON.stringify(e.data).slice(0,60));
+  typeState.set(el, r);
+}, true);
+
+/* ---- environment ---- */
+function env(){
+  var g = {inner:[innerWidth,innerHeight],outer:[outerWidth,outerHeight],
+           screen:[screen.width,screen.height],avail:[screen.availWidth,screen.availHeight]};
+  var anomalies = [];
+  if (!g.outer[0] || !g.outer[1]) anomalies.push('outer dimensions zero');
+  if (g.outer[1] && g.inner[1] > g.outer[1]) anomalies.push('viewport taller than window');
+  if (g.inner[0] > g.screen[0]) anomalies.push('viewport wider than screen');
+  return {
+    webdriver: navigator.webdriver,
+    userAgent: navigator.userAgent,
+    languages: (navigator.languages||[]).join(','),
+    plugins: navigator.plugins.length,
+    mimeTypes: navigator.mimeTypes.length,
+    hardwareConcurrency: navigator.hardwareConcurrency,
+    devicePixelRatio: devicePixelRatio,
+    geometry: JSON.stringify(g),
+    geometryAnomalies: anomalies.length ? anomalies.join('; ') : 'none',
+    chromeObject: typeof window.chrome,
+    visibility: document.visibilityState,
+    hasFocus: document.hasFocus()
+  };
+}
+
+/* ---- render ---- */
+function paint(){
+  var tb = document.querySelector('#indicators tbody');
+  tb.innerHTML = IND.map(function(r){
+    var fired = state[r[0]];
+    return '<tr><td><code>'+r[0]+'</code></td><td>'+r[1]+
+           '</td><td class="'+(fired?'fired':'quiet')+'">'+(fired?'OBSERVED':'—')+
+           '</td><td class="ev">'+(fired?String(fired).replace(/</g,'&lt;'):'')+'</td></tr>';
+  }).join('');
+
+  var snap = window.__clp.snapshot();
+  var lt = document.querySelector('#leaks tbody');
+  lt.innerHTML = snap.foreignEmissions.length
+    ? snap.foreignEmissions.slice(-25).map(function(r){
+        return '<tr><td>'+r.method+'</td><td class="ev">'+r.text.slice(0,150).replace(/</g,'&lt;')+
+               '</td><td class="ev">'+r.firstFrame.slice(0,70).replace(/</g,'&lt;')+
+               '</td><td class="ev">'+(r.sincePreviousMs===null?'—':r.sincePreviousMs+'ms')+'</td></tr>';
+      }).join('')
+    : '<tr><td colspan="4" class="ev">none</td></tr>';
+
+  var psp = window.__psp.snapshot();
+  var qt = document.querySelector('#queries tbody');
+  qt.innerHTML = psp.foreignCalls.length
+    ? psp.foreignCalls.slice(-25).map(function(c){
+        return '<tr><td class="ev">'+c.api+'</td><td class="ev">'+
+               (c.selector===null?'—':String(c.selector).replace(/</g,'&lt;'))+
+               '</td><td class="ev">'+c.frame.slice(0,70).replace(/</g,'&lt;')+
+               '</td><td class="ev">'+c.t+'ms</td></tr>';
+      }).join('')
+    : '<tr><td colspan="4" class="ev">none</td></tr>';
+
+  var e = env();
+  document.querySelector('#env tbody').innerHTML = Object.keys(e).map(function(k){
+    return '<tr><th style="width:210px">'+k+'</th><td class="ev">'+
+           String(e[k]).slice(0,220).replace(/</g,'&lt;')+'</td></tr>';
+  }).join('');
+
+  var on = IND.map(function(r){return r[0];}).filter(function(n){return state[n];});
+  var strong = IND.filter(function(r){return r[2]==='high' && state[r[0]];}).length;
+  var v = document.getElementById('verdict');
+  if (on.length){
+    v.className = 'hit';
+    v.textContent = 'INDICATORS OBSERVED (' + on.length + ', ' + strong +
+                    ' high-strength): ' + on.join(', ');
+  } else {
+    v.className = '';
+    v.textContent = 'NO INDICATORS OBSERVED';
+  }
+
+  document.getElementById('json').value = JSON.stringify({
+    observedAt: new Date().toISOString(),
+    indicators: state,
+    highStrengthCount: strong,
+    consoleSnapshot: snap,
+    passiveSnapshot: psp,
+    pointerSample: pointerLog.slice(-20),
+    downUpMs: downUp, moveDownMs: moveDown,
+    environment: e
+  }, null, 2);
+}
+
+['target','target2'].forEach(function(id){
+  document.getElementById(id).addEventListener('click', function(){ paint(); });
+});
+document.getElementById('field').addEventListener('change', paint);
+setInterval(paint, 2000);
+paint();
+</script>
+</body>
+</html>
