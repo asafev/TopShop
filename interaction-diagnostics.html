@@ -208,14 +208,36 @@
     try{if(new URL(u).origin===location.origin)return false;}catch(e){}
     return true;
   }
+  /* Scan the RAW frame text for any first-party URL. Required because an eval
+     frame embeds its origin in a nested group -
+       at eval (eval at run (https://site/app.js:1:20), <anonymous>:1:1)
+     - which a "last parenthesised group" location parser silently misses,
+     making page-initiated eval look rootless. */
+  function firstPartyInLine(line){
+    var re=/((?:https?|file):\/\/[^\s)]+)/g,m;
+    while((m=re.exec(line))){
+      var u=m[1].replace(/:\d+:\d+$/,'').replace(/:\d+$/,'').split('#')[0];
+      if(u===docUrl||pageScripts.has(u))return true;
+      try{ if(new URL(u).origin===location.origin)return true; }catch(e){}
+    }
+    return false;
+  }
   function __pspClassify(api,arg){
     totals[api]=(totals[api]||0)+1;
     var st='';try{throw new Error(SELF);}catch(e){st=e.stack||'';}
     var f=fr(st),first=f.length?fl(f[0]):'';
     if(!foreign(first))return;
+    /* FP GUARD. A protected site's own code - and most anti-bot / obfuscated
+       third-party tags - use eval() or new Function(). Those also produce
+       <anonymous> frames, but the stack still BOTTOMS OUT in a first-party
+       script that invoked them. Code evaluated over the debugger protocol has
+       no first-party frame anywhere: it is the root of its own stack.
+       Only rootless stacks are scored. */
+    var rootless=true;
+    for(var i=0;i<f.length;i++){ if(firstPartyInLine(f[i])){rootless=false;break;} }
     var t=0;try{t=performance.now();}catch(e){}
     var rec={api:api,selector:typeof arg==='string'?arg.slice(0,120):null,
-             frame:first,chain:f.slice(0,3),t:Math.round(t)};
+             frame:first,chain:f.slice(0,4),rootless:rootless,t:Math.round(t)};
     calls.push(rec); if(calls.length>400)calls.shift();
     subs.forEach(function(c){try{c(rec);}catch(e){}});
   }
@@ -302,6 +324,13 @@ var IND = [
   ['foreign_dom_query',  'any DOM query whose stack frame is not a first-party script',  'high'],
   ['injected_one_liner', 'call issued from a single-line evaluated script (<anonymous>:1:N)', 'high'],
   ['text_harvest',      'page text or markup read from a non-page origin',              'high'],
+  /* Chromium bug 40280325: Input.dispatchMouseEvent leaves screenX/screenY
+     equal to clientX/clientY. Real hardware reports screen coords offset by the
+     window position and browser chrome, so equality is physically impossible on
+     a windowed browser. Independent of any humanisation layer - trajectory,
+     dwell and offset randomisation do not touch it. Acknowledged upstream in an
+     open PR as a CDP detection leak. */
+  ['screen_client_equal','pointer event reports screenX/Y identical to clientX/Y',      'high'],
   ['periodic_foreign',   'foreign-origin calls recurring in evenly spaced bursts',       'high'],
   ['cli_api_probe',      'lookup of a DevTools-only global on this page',                'high'],
   ['foreign_console',    'console output whose stack frame is not a first-party script', 'high'],
@@ -349,6 +378,9 @@ setInterval(function(){
 var CONTENT_API = /textContent|innerText|outerHTML|innerHTML/;
 window.__psp.onHit(function(c){
   var where = ' @ ' + c.frame.slice(0,60);
+  // Non-rootless hits are page-initiated eval()/Function() - recorded for
+  // forensics but never scored, or a protected site scores itself.
+  if (!c.rootless) return;
   hit('foreign_dom_query', c.api + '(' + JSON.stringify(c.selector) + ')' + where);
 
   if (c.selector === '*') hit('full_dom_enumeration', c.api + '("*")' + where);
@@ -389,6 +421,15 @@ addEventListener('pointerdown', function(e){
 
   if (e.buttons === 1 && e.pressure === 0)
     hit('pointer_pressure', 'buttons=1 pressure=0 pointerType=' + e.pointerType);
+
+  // Guard against the degenerate case of a window actually at the origin with
+  // zero chrome, which cannot happen on a real windowed browser but keeps the
+  // check honest if the page is ever run fullscreen/kiosk.
+  if (e.screenX === e.clientX && e.screenY === e.clientY &&
+      !(window.screenX === 0 && window.screenY === 0 && outerHeight === innerHeight))
+    hit('screen_client_equal',
+        'screen=' + e.screenX + ',' + e.screenY + ' client=' + e.clientX + ',' + e.clientY +
+        ' winXY=' + window.screenX + ',' + window.screenY);
 
   if (movesSinceDown === 0)
     hit('zero_move_click', 'no pointermove before press');
@@ -561,6 +602,7 @@ function paintVisible(){
   var cad = psp.cadence;
   document.getElementById('evidence').textContent =
     'EVIDENCE: foreignCalls=' + psp.foreignCount +
+    ' rootless=' + psp.foreignCalls.filter(function(c){return c.rootless;}).length +
     ' selectors=' + (psp.distinctSelectors.length ? psp.distinctSelectors.join('|') : 'none') +
     ' fullSweep=' + psp.fullDocumentEnumeration +
     ' iframeSweep=' + psp.iframeSweeps +
