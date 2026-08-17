@@ -306,6 +306,74 @@
 })();
 
 /* ===================================================================
+ * Part 2b - native integrity + debugger-domain tripwire
+ *
+ * Two mechanisms, both independent of anything the controller chooses to do.
+ *
+ * (a) PROTOTYPE INTEGRITY. Suppressing the CDP mouse-coordinate artefact
+ *     requires overriding MouseEvent.prototype from JS, injected at document
+ *     start. A JS accessor is not a native accessor, and the substitution is
+ *     visible even when the values it returns are perfect. The same holds for
+ *     pointer pressure and navigator.webdriver. Scanned here BEFORE this file
+ *     installs any of its own hooks, and deliberately limited to event/
+ *     navigator surfaces that ordinary extensions have no reason to touch -
+ *     addEventListener, fetch and friends are patched by plenty of benign
+ *     software and are excluded on purpose.
+ *
+ * (b) DEBUGGER DOMAIN. With the Runtime domain enabled, the browser builds a
+ *     preview of objects passed to console methods, which invokes enumerable
+ *     getters on them. Nothing else on a page does that. Note this also fires
+ *     if a human has DevTools open, so it is scored medium and is meant to be
+ *     used in conjunction, never alone.
+ * =================================================================== */
+(function(){
+  var tamper = [];
+
+  function nativeness(holder, name, prop, kind){
+    try{
+      if(!holder) return;
+      var d = Object.getOwnPropertyDescriptor(holder, prop);
+      if(!d) { tamper.push({api:name, issue:'descriptor missing'}); return; }
+      var fn = d.get || d.value;
+      if(typeof fn !== 'function') return;
+      var src = Function.prototype.toString.call(fn);
+      if(!/\{\s*\[native code\]\s*\}/.test(src))
+        tamper.push({api:name, issue:kind+' not native', src:src.slice(0,90)});
+    }catch(e){}
+  }
+
+  try{
+    nativeness(window.MouseEvent && MouseEvent.prototype, 'MouseEvent.screenX', 'screenX', 'getter');
+    nativeness(window.MouseEvent && MouseEvent.prototype, 'MouseEvent.screenY', 'screenY', 'getter');
+    nativeness(window.MouseEvent && MouseEvent.prototype, 'MouseEvent.clientX', 'clientX', 'getter');
+    nativeness(window.PointerEvent && PointerEvent.prototype, 'PointerEvent.pressure', 'pressure', 'getter');
+    nativeness(window.Navigator && Navigator.prototype, 'Navigator.webdriver', 'webdriver', 'getter');
+    nativeness(Function.prototype, 'Function.toString', 'toString', 'method');
+  }catch(e){}
+
+  // (b) debugger-domain preview tripwire
+  var previewHits = 0;
+  function arm(){
+    try{
+      var bait = {};
+      Object.defineProperty(bait, 'probe', {
+        enumerable:true, configurable:true,
+        get:function(){ previewHits++; return 1; }
+      });
+      (window.__clp && window.__clp.nativeConsole && window.__clp.nativeConsole.debug
+        ? window.__clp.nativeConsole.debug : console.debug).call(console, bait);
+    }catch(e){}
+  }
+  arm(); setInterval(arm, 1500);
+
+  window.__integ = {
+    snapshot: function(){
+      return { tamper: tamper, previewHits: previewHits };
+    }
+  };
+})();
+
+/* ===================================================================
  * Part 3 - indicator battery
  * =================================================================== */
 var IND = [
@@ -331,6 +399,8 @@ var IND = [
      dwell and offset randomisation do not touch it. Acknowledged upstream in an
      open PR as a CDP detection leak. */
   ['screen_client_equal','pointer event reports screenX/Y identical to clientX/Y',      'high'],
+  ['prototype_patched', 'MouseEvent/PointerEvent/navigator accessor replaced by JS',    'high'],
+  ['debugger_preview',  'object getter invoked by console preview (debug domain live)', 'medium'],
   ['periodic_foreign',   'foreign-origin calls recurring in evenly spaced bursts',       'high'],
   ['cli_api_probe',      'lookup of a DevTools-only global on this page',                'high'],
   ['foreign_console',    'console output whose stack frame is not a first-party script', 'high'],
@@ -398,6 +468,13 @@ window.__psp.onHit(function(c){
     hit('injected_one_liner', c.api + ' from one-line eval at col ' + m[1]);
 });
 setInterval(function(){
+  var g = window.__integ.snapshot();
+  if (g.tamper.length)
+    hit('prototype_patched', g.tamper.map(function(t){return t.api+': '+t.issue;}).join(' | '));
+  if (g.previewHits)
+    hit('debugger_preview', g.previewHits + ' preview getter invocation(s)');
+}, 1300);
+setInterval(function(){
   var s = window.__psp.snapshot();
   if (s.cadence && s.cadence.periodic)
     hit('periodic_foreign', s.cadence.bursts + ' bursts, gap ' +
@@ -407,7 +484,14 @@ setInterval(function(){
 }, 1200);
 
 /* ---- pointer ---- */
+/* Every pointer indicator requires a genuine event. First-party widgets
+   (carousels, drag helpers, custom controls) dispatch synthetic PointerEvents
+   routinely, and a synthetic event defaults to pressure 0 with no preceding
+   move - which trips pressure and zero-move checks for entirely innocent
+   reasons. Debugger-injected input is isTrusted, so this filter costs no
+   detection power and removes the whole synthetic-event FP class. */
 addEventListener('pointermove', function(e){
+  if (!e.isTrusted) return;
   if (e.pointerType && e.pointerType !== 'mouse') return;
   movesSinceDown++; lastMoveTs = e.timeStamp;
   pointerLog.push({x:e.clientX,y:e.clientY,mx:e.movementX,my:e.movementY,ts:Math.round(e.timeStamp)});
@@ -415,6 +499,7 @@ addEventListener('pointermove', function(e){
 }, true);
 
 addEventListener('pointerdown', function(e){
+  if (!e.isTrusted) return;
   if (e.pointerType && e.pointerType !== 'mouse') return;
   lastDownTs = e.timeStamp;
   interactions++; document.getElementById('counter').textContent = interactions + ' interactions';
@@ -425,7 +510,10 @@ addEventListener('pointerdown', function(e){
   // Guard against the degenerate case of a window actually at the origin with
   // zero chrome, which cannot happen on a real windowed browser but keeps the
   // check honest if the page is ever run fullscreen/kiosk.
-  if (e.screenX === e.clientX && e.screenY === e.clientY &&
+  // isTrusted required: any page can dispatch a synthetic MouseEvent with equal
+  // coordinates. Debugger-injected input is genuine, so this costs nothing here
+  // and removes a trivial way for first-party code to score itself.
+  if (e.isTrusted && e.screenX === e.clientX && e.screenY === e.clientY &&
       !(window.screenX === 0 && window.screenY === 0 && outerHeight === innerHeight))
     hit('screen_client_equal',
         'screen=' + e.screenX + ',' + e.screenY + ' client=' + e.clientX + ',' + e.clientY +
@@ -458,6 +546,7 @@ addEventListener('pointerdown', function(e){
 }, true);
 
 addEventListener('pointerup', function(e){
+  if (!e.isTrusted) return;
   if (lastDownTs) downUp.push(e.timeStamp - lastDownTs);
   var a = sd(downUp), b = sd(moveDown);
   if ((a !== null && a < 8) || (b !== null && b < 8))
@@ -467,6 +556,7 @@ addEventListener('pointerup', function(e){
 
 /* ---- keyboard / input ---- */
 addEventListener('keydown', function(e){
+  if (!e.isTrusted) return;   // synthetic keydowns are perfectly uniform by construction
   keyTimes.push(e.timeStamp);
   if (keyTimes.length >= 6){
     var g = [];
@@ -608,6 +698,8 @@ function paintVisible(){
     ' iframeSweep=' + psp.iframeSweeps +
     ' devtoolsProbe=' + psp.commandLineApiProbes +
     ' consoleLeaks=' + snap.count +
+    ' tamper=' + (window.__integ.snapshot().tamper.length || 0) +
+    ' preview=' + window.__integ.snapshot().previewHits +
     ' cadence=' + (cad ? cad.meanGapMs + 'ms/sd' + cad.sdMs + (cad.periodic ? '/periodic' : '') : 'none') +
     ' clicks=' + downUp.length +
     ' dwellMs=' + (downUp.length ? downUp.map(function(x){return Math.round(x);}).join(',') : 'none');
