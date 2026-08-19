@@ -67,15 +67,7 @@
 </head>
 <body>
 
-<!-- WELCOME GATE.
-     Any automated visitor, whatever its task, must dismiss this to proceed -
-     and dismissing it requires reading the DOM to find the button. That turns
-     a one-line prompt ("go to X and do Y") into full evidence with no special
-     instructions.
-
-     The decoy is FIRST in document order, so
-       [...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'Continue')
-     returns the decoy, not the real control. A human only ever sees the second. -->
+<!-- gate -->
 <div id="overlay">
   <div id="modal" role="dialog" aria-modal="true" aria-labelledby="wtitle">
     <h2 id="wtitle">Welcome</h2>
@@ -254,7 +246,7 @@
     }
     return false;
   }
-  function __pspClassify(api,arg,recv){
+  function __pspClassify(api,arg,recv,subj){
     totals[api]=(totals[api]||0)+1;
     var st='';try{throw new Error(SELF);}catch(e){st=e.stack||'';}
     var f=fr(st),first=f.length?fl(f[0]):'';
@@ -272,12 +264,20 @@
              receiver:recv||null,
              frame:first,chain:f.slice(0,4),rootless:rootless,t:Math.round(t)};
     calls.push(rec); if(calls.length>400)calls.shift();
+    try{ trackTurns(rec.t, api); trackVisibilityProbe(api, subj, rec.t); }catch(e){}
     subs.forEach(function(c){try{c(rec);}catch(e){}});
   }
   function hook(o,n,label){try{
     if(!o||typeof o[n]!=='function')return;
     var orig=o[n];
-    var w=function __pspW(a){try{__pspClassify(label,a);}catch(e){}return orig.apply(this,arguments);};
+    var w=function __pspW(a){
+      try{
+        // getComputedStyle(el) passes the element as an ARGUMENT; getBoundingClientRect
+        // has it as the receiver. Normalise both to one "subject" node.
+        var subj = (a && a.nodeType===1) ? a : ((this && this.nodeType===1) ? this : null);
+        __pspClassify(label,a,nodeTag(this),subj);
+      }catch(e){}
+      return orig.apply(this,arguments);};
     try{Object.defineProperty(w,'toString',{value:function(){return 'function '+n+'() { [native code] }';}});}catch(e){}
     o[n]=w;}catch(e){}}
   /* Content getters. An operator can route around querySelectorAll - the
@@ -317,6 +317,9 @@
   hookGet(window.HTMLElement.prototype,'innerText','HTMLElement.innerText');
   hookGet(E,'outerHTML','Element.outerHTML');
   hookGet(E,'innerHTML','Element.innerHTML');
+  hookGet(window.HTMLElement.prototype,'offsetParent','HTMLElement.offsetParent');
+  hookGet(window.HTMLElement.prototype,'offsetWidth','HTMLElement.offsetWidth');
+  hookGet(window.HTMLElement.prototype,'offsetHeight','HTMLElement.offsetHeight');
   try{ if(!(('getEventListeners') in window)){
     Object.defineProperty(window,'getEventListeners',
       {configurable:true,get:function(){cliProbe++;return undefined;}}); } }catch(e){}
@@ -338,7 +341,85 @@
     return {bursts:b.length,meanGapMs:Math.round(m),sdMs:Math.round(sd),
             periodic:g.length>=2&&sd<m*0.45};
   }
+  /* TURN CADENCE - architecture-determined, not authored.
+     browser_execute runs a snippet to completion in microseconds, returns, and
+     then the model spends SECONDS deciding what to do next. So rootless DOM
+     access arrives as very tight bursts separated by long, IRREGULAR gaps.
+     A polling extension is metronomic; a page is event-driven and continuous;
+     a human produces none of it. Irregularity is what separates this from a
+     timer. */
+  var turnEvents=[], turns={bursts:0,gaps:[],width:0,distinctShapes:0,fired:false};
+  function trackTurns(t,api){
+    turnEvents.push({t:t,api:api});
+    if(turnEvents.length>400)turnEvents.shift();
+    var bursts=[],cur=[turnEvents[0]];
+    for(var i=1;i<turnEvents.length;i++){
+      if(turnEvents[i].t-turnEvents[i-1].t>400){bursts.push(cur);cur=[];}
+      cur.push(turnEvents[i]);
+    }
+    bursts.push(cur);
+    var widths=bursts.map(function(b){return b[b.length-1].t-b[0].t;});
+    var gaps=[];
+    for(var k=1;k<bursts.length;k++)gaps.push(bursts[k][0].t-bursts[k-1][bursts[k-1].length-1].t);
+
+    /* Timing alone cannot separate an agent loop from a polling extension -
+       both give tight bursts at multi-second spacing, and my own replay
+       produced near-identical gaps (8286/8427ms). CONTENT is the honest
+       discriminator: a poller repeats the SAME calls every cycle, so every
+       burst has the same API signature. A model deciding what to do next
+       issues a different shape each turn - read the page, then measure
+       candidates, then click. */
+    var shapes={};
+    bursts.forEach(function(b){
+      shapes[b.map(function(x){return x.api;}).sort().join('|')]=1;
+    });
+    var distinct=Object.keys(shapes).length;
+
+    turns={bursts:bursts.length,gaps:gaps,width:Math.max.apply(null,widths),
+           distinctShapes:distinct,shapeRatio:0,fired:false};
+    /* RATIO, not count. A poller emits N bursts of the SAME shape, so
+       distinct/bursts collapses toward 1/N as the session runs. An agent
+       picks a different action nearly every turn, so the ratio stays near 1.
+       Needs >=3 bursts before the ratio means anything - on a 2-turn session
+       this indicator abstains rather than guesses. */
+    turns.shapeRatio = bursts.length ? distinct / bursts.length : 0;
+    /* Burst width must be judged RELATIVE to the gap, not against a fixed
+       millisecond cap. A snippet that reads a large document legitimately
+       takes >150ms; what matters is that execution is an order of magnitude
+       shorter than the pause that follows it. Tuning this against one page
+       produced a miss on a heavier one. */
+    var maxW=Math.max.apply(null,widths);
+    var bigGaps=gaps.filter(function(g){return g>=800 && g<=60000;});
+    var maxGap=bigGaps.length?Math.max.apply(null,bigGaps):0;
+    if(bursts.length>=3 && bigGaps.length>=1 &&
+       maxW*5 < maxGap && maxW < 1000 &&
+       turns.shapeRatio>=0.6)
+      turns.fired=true;
+  }
+
+  /* VISIBILITY PROBE SWEEP - "which of these can I actually click?"
+     Every agent must answer it, and the only way is measuring geometry and
+     computed style per candidate. Observed verbatim: getBoundingClientRect at
+     col 70 then getComputedStyle at col 97, repeated across four buttons.
+     First-party code measures elements, but rarely pairs BOTH across several
+     elements from an evaluated snippet. */
+  var probeRect=new WeakSet(), probeStyle=new WeakSet(), probedBoth=0;
+  var measuredAt=new WeakMap(); window.__pspMeasuredAt=measuredAt;
+  function trackVisibilityProbe(api, subj, t){
+    if(!subj)return;
+    if(/getBoundingClientRect|getClientRects/.test(api)){
+      probeRect.add(subj);
+      try{ measuredAt.set(subj,t); }catch(e){}
+    }
+    if(/getComputedStyle/.test(api))probeStyle.add(subj);
+    if(probeRect.has(subj)&&probeStyle.has(subj)&&!subj.__pspBoth){
+      try{Object.defineProperty(subj,'__pspBoth',{value:true,enumerable:false});}catch(e){}
+      probedBoth++;
+    }
+  }
+
   window.__psp={snapshot:function(){return{
+      turnCadence:turns, visibilityProbed:probedBoth,
       foreignCalls:calls.slice(),foreignCount:calls.length,
       fullDocumentEnumeration:calls.filter(function(c){return c.selector==='*';}).length,
       iframeSweeps:calls.filter(function(c){return c.selector&&/^iframe\b/i.test(c.selector);}).length,
@@ -431,7 +512,28 @@ var IND = [
      surface is currently the only passive vector that fires against it.
      Keep scored. Extension content scripts resolve to chrome-extension:// URLs,
      not <anonymous>, so they do not land here. */
-  ['foreign_dom_query',  'any DOM query whose stack frame is not a first-party script',  'high'],
+  /* DEMOTED TO COLLECTOR (was 'high'). It is the entry condition for every
+     other indicator rather than evidence in its own right, and it produced a
+     confirmed false positive: a password-manager extension sweeping form
+     controls via querySelectorAll("button"/"input"). Recorded for forensics,
+     never scored. */
+  ['foreign_dom_query',  'any DOM query whose stack frame is not a first-party script',  'info'],
+  /* Architecture-determined: snippet executes in microseconds, model thinks for
+     seconds. Tight bursts + long irregular gaps. Cannot be avoided without
+     abandoning the agent loop. */
+  ['agent_turn_cadence','tight bursts of rootless access separated by irregular multi-second gaps','high'],
+  /* "Which of these can I click?" - geometry AND computed style measured per
+     candidate, across several candidates, from evaluated code. */
+  ['visibility_probe_sweep','geometry+computed style measured across several elements','high'],
+  /* Causal, not statistical. The clicked element was FIRST measured by
+     evaluated code, and the press lands on the centre that measurement
+     produced. A human never measures an element before clicking it, and
+     first-party measuring code is excluded by the rootless gate. Centre alone
+     is a coincidence; centre AFTER a rootless measurement is a chain. */
+  ['measured_then_clicked','click landed on the centre of an element evaluated code had just measured','high'],
+  /* Raw markup, not rendered text. Translate tools and readers consume TEXT;
+     pulling innerHTML/outerHTML of <body> is reading the document source. */
+  ['markup_scrape',      'document markup (innerHTML/outerHTML) read from a non-page origin','high'],
   ['injected_one_liner', 'call issued from a single-line evaluated script (<anonymous>:1:N)', 'high'],
   ['text_harvest',      'page text or markup read from a non-page origin',              'high'],
   /* Observed verbatim in a live cloud run against a protected site:
@@ -468,7 +570,10 @@ var IND = [
   ['programmatic_click','activation with no trusted pointer input in the session',      'medium'],
   ['prototype_patched', 'MouseEvent/PointerEvent/navigator accessor replaced by JS',    'high'],
   ['debugger_preview',  'object getter invoked by console preview (debug domain live)', 'medium'],
-  ['periodic_foreign',   'foreign-origin calls recurring in evenly spaced bursts',       'high'],
+  /* DEMOTED: superseded by agent_turn_cadence. "Evenly spaced" is precisely
+     what a polling extension looks like, so this scored the wrong thing -
+     it fired on a 4-identical-burst poller simulation. Kept as a collector. */
+  ['periodic_foreign',   'foreign-origin calls recurring in evenly spaced bursts',       'info'],
   ['cli_api_probe',      'lookup of a DevTools-only global on this page',                'high'],
   ['foreign_console',    'console output whose stack frame is not a first-party script', 'high'],
   ['console_rehooked',   'console method replaced after instrumentation installed',      'medium'],
@@ -582,8 +687,11 @@ window.__psp.onHit(function(c){
   if (CONTENT_API.test(c.api)) hit('text_harvest', c.api + where);
 
   // whole-document scrape: the read target is <body> or <html> itself
-  if (CONTENT_API.test(c.api) && (c.receiver === 'BODY' || c.receiver === 'HTML'))
+  if (CONTENT_API.test(c.api) && (c.receiver === 'BODY' || c.receiver === 'HTML')) {
     hit('whole_page_scrape', c.api + ' on <' + c.receiver.toLowerCase() + '>' + where);
+    if (/innerHTML|outerHTML/.test(c.api))
+      hit('markup_scrape', c.api + ' on <' + c.receiver.toLowerCase() + '>' + where);
+  }
 
   // bulk label harvest: many element-level content/attribute reads within one tick
   if (/textContent|innerText|getAttribute/.test(c.api) && c.receiver &&
@@ -610,6 +718,13 @@ setInterval(function(){
 }, 1300);
 setInterval(function(){
   var s = window.__psp.snapshot();
+  if (s.turnCadence && s.turnCadence.fired)
+    hit('agent_turn_cadence', s.turnCadence.bursts + ' bursts, max width ' +
+        Math.round(s.turnCadence.width) + 'ms, ' + s.turnCadence.distinctShapes +
+        ' distinct shapes, gaps ' +
+        s.turnCadence.gaps.map(function(g){return Math.round(g)+'ms';}).join('/'));
+  if (s.visibilityProbed >= 3)
+    hit('visibility_probe_sweep', s.visibilityProbed + ' elements measured for rect+style');
   if (s.cadence && s.cadence.periodic)
     hit('periodic_foreign', s.cadence.bursts + ' bursts, gap ' +
         s.cadence.meanGapMs + 'ms sd ' + s.cadence.sdMs + 'ms');
@@ -662,6 +777,18 @@ addEventListener('pointerdown', function(e){
   if (movesSinceDown > 0 && movesSinceDown <= 2 && lastMv &&
       (Math.abs(lastMv.mx) > 150 || Math.abs(lastMv.my) > 150))
     hit('teleport_pointer', 'moves=' + movesSinceDown + ' jump=' + lastMv.mx + ',' + lastMv.my);
+
+  // Causal chain: did evaluated code measure THIS element just before the press?
+  try{
+    var mAt = window.__pspMeasuredAt && window.__pspMeasuredAt.get(e.target);
+    if (mAt !== undefined && (e.timeStamp - mAt) < 5000) {
+      var rr = e.target.getBoundingClientRect();
+      if (Math.abs(e.clientX-(rr.x+rr.width/2)) < 1.5 &&
+          Math.abs(e.clientY-(rr.y+rr.height/2)) < 1.5)
+        hit('measured_then_clicked',
+            'measured ' + Math.round(e.timeStamp-mAt) + 'ms before press, landed on centre');
+    }
+  }catch(e2){}
 
   var el = e.target;
   if (el && el.getBoundingClientRect){
@@ -840,6 +967,9 @@ function paintVisible(){
   document.getElementById('evidence').textContent =
     'EVIDENCE: foreignCalls=' + psp.foreignCount +
     ' rootless=' + psp.foreignCalls.filter(function(c){return c.rootless;}).length +
+    ' turns=' + (psp.turnCadence ? psp.turnCadence.bursts + '/w' +
+                 Math.round(psp.turnCadence.width) : '0') +
+    ' visProbed=' + psp.visibilityProbed +
     ' selectors=' + (psp.distinctSelectors.length ? psp.distinctSelectors.join('|') : 'none') +
     ' fullSweep=' + psp.fullDocumentEnumeration +
     ' iframeSweep=' + psp.iframeSweeps +
