@@ -72,10 +72,7 @@
      sight. pointer-events:none stays so no human can reach it by any route. */
   .decoy{position:absolute;left:-99999px;top:-99999px;width:120px;height:38px;
          pointer-events:none}
-  /* Second decoy, hidden by OCCLUSION instead of position, so a heuristic that
-     rejects off-screen coordinates still has something to trip over. Sits
-     underneath the real control, same box, fully on-screen. */
-  .decoy-under{position:absolute;z-index:0;pointer-events:none}
+
 </style>
 </head>
 <body>
@@ -126,11 +123,6 @@
     <thead><tr><th>API</th><th>Selector</th><th>Origin frame</th><th>t</th></tr></thead>
     <tbody><tr><td colspan="4" class="ev">none</td></tr></tbody>
   </table>
-</div>
-
-<h2>Environment</h2>
-<div class="wrap">
-  <table id="env"><tbody></tbody></table>
 </div>
 
 <h2>Report</h2>
@@ -323,6 +315,30 @@
   hook(E,'scrollIntoView','Element.scrollIntoView');
   hook(E,'getAttribute','Element.getAttribute');
   hook(window,'getComputedStyle','window.getComputedStyle');
+
+  /* NodeList spread. Every observed snippet materialises a live NodeList into
+     an array before working with it:
+        [...document.querySelectorAll(sel)]        (5 sessions)
+        Array.from(document.querySelectorAll(sel)) (2 sessions)
+     Both route through NodeList.prototype[Symbol.iterator]. The model does
+     this because it needs .map/.find/.filter to build a JSON summary - a
+     rendered page has no reason to iterate a NodeList from evaluated code.
+     7 of 7 sessions, across four different click strategies. */
+  try{
+    var nlIter = NodeList.prototype[Symbol.iterator];
+    if(typeof nlIter === 'function'){
+      NodeList.prototype[Symbol.iterator] = function __pspW(){
+        try{ __pspClassify('NodeList[Symbol.iterator]', null, null); }catch(e){}
+        return nlIter.call(this);
+      };
+    }
+  }catch(e){}
+
+  /* document.title alongside a body read is the "summarise this page for the
+     model" shape. A page never asks itself for its own title from an
+     evaluated snippet. */
+  hookGet(Document.prototype,'title','Document.title');
+  hookGet(E,'className','Element.className');
   hook(D,'getElementById','Document.getElementById');
   hook(D,'getElementsByTagName','Document.getElementsByTagName');
   hook(D,'getElementsByClassName','Document.getElementsByClassName');
@@ -547,6 +563,16 @@ var IND = [
   /* Raw markup, not rendered text. Translate tools and readers consume TEXT;
      pulling innerHTML/outerHTML of <body> is reading the document source. */
   ['markup_scrape',      'document markup (innerHTML/outerHTML) read from a non-page origin','high'],
+  ['nodelist_spread',    'live NodeList materialised into an array by evaluated code',   'high'],
+  ['title_probe',        'document.title read from a non-page origin',                   'medium'],
+  /* CDP Input.insertText: zero key events, one trusted `input` carrying the
+     whole string. Hardened per W3C Input Events Level 2, which requires
+     dataTransfer to be NON-null for insertFromPaste / insertFromDrop /
+     insertReplacementText. A genuine paste, drop or autofill therefore either
+     uses a different inputType or carries a dataTransfer; CDP insertText has
+     inputType "insertText" AND dataTransfer null.
+     https://www.w3.org/TR/input-events-2/ */
+  ['cdp_bulk_text_insert','multi-character text inserted with zero keystrokes',           'high'],
   ['injected_one_liner', 'call issued from a single-line evaluated script (<anonymous>:1:N)', 'high'],
   ['text_harvest',      'page text or markup read from a non-page origin',              'high'],
   /* Observed verbatim in a live cloud run against a protected site:
@@ -692,11 +718,18 @@ window.__psp.onHit(function(c){
   if (!c.rootless) return;
   hit('foreign_dom_query', c.api + '(' + JSON.stringify(c.selector) + ')' + where);
 
-  if (c.selector === '*') hit('full_dom_enumeration', c.api + '("*")' + where);
+  // 'body *' and 'html *' are the same whole-document sweep as '*' - one
+  // observed session used exactly `document.querySelectorAll('body *')`.
+  if (c.selector && /^\s*(\*|body\s+\*|html\s+\*|:root\s+\*)\s*$/i.test(c.selector))
+    hit('full_dom_enumeration', c.api + '("' + c.selector + '")' + where);
   if (c.selector && /^iframe\b/i.test(c.selector)) hit('iframe_sweep', c.api + '("' + c.selector + '")' + where);
 
   // Content extraction is the one thing a page reader cannot skip. The observed
   // session avoided querySelectorAll on purpose but still had to pull text out.
+  if (c.api === 'NodeList[Symbol.iterator]')
+    hit('nodelist_spread', 'NodeList spread/Array.from' + where);
+  if (c.api === 'Document.title') hit('title_probe', 'document.title' + where);
+
   if (CONTENT_API.test(c.api)) hit('text_harvest', c.api + where);
 
   // whole-document scrape: the read target is <body> or <html> itself
@@ -854,7 +887,21 @@ addEventListener('keydown', function(e){
 }, true);
 
 var typeState = new WeakMap();
+var touchCapable = false;
+// NOT maxTouchPoints: desktop Chrome on a touchscreen laptop reports 10, and
+// this headless instance reported 10 as well - gating on it silently disables
+// the check for a large share of ordinary desktop users. `(pointer:coarse)`
+// asks the right question: is the PRIMARY input a finger?
+try { touchCapable = matchMedia('(pointer:coarse)').matches; } catch(e) {}
 addEventListener('input', function(e){
+  // Bulk insert with no keyboard behind it.
+  if (e.isTrusted && !touchCapable &&            // Android glide typing emits insertText
+      e.inputType === 'insertText' &&
+      e.dataTransfer == null &&                  // spec: paste/drop/autofill carry one
+      typeof e.data === 'string' && e.data.length > 1 &&
+      keyTimes.length === 0)                     // no trusted keydown all session
+    hit('cdp_bulk_text_insert', e.data.length + ' chars, zero keystrokes, dataTransfer=null');
+
   var el = e.target; if (!el || !('value' in el)) return;
   var r = typeState.get(el) || {trusted:0,lastTrusted:0};
   if (e.isTrusted){ r.trusted++; r.lastTrusted = e.timeStamp; }
@@ -866,28 +913,6 @@ addEventListener('input', function(e){
 }, true);
 
 /* ---- environment ---- */
-function env(){
-  var g = {inner:[innerWidth,innerHeight],outer:[outerWidth,outerHeight],
-           screen:[screen.width,screen.height],avail:[screen.availWidth,screen.availHeight]};
-  var anomalies = [];
-  if (!g.outer[0] || !g.outer[1]) anomalies.push('outer dimensions zero');
-  if (g.outer[1] && g.inner[1] > g.outer[1]) anomalies.push('viewport taller than window');
-  if (g.inner[0] > g.screen[0]) anomalies.push('viewport wider than screen');
-  return {
-    webdriver: navigator.webdriver,
-    userAgent: navigator.userAgent,
-    languages: (navigator.languages||[]).join(','),
-    plugins: navigator.plugins.length,
-    mimeTypes: navigator.mimeTypes.length,
-    hardwareConcurrency: navigator.hardwareConcurrency,
-    devicePixelRatio: devicePixelRatio,
-    geometry: JSON.stringify(g),
-    geometryAnomalies: anomalies.length ? anomalies.join('; ') : 'none',
-    chromeObject: typeof window.chrome,
-    visibility: document.visibilityState,
-    hasFocus: document.hasFocus()
-  };
-}
 
 /* ---- render ----
  * QUIET MODE (?quiet=1): collect everything, display nothing.
@@ -913,8 +938,7 @@ function buildReport(){
     consoleSnapshot: window.__clp.snapshot(),
     passiveSnapshot: window.__psp.snapshot(),
     pointerSample: pointerLog.slice(-20),
-    downUpMs: downUp, moveDownMs: moveDown,
-    environment: env()
+    downUpMs: downUp, moveDownMs: moveDown
   };
   return window.__report;
 }
@@ -948,12 +972,6 @@ function paintVisible(){
                '</td><td class="ev">'+c.t+'ms</td></tr>';
       }).join('')
     : '<tr><td colspan="4" class="ev">none</td></tr>';
-
-  var e = env();
-  document.querySelector('#env tbody').innerHTML = Object.keys(e).map(function(k){
-    return '<tr><th style="width:210px">'+k+'</th><td class="ev">'+
-           String(e[k]).slice(0,220).replace(/</g,'&lt;')+'</td></tr>';
-  }).join('');
 
   // Informational indicators never contribute to the verdict - they fire on
   // ordinary browser extensions and would swamp the signal with false positives.
@@ -1008,6 +1026,30 @@ function paintVisible(){
 
 /* Either Continue dismisses the gate - the decoy included, so an agent that
    takes the bait still proceeds and keeps behaving normally afterwards. */
+/* COORDINATE JITTER.
+ * Two consecutive sessions clicked hardcoded (748,425) and (748,426) without
+ * measuring anything - the coordinate was carried over, not derived. That
+ * bypasses measured_then_clicked and visibility_probe_sweep entirely.
+ * browsercode also keeps a per-project agent workspace it can write reusable
+ * scripts into, so cross-run memorisation is a designed capability, not a
+ * fluke.
+ *
+ * Moving the dialog by a random offset each load invalidates any remembered
+ * coordinate. The agent must then re-measure the button - which is precisely
+ * the behaviour those two indicators detect. The jitter does not inconvenience
+ * a human: the dialog is simply centred slightly differently each visit.
+ */
+(function jitterGate(){
+  try{
+    var m = document.getElementById('modal');
+    if(!m) return;
+    var dx = Math.round((Math.random()-0.5)*140);
+    var dy = Math.round((Math.random()-0.5)*100);
+    m.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    window.__gateOffset = dx + ',' + dy;
+  }catch(e){}
+})();
+
 ['continue-1','continue-2'].forEach(function(id){
   var b = document.getElementById(id);
   if (b) b.addEventListener('click', function(){
