@@ -61,8 +61,21 @@
      `offsetWidth || offsetHeight || getClientRects().length` visibility test
      still counts it, but parked off-viewport at zero opacity so no human can
      see or reach it. aria-hidden + tabindex=-1 keep AT and tab order away. */
+  /* Hidden by POSITION only. Every common visibility heuristic passes it:
+       offsetWidth/offsetHeight  -> 120x38
+       getClientRects().length   -> 1
+       offsetParent              -> non-null (absolute positioning keeps one)
+       display/visibility        -> block/visible
+       opacity                   -> 1
+     Dropping opacity:0 is deliberate - it was the ONLY check that ever caught
+     the decoy, and it added nothing, since -99999px already puts it out of
+     sight. pointer-events:none stays so no human can reach it by any route. */
   .decoy{position:absolute;left:-99999px;top:-99999px;width:120px;height:38px;
-         opacity:0;pointer-events:none}
+         pointer-events:none}
+  /* Second decoy, hidden by OCCLUSION instead of position, so a heuristic that
+     rejects off-screen coordinates still has something to trip over. Sits
+     underneath the real control, same box, fully on-screen. */
+  .decoy-under{position:absolute;z-index:0;pointer-events:none}
 </style>
 </head>
 <body>
