@@ -49,9 +49,41 @@
            background:var(--card);color:var(--fg);border:1px solid var(--line);
            border-radius:8px;padding:11px}
   footer{margin-top:26px;color:var(--mut);font-size:12px}
+  /* ---- welcome gate ---- */
+  #overlay{position:fixed;inset:0;background:rgba(10,12,16,.55);
+           display:flex;align-items:center;justify-content:center;z-index:9999}
+  #modal{background:var(--card);border:1px solid var(--line);border-radius:14px;
+         padding:30px 32px;max-width:430px;width:calc(100% - 32px);text-align:center;
+         box-shadow:0 18px 50px rgba(0,0,0,.28)}
+  #modal h2{margin:0 0 8px;font-size:20px;text-transform:none;letter-spacing:0;color:var(--fg)}
+  #modal p{margin:0 0 22px;color:var(--mut);font-size:14px}
+  /* Decoy: non-zero box so the usual
+     `offsetWidth || offsetHeight || getClientRects().length` visibility test
+     still counts it, but parked off-viewport at zero opacity so no human can
+     see or reach it. aria-hidden + tabindex=-1 keep AT and tab order away. */
+  .decoy{position:absolute;left:-99999px;top:-99999px;width:120px;height:38px;
+         opacity:0;pointer-events:none}
 </style>
 </head>
 <body>
+
+<!-- WELCOME GATE.
+     Any automated visitor, whatever its task, must dismiss this to proceed -
+     and dismissing it requires reading the DOM to find the button. That turns
+     a one-line prompt ("go to X and do Y") into full evidence with no special
+     instructions.
+
+     The decoy is FIRST in document order, so
+       [...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'Continue')
+     returns the decoy, not the real control. A human only ever sees the second. -->
+<div id="overlay">
+  <div id="modal" role="dialog" aria-modal="true" aria-labelledby="wtitle">
+    <h2 id="wtitle">Welcome</h2>
+    <p>Please click Continue to proceed.</p>
+    <button class="decoy" id="continue-1" aria-hidden="true" tabindex="-1">Continue</button>
+    <button id="continue-2">Continue</button>
+  </div>
+</div>
 
 <h1>Interaction Diagnostics</h1>
 <div class="sub">Passive instrumentation of pointer, keyboard and console activity on this page.</div>
@@ -222,7 +254,7 @@
     }
     return false;
   }
-  function __pspClassify(api,arg){
+  function __pspClassify(api,arg,recv){
     totals[api]=(totals[api]||0)+1;
     var st='';try{throw new Error(SELF);}catch(e){st=e.stack||'';}
     var f=fr(st),first=f.length?fl(f[0]):'';
@@ -237,6 +269,7 @@
     for(var i=0;i<f.length;i++){ if(firstPartyInLine(f[i])){rootless=false;break;} }
     var t=0;try{t=performance.now();}catch(e){}
     var rec={api:api,selector:typeof arg==='string'?arg.slice(0,120):null,
+             receiver:recv||null,
              frame:first,chain:f.slice(0,4),rootless:rootless,t:Math.round(t)};
     calls.push(rec); if(calls.length>400)calls.shift();
     subs.forEach(function(c){try{c(rec);}catch(e){}});
@@ -250,12 +283,20 @@
   /* Content getters. An operator can route around querySelectorAll - the
      observed session explicitly preferred getElementById - but it cannot read
      the page without pulling text or markup through one of these. */
+  function nodeTag(x){
+    try{
+      if(x===document.body)return 'BODY';
+      if(x===document.documentElement)return 'HTML';
+      if(x&&x.nodeType===1)return x.tagName;
+    }catch(e){}
+    return null;
+  }
   function hookGet(o,n,label){try{
     var d=Object.getOwnPropertyDescriptor(o,n);
     if(!d||!d.get||!d.configurable)return;
     var g=d.get;
     Object.defineProperty(o,n,{configurable:true,enumerable:d.enumerable,set:d.set,
-      get:function __pspW(){try{__pspClassify(label,null);}catch(e){}return g.call(this);}});
+      get:function __pspW(){try{__pspClassify(label,null,nodeTag(this));}catch(e){}return g.call(this);}});
   }catch(e){}}
   var E=Element.prototype,D=Document.prototype;
   hook(D,'querySelectorAll','Document.querySelectorAll');
@@ -267,6 +308,7 @@
   hook(E,'querySelector','Element.querySelector');
   hook(E,'getBoundingClientRect','Element.getBoundingClientRect');
   hook(E,'scrollIntoView','Element.scrollIntoView');
+  hook(E,'getAttribute','Element.getAttribute');
   hook(window,'getComputedStyle','window.getComputedStyle');
   hook(D,'getElementById','Document.getElementById');
   hook(D,'getElementsByTagName','Document.getElementsByTagName');
@@ -392,6 +434,22 @@ var IND = [
   ['foreign_dom_query',  'any DOM query whose stack frame is not a first-party script',  'high'],
   ['injected_one_liner', 'call issued from a single-line evaluated script (<anonymous>:1:N)', 'high'],
   ['text_harvest',      'page text or markup read from a non-page origin',              'high'],
+  /* Observed verbatim in a live cloud run against a protected site:
+       body: document.body.innerText.slice(0,8000)
+     Reading the ENTIRE document text in one go is what a page reader does and
+     what a rendered page never does. Far tighter than text_harvest, which any
+     single element read satisfies. */
+  ['whole_page_scrape','entire document text read in one call from a non-page origin','high'],
+  /* Same run: [...querySelectorAll('button')].map(b=>({text:b.innerText,
+     aria:b.getAttribute('aria-label'), cls:b.className}))  - label harvesting
+     across every interactive element inside one synchronous burst. */
+  ['bulk_label_harvest','labels read across many elements in one burst',            'high'],
+  /* Decoy control: in the DOM, enticingly labelled, impossible for a human to
+     see or reach. aria-hidden + tabindex=-1 keeps assistive technology away, so
+     a real user - including a screen-reader user - can never activate it.
+     Only something enumerating the DOM finds it. */
+  ['honeypot_activation','decoy control activated that no human can see or reach','high'],
+  ['honeypot_read',     'decoy element text read directly',                        'high'],
   /* Chromium bug 40280325: Input.dispatchMouseEvent leaves screenX/screenY
      equal to clientX/clientY. Real hardware reports screen coords offset by the
      window position and browser chrome, so equality is physically impossible on
@@ -399,6 +457,15 @@ var IND = [
      dwell and offset randomisation do not touch it. Acknowledged upstream in an
      open PR as a CDP detection leak. */
   ['screen_client_equal','pointer event reports screenX/Y identical to clientX/Y',      'high'],
+  /* Cloud clicked with a real CDP mouse press lasting 17ms. Human finger travel
+     down-and-up does not go below roughly 50ms; sub-30ms is a motor
+     impossibility, not a fast user. Independent of trajectory humanisation,
+     which shapes movement but not press duration. */
+  ['impossible_dwell',  'press-to-release shorter than human motor limits',             'high'],
+  /* el.click() with no trusted pointer sequence anywhere in the session. Page
+     code calls .click() legitimately, so this is medium and only counts when
+     the session has produced NO trusted pointer input at all. */
+  ['programmatic_click','activation with no trusted pointer input in the session',      'medium'],
   ['prototype_patched', 'MouseEvent/PointerEvent/navigator accessor replaced by JS',    'high'],
   ['debugger_preview',  'object getter invoked by console preview (debug domain live)', 'medium'],
   ['periodic_foreign',   'foreign-origin calls recurring in evenly spaced bursts',       'high'],
@@ -434,6 +501,59 @@ function sd(a){
   return Math.sqrt(a.reduce(function(x,y){return x+(y-m)*(y-m);},0)/a.length);
 }
 
+/* ---- DOM honeypot ----
+ * Answers "can we catch it by injecting into the DOM?" - yes, and this is the
+ * one indicator that needs no stack analysis, no timing and no API hooking.
+ *
+ * Accessibility is the whole design constraint. aria-hidden="true" removes it
+ * from the accessibility tree, tabindex="-1" removes it from tab order, and it
+ * is clipped to zero size off-viewport. A sighted user cannot see it, a
+ * keyboard user cannot tab to it, a screen-reader user is never told it exists.
+ * Anything that activates it found it by reading the DOM.
+ */
+(function installHoneypot(){
+  try{
+    var token = 'ref-' + Math.random().toString(36).slice(2,10);
+    // Prefer the decoy already inside the welcome gate: it sits first in
+    // document order, which is what makes .find() pick it.
+    var pot = document.getElementById('continue-1');
+    if(!pot){
+      pot = document.createElement('button');
+      pot.id = 'continue-1';
+      pot.textContent = 'Continue';
+      pot.className = 'decoy';
+      pot.setAttribute('aria-hidden','true');
+      pot.setAttribute('tabindex','-1');
+      (document.body || document.documentElement).appendChild(pot);
+    }
+    pot.dataset.ref = token;
+
+    ['click','pointerdown','focus'].forEach(function(t){
+      pot.addEventListener(t, function(e){
+        hit('honeypot_activation', t + ' on decoy (isTrusted=' + e.isTrusted + ', token=' + token + ')');
+      }, true);
+    });
+
+    // Instance-level getters shadow the prototype, so a direct read of THIS
+    // node is distinguishable from a whole-document scrape.
+    ['textContent','innerText'].forEach(function(prop){
+      try{
+        var proto = prop === 'innerText' ? HTMLElement.prototype : Node.prototype;
+        var d = Object.getOwnPropertyDescriptor(proto, prop);
+        if(!d || !d.get) return;
+        var g = d.get;
+        Object.defineProperty(pot, prop, {
+          configurable:true,
+          get:function(){ hit('honeypot_read', prop + ' read on decoy'); return g.call(this); },
+          set:d.set
+        });
+      }catch(e){}
+    });
+
+    window.__honeypotToken = token;
+  }catch(e){}
+})();
+
 /* ---- console ---- */
 window.__clp.onLeak(function(r){
   hit('foreign_console', r.method + ': "' + r.text.slice(0,90) + '" @ ' + r.firstFrame.slice(0,60));
@@ -446,6 +566,7 @@ setInterval(function(){
 
 /* ---- passive surface ---- */
 var CONTENT_API = /textContent|innerText|outerHTML|innerHTML/;
+var burst = [];
 window.__psp.onHit(function(c){
   var where = ' @ ' + c.frame.slice(0,60);
   // Non-rootless hits are page-initiated eval()/Function() - recorded for
@@ -459,6 +580,19 @@ window.__psp.onHit(function(c){
   // Content extraction is the one thing a page reader cannot skip. The observed
   // session avoided querySelectorAll on purpose but still had to pull text out.
   if (CONTENT_API.test(c.api)) hit('text_harvest', c.api + where);
+
+  // whole-document scrape: the read target is <body> or <html> itself
+  if (CONTENT_API.test(c.api) && (c.receiver === 'BODY' || c.receiver === 'HTML'))
+    hit('whole_page_scrape', c.api + ' on <' + c.receiver.toLowerCase() + '>' + where);
+
+  // bulk label harvest: many element-level content/attribute reads within one tick
+  if (/textContent|innerText|getAttribute/.test(c.api) && c.receiver &&
+      c.receiver !== 'BODY' && c.receiver !== 'HTML') {
+    burst.push(c.t);
+    while (burst.length && c.t - burst[0] > 250) burst.shift();
+    if (burst.length >= 8)
+      hit('bulk_label_harvest', burst.length + ' element reads within 250ms');
+  }
 
   // A minified snippet evaluated in over the debugger protocol reports line 1
   // with a large column. Bundled first-party code spans many lines; extension
@@ -498,8 +632,10 @@ addEventListener('pointermove', function(e){
   if (pointerLog.length > 200) pointerLog.shift();
 }, true);
 
+var trustedPointerEvents = 0;
 addEventListener('pointerdown', function(e){
   if (!e.isTrusted) return;
+  trustedPointerEvents++;
   if (e.pointerType && e.pointerType !== 'mouse') return;
   lastDownTs = e.timeStamp;
   interactions++; document.getElementById('counter').textContent = interactions + ' interactions';
@@ -547,11 +683,22 @@ addEventListener('pointerdown', function(e){
 
 addEventListener('pointerup', function(e){
   if (!e.isTrusted) return;
-  if (lastDownTs) downUp.push(e.timeStamp - lastDownTs);
+  trustedPointerEvents++;
+  if (lastDownTs){
+    var dwell = e.timeStamp - lastDownTs;
+    downUp.push(dwell);
+    if (dwell < 30) hit('impossible_dwell', Math.round(dwell) + 'ms press-to-release');
+  }
   var a = sd(downUp), b = sd(moveDown);
   if ((a !== null && a < 8) || (b !== null && b < 8))
     hit('fixed_cadence','down-up sd='+(a===null?'-':a.toFixed(1))+'ms move-down sd='+(b===null?'-':b.toFixed(1))+'ms');
   paint();
+}, true);
+
+addEventListener('click', function(e){
+  if (!e.isTrusted && trustedPointerEvents === 0)
+    hit('programmatic_click', 'untrusted click on <' + (e.target && e.target.tagName) +
+        '>, zero trusted pointer events in session');
 }, true);
 
 /* ---- keyboard / input ---- */
@@ -715,6 +862,17 @@ function paintVisible(){
     environment: e
   }, null, 2);
 }
+
+/* Either Continue dismisses the gate - the decoy included, so an agent that
+   takes the bait still proceeds and keeps behaving normally afterwards. */
+['continue-1','continue-2'].forEach(function(id){
+  var b = document.getElementById(id);
+  if (b) b.addEventListener('click', function(){
+    var o = document.getElementById('overlay');
+    if (o) o.style.display = 'none';
+    paint();
+  });
+});
 
 ['target','target2'].forEach(function(id){
   document.getElementById(id).addEventListener('click', function(){ paint(); });

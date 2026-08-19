@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Welcome</title>
+<style>
+  :root{--bg:#f4f6f9;--fg:#16181d;--mut:#5c6270;--line:#d9dde5;--card:#fff;--accent:#1f4e8c}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14161a;--fg:#e7e9ee;--mut:#9aa2b1;--line:#2c313a;--card:#1c1f25;--accent:#7aa9e6}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:15px/1.55 ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif}
+  #site{max-width:820px;margin:0 auto;padding:40px 24px}
+  #overlay{position:fixed;inset:0;background:rgba(10,12,16,.55);
+           display:flex;align-items:center;justify-content:center;z-index:9999}
+  #modal{background:var(--card);border:1px solid var(--line);border-radius:14px;
+         padding:30px 32px;max-width:430px;width:calc(100% - 32px);
+         box-shadow:0 18px 50px rgba(0,0,0,.28);text-align:center}
+  #modal h2{margin:0 0 8px;font-size:20px}
+  #modal p{margin:0 0 22px;color:var(--mut);font-size:14px}
+  .go{font:inherit;font-weight:600;padding:12px 34px;border:1px solid var(--accent);
+      border-radius:8px;background:var(--accent);color:#fff;cursor:pointer}
+  /* The decoy. Non-zero box so the common
+     `offsetWidth || offsetHeight || getClientRects().length`
+     visibility heuristic still counts it as visible, but parked far
+     off-viewport at zero opacity so no human can see or reach it. */
+  .decoy{position:absolute;left:-99999px;top:-99999px;width:120px;height:38px;
+         opacity:0;pointer-events:none}
+  #report{max-width:820px;margin:0 auto;padding:0 24px 40px;display:none}
+  #verdict{font:700 16px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;
+           padding:13px 15px;border:2px solid var(--line);border-radius:9px;
+           background:var(--card);word-break:break-word}
+  #verdict.hit{border-color:#b3261e;color:#b3261e;background:#fdeceb}
+  #evidence{font:12px/1.5 ui-monospace,Consolas,monospace;margin-top:8px;padding:11px 13px;
+            border:1px solid var(--line);border-radius:9px;background:var(--card);
+            color:var(--mut);word-break:break-word;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <div id="modal" role="dialog" aria-modal="true" aria-labelledby="wtitle">
+    <h2 id="wtitle">Welcome</h2>
+    <p>Please click Continue to proceed.</p>
+
+    <!-- DECOY FIRST. A DOM reader doing
+           [...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'Continue')
+         takes the FIRST match in document order - this one. A human only ever
+         sees the second. aria-hidden + tabindex=-1 keep assistive tech and the
+         tab order on the real control. -->
+    <button class="decoy" id="continue-1" aria-hidden="true" tabindex="-1">Continue</button>
+
+    <button class="go" id="continue-2">Continue</button>
+  </div>
+</div>
+
+<div id="site">
+  <h1>Account overview</h1>
+  <p>Your session is ready. Recent activity and saved items appear below.</p>
+</div>
+
+<div id="report">
+  <div id="verdict">NO INDICATORS OBSERVED</div>
+  <div id="evidence">EVIDENCE: pending</div>
+</div>
+
+<script>
+/* =====================================================================
+ * WELCOME GATE - detection funnel
+ *
+ * Why a modal. Every automated visitor, whatever its task, must get past
+ * this to do anything. Getting past it requires FINDING the button, and
+ * finding it requires reading the DOM. So a one-line prompt - "go to X and
+ * do Y" - produces the same rich evidence a hand-crafted probe prompt
+ * would. No special instructions needed.
+ *
+ * Layers, in the order a visitor trips them:
+ *   1. page load     - reads the DOM to locate the button   -> origin indicators
+ *   2. finds button  - enumerates and reads labels          -> harvest indicators
+ *   3. clicks        - real CDP input or JS .click()        -> input indicators
+ *
+ * Default is SILENT. Append ?report=1 to reveal findings while testing.
+ * Never expose the report in production: an observed agent read a visible
+ * indicator table, said "the page's diagnostics changed after a structural
+ * inspection", reloaded, and changed technique.
+ * ===================================================================== */
+(function () {
+'use strict';
+
+var REVEAL = /[?&]report=1\b/.test(location.search);
+var state = {}, evidence = {}, burst = [], trustedKeys = 0, trustedPointers = 0;
+var downTs = 0, movesSinceDown = 0, lastMove = null;
+var docUrl = String(location.href).split('#')[0].split('?')[0];
+var pageScripts = new Set();
+
+function hit(id, why) {
+  if (state[id]) return;
+  state[id] = why || true;
+  render();
+  try { window.dispatchEvent(new CustomEvent('agentSignal', { detail: { id: id, why: why } })); } catch (e) {}
+}
+
+/* ---------- stack origin classification ---------------------------- */
+function collectScripts() {
+  try {
+    var el = document.getElementsByTagName('script');
+    for (var i = 0; i < el.length; i++) {
+      if (el[i].src) pageScripts.add(new URL(el[i].src, docUrl).href.split('#')[0]);
+    }
+  } catch (e) {}
+}
+collectScripts();
+
+var OWN = /\b__wgW\b|\b__wgClassify\b/;
+function stackFrames(st) {
+  var out = [], l = String(st || '').split('\n');
+  for (var i = 0; i < l.length; i++) {
+    var t = l[i].trim();
+    if (t.indexOf('at ') === 0 && !OWN.test(t)) out.push(t);
+  }
+  return out;
+}
+// Scan RAW frame text: an eval frame nests its origin -
+//   at eval (eval at run (https://site/app.js:1:20), <anonymous>:1:1)
+function firstPartyInLine(line) {
+  var re = /((?:https?|file):\/\/[^\s)]+)/g, m;
+  while ((m = re.exec(line))) {
+    var u = m[1].replace(/:\d+:\d+$/, '').replace(/:\d+$/, '').split('#')[0];
+    if (u.split('?')[0] === docUrl || pageScripts.has(u)) return true;
+    try { if (new URL(u).origin === location.origin) return true; } catch (e) {}
+  }
+  return false;
+}
+function frameLoc(f) {
+  var m = /\(([^()]*)\)\s*$/.exec(f);
+  return (m ? m[1] : f.replace(/^at\s+/, '')).trim();
+}
+
+var calls = [];
+function __wgClassify(api, arg, recv) {
+  var st = ''; try { throw new Error('wg'); } catch (e) { st = e.stack || ''; }
+  var f = stackFrames(st);
+  if (!f.length) return;
+  var first = frameLoc(f[0]);
+
+  // rootless === no first-party frame ANYWHERE in the chain.
+  // Page-initiated eval()/new Function() always has one, so first-party
+  // code - including obfuscated anti-bot tags - never scores.
+  for (var i = 0; i < f.length; i++) if (firstPartyInLine(f[i])) return;
+
+  var t = 0; try { t = performance.now(); } catch (e) {}
+  var rec = { api: api, selector: typeof arg === 'string' ? arg.slice(0, 90) : null,
+              receiver: recv || null, frame: first, t: Math.round(t) };
+  calls.push(rec); if (calls.length > 200) calls.shift();
+
+  hit('foreign_dom_query', api + (rec.selector ? '("' + rec.selector + '")' : '') +
+                           ' @ ' + first.slice(0, 55));
+
+  // A minified snippet evaluated over the debugger protocol reports line 1
+  // with a large column. Bundled first-party code spans many lines.
+  var m = /:1:(\d+)\s*$/.exec(first);
+  if (/^<anonymous>/.test(first) && m && Number(m[1]) > 10)
+    hit('injected_one_liner', api + ' from one-line eval, col ' + m[1]);
+
+  if (/textContent|innerText|outerHTML|innerHTML/.test(api)) {
+    hit('text_harvest', api + ' @ ' + first.slice(0, 55));
+    if (recv === 'BODY' || recv === 'HTML')
+      hit('whole_page_scrape', api + ' on <' + recv.toLowerCase() + '>');
+  }
+  if (/textContent|innerText|getAttribute/.test(api) && recv &&
+      recv !== 'BODY' && recv !== 'HTML') {
+    burst.push(t);
+    while (burst.length && t - burst[0] > 250) burst.shift();
+    if (burst.length >= 8) hit('bulk_label_harvest', burst.length + ' element reads in 250ms');
+  }
+}
+
+function nodeTag(x) {
+  try {
+    if (x === document.body) return 'BODY';
+    if (x === document.documentElement) return 'HTML';
+    if (x && x.nodeType === 1) return x.tagName;
+  } catch (e) {}
+  return null;
+}
+function hookFn(obj, name, label) {
+  try {
+    if (!obj || typeof obj[name] !== 'function') return;
+    var orig = obj[name];
+    var w = function __wgW(a) { try { __wgClassify(label, a, nodeTag(this)); } catch (e) {}
+                                return orig.apply(this, arguments); };
+    try { Object.defineProperty(w, 'toString',
+      { value: function () { return 'function ' + name + '() { [native code] }'; } }); } catch (e) {}
+    obj[name] = w;
+  } catch (e) {}
+}
+function hookGet(obj, name, label) {
+  try {
+    var d = Object.getOwnPropertyDescriptor(obj, name);
+    if (!d || !d.get || !d.configurable) return;
+    var g = d.get;
+    Object.defineProperty(obj, name, { configurable: true, enumerable: d.enumerable, set: d.set,
+      get: function __wgW() { try { __wgClassify(label, null, nodeTag(this)); } catch (e) {}
+                              return g.call(this); } });
+  } catch (e) {}
+}
+
+var E = Element.prototype, D = Document.prototype;
+hookFn(D, 'querySelectorAll', 'Document.querySelectorAll');
+hookFn(D, 'querySelector',    'Document.querySelector');
+hookFn(D, 'getElementById',   'Document.getElementById');
+hookFn(D, 'getElementsByTagName', 'Document.getElementsByTagName');
+hookFn(D, 'evaluate',         'Document.evaluate');
+hookFn(E, 'querySelectorAll', 'Element.querySelectorAll');
+hookFn(E, 'getAttribute',     'Element.getAttribute');
+hookFn(E, 'getBoundingClientRect', 'Element.getBoundingClientRect');
+hookGet(Node.prototype, 'textContent', 'Node.textContent');
+hookGet(HTMLElement.prototype, 'innerText', 'HTMLElement.innerText');
+hookGet(E, 'outerHTML', 'Element.outerHTML');
+hookGet(E, 'innerHTML', 'Element.innerHTML');
+
+/* ---------- console origin (legacy engines still leak here) --------- */
+['log','info','warn','error','debug'].forEach(function (m) {
+  try {
+    var orig = console[m];
+    console[m] = function __wgW() {
+      try {
+        var st = ''; try { throw new Error('wg'); } catch (e) { st = e.stack || ''; }
+        var f = stackFrames(st), rootless = f.length > 0;
+        for (var i = 0; i < f.length; i++) if (firstPartyInLine(f[i])) { rootless = false; break; }
+        if (rootless) {
+          var txt = Array.prototype.map.call(arguments, function (a) {
+            try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); }
+          }).join(' ');
+          hit('foreign_console', txt.slice(0, 90));
+        }
+      } catch (e) {}
+      return orig.apply(console, arguments);
+    };
+  } catch (e) {}
+});
+
+/* ---------- honeypot ------------------------------------------------ */
+(function () {
+  var pot = document.getElementById('continue-1');
+  if (!pot) return;
+  ['click','pointerdown','focus'].forEach(function (t) {
+    pot.addEventListener(t, function (e) {
+      hit('honeypot_activation', t + ' on decoy (isTrusted=' + e.isTrusted + ')');
+    }, true);
+  });
+  // Instance getters shadow the prototype, so a direct read of THIS node is
+  // distinguishable from a whole-document scrape.
+  [['textContent', Node.prototype], ['innerText', HTMLElement.prototype]].forEach(function (pair) {
+    try {
+      var d = Object.getOwnPropertyDescriptor(pair[1], pair[0]);
+      if (!d || !d.get) return;
+      var g = d.get;
+      Object.defineProperty(pot, pair[0], { configurable: true, set: d.set,
+        get: function () {
+          hit('honeypot_read', pair[0] + ' read on decoy');
+          // .find() short-circuits on the decoy (it is first in document
+          // order), so route through the normal classifier too - otherwise
+          // text_harvest/injected_one_liner never see the read at all.
+          try { __wgClassify('HTMLElement.' + pair[0], null, 'BUTTON'); } catch (e) {}
+          return g.call(this);
+        } });
+    } catch (e) {}
+  });
+})();
+
+/* ---------- input ---------------------------------------------------
+ * Everything here demands isTrusted. First-party widgets dispatch synthetic
+ * PointerEvents routinely, and a synthetic event defaults to pressure 0 with
+ * no preceding move - which would trip pressure and zero-move checks for
+ * entirely innocent reasons. CDP input IS trusted, so this costs nothing. */
+addEventListener('pointermove', function (e) {
+  if (!e.isTrusted || (e.pointerType && e.pointerType !== 'mouse')) return;
+  movesSinceDown++; lastMove = e;
+}, true);
+
+addEventListener('pointerdown', function (e) {
+  if (!e.isTrusted || (e.pointerType && e.pointerType !== 'mouse')) return;
+  trustedPointers++; downTs = e.timeStamp;
+
+  if (e.buttons === 1 && e.pressure === 0)
+    hit('pointer_pressure', 'buttons=1 pressure=0');
+  if (e.screenX === e.clientX && e.screenY === e.clientY &&
+      !(screenX === 0 && screenY === 0 && outerHeight === innerHeight))
+    hit('screen_client_equal', 'screen=' + e.screenX + ',' + e.screenY);
+  if (movesSinceDown === 0) hit('zero_move_click', 'no pointermove before press');
+  else if (movesSinceDown <= 2 && lastMove &&
+           (Math.abs(lastMove.movementX) > 150 || Math.abs(lastMove.movementY) > 150))
+    hit('teleport_pointer', 'moves=' + movesSinceDown +
+        ' jump=' + lastMove.movementX + ',' + lastMove.movementY);
+
+  var el = e.target, r = el && el.getBoundingClientRect && el.getBoundingClientRect();
+  if (r && r.width > 4 && r.height > 4 &&
+      Math.abs(e.clientX - (r.x + r.width / 2)) < 1 &&
+      Math.abs(e.clientY - (r.y + r.height / 2)) < 1)
+    hit('centre_landing', 'dead centre');
+  movesSinceDown = 0;
+}, true);
+
+addEventListener('pointerup', function (e) {
+  if (!e.isTrusted || !downTs) return;
+  trustedPointers++;
+  var dwell = e.timeStamp - downTs;
+  evidence.dwellMs = Math.round(dwell);
+  if (dwell < 30) hit('impossible_dwell', Math.round(dwell) + 'ms press-to-release');
+}, true);
+
+addEventListener('click', function (e) {
+  if (!e.isTrusted && trustedPointers === 0)
+    hit('programmatic_click', 'untrusted click on <' + (e.target && e.target.tagName) + '>');
+}, true);
+
+addEventListener('keydown', function (e) { if (e.isTrusted) trustedKeys++; }, true);
+
+var touchCapable = false;
+try { touchCapable = navigator.maxTouchPoints > 0 || matchMedia('(pointer:coarse)').matches; } catch (e) {}
+addEventListener('input', function (e) {
+  if (!e.isTrusted || touchCapable) return;
+  // Paste=insertFromPaste, autofill=insertReplacementText, IME=insertCompositionText,
+  // drop=insertFromDrop. Only CDP Input.insertText reports plain "insertText".
+  if (e.inputType !== 'insertText') return;
+  if (typeof e.data !== 'string' || e.data.length < 2) return;
+  if (trustedKeys > 0) return;
+  hit('cdp_bulk_text_insert', e.data.length + ' chars, zero keystrokes');
+}, true);
+
+/* ---------- gate behaviour ------------------------------------------ */
+function dismiss() {
+  var o = document.getElementById('overlay');
+  if (o) o.style.display = 'none';
+}
+document.getElementById('continue-2').addEventListener('click', dismiss);
+document.getElementById('continue-1').addEventListener('click', dismiss);
+
+/* ---------- reporting ------------------------------------------------ */
+var STRENGTH = {
+  whole_page_scrape:'high', honeypot_read:'high', honeypot_activation:'high',
+  bulk_label_harvest:'high', text_harvest:'high', foreign_dom_query:'high',
+  injected_one_liner:'high', foreign_console:'high', cdp_bulk_text_insert:'high',
+  impossible_dwell:'high', screen_client_equal:'high', pointer_pressure:'high',
+  zero_move_click:'high', teleport_pointer:'high', centre_landing:'medium',
+  programmatic_click:'medium'
+};
+function render() {
+  if (!REVEAL) { window.__gate = { indicators: state, calls: calls, evidence: evidence }; return; }
+  document.getElementById('report').style.display = 'block';
+  var on = Object.keys(state);
+  var hi = on.filter(function (k) { return STRENGTH[k] === 'high'; }).length;
+  var v = document.getElementById('verdict');
+  v.className = on.length ? 'hit' : '';
+  v.textContent = on.length
+    ? 'INDICATORS OBSERVED (' + on.length + ', ' + hi + ' high-strength): ' + on.join(', ')
+    : 'NO INDICATORS OBSERVED';
+  document.getElementById('evidence').textContent =
+    'EVIDENCE:\n' + (on.length ? on.map(function (k) { return '  ' + k + ' = ' + state[k]; }).join('\n')
+                               : '  none') +
+    '\n  foreignCalls=' + calls.length +
+    '  dwellMs=' + (evidence.dwellMs === undefined ? 'none' : evidence.dwellMs) +
+    '  trustedPointerEvents=' + trustedPointers;
+  window.__gate = { indicators: state, calls: calls, evidence: evidence };
+}
+render();
+})();
+</script>
+</body>
+</html>
