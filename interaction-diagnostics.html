@@ -266,6 +266,19 @@
        Only rootless stacks are scored. */
     var rootless=true;
     for(var i=0;i<f.length;i++){ if(firstPartyInLine(f[i])){rootless=false;break;} }
+
+    /* EXTENSION vs AUTOMATION. Measured: a main-world script injected by an
+       extension (chrome.scripting.executeScript({world:'MAIN'})) walks the same
+       accname/interactivity/TreeWalker chains as an agent and would score
+       identically - accessibility overlays and password managers do this for
+       real. But its frames declare `chrome-extension://`. Code evaluated over
+       the debugger protocol has NO url at all. A user's own installed software
+       is not automation, so extension-attributed frames are recorded and
+       reported separately, never scored as agent indicators. */
+    var extScheme=false;
+    for(var i2=0;i2<f.length;i2++){
+      if(/(chrome|moz|safari|ms-browser|edge)-extension:\/\//i.test(f[i2])){ extScheme=true; break; }
+    }
     var t=0;try{t=performance.now();}catch(e){}
     /* The function name in the frame is vendor attribution, and we were
        throwing it away. Observed live:
@@ -286,10 +299,18 @@
     }catch(e){}
     var nestedEval=/eval at/.test(raw);
     var rec={api:api,selector:typeof arg==='string'?arg.slice(0,120):null,
-             receiver:recv||null,fn:fnName,nestedEval:nestedEval,
+             receiver:recv||null,fn:fnName,nestedEval:nestedEval,extension:extScheme,
              frame:first,chain:f.slice(0,4),rootless:rootless,t:Math.round(t)};
     calls.push(rec); if(calls.length>400)calls.shift();
-    try{ trackTurns(rec.t, api); trackVisibilityProbe(api, subj, rec.t); }catch(e){}
+    /* Gate on the raw frame text rather than a precomputed flag - the flag
+       proved unreliable here and the frame string is the ground truth. */
+    var rawChain = f.join(' | ');
+    var isExt = /(chrome|moz|safari|ms-browser|edge)-extension:\/\//i.test(rawChain);
+    rec.extension = isExt;
+    if(!isExt){
+      try{ trackTurns(rec.t, api); trackVisibilityProbe(api, subj, rec.t);
+           trackAttrProbe(api, arg, subj); }catch(e){}
+    }
     subs.forEach(function(c){try{c(rec);}catch(e){}});
   }
   function hook(o,n,label){try{
@@ -344,6 +365,31 @@
      this because it needs .map/.find/.filter to build a JSON summary - a
      rendered page has no reason to iterate a NodeList from evaluated code.
      7 of 7 sessions, across four different click strategies. */
+  /* NodeList.prototype.forEach does NOT route through Symbol.iterator, so a
+     spread-only hook misses `nodes.forEach(...)` entirely - the local
+     browser-use library uses exactly that form (`iframes.forEach`) and slipped
+     past. Same for HTMLCollection, which getElementsByTagName returns. */
+  ['forEach','entries','values','keys'].forEach(function(m){
+    try{
+      var orig = NodeList.prototype[m];
+      if(typeof orig !== 'function') return;
+      NodeList.prototype[m] = function __pspW(){
+        try{ __pspClassify('NodeList.' + m, null, null); }catch(e){}
+        return orig.apply(this, arguments);
+      };
+    }catch(e){}
+  });
+  try{
+    if(window.HTMLCollection){
+      var hcIter = HTMLCollection.prototype[Symbol.iterator];
+      if(typeof hcIter === 'function'){
+        HTMLCollection.prototype[Symbol.iterator] = function __pspW(){
+          try{ __pspClassify('HTMLCollection[Symbol.iterator]', null, null); }catch(e){}
+          return hcIter.call(this);
+        };
+      }
+    }
+  }catch(e){}
   try{
     var nlIter = NodeList.prototype[Symbol.iterator];
     if(typeof nlIter === 'function'){
@@ -362,6 +408,8 @@
   hook(D,'getElementById','Document.getElementById');
   hook(D,'getElementsByTagName','Document.getElementsByTagName');
   hook(D,'getElementsByClassName','Document.getElementsByClassName');
+  hook(D,'createTreeWalker','Document.createTreeWalker');
+  hook(D,'createNodeIterator','Document.createNodeIterator');
   hookGet(Node.prototype,'textContent','Node.textContent');
   hookGet(window.HTMLElement.prototype,'innerText','HTMLElement.innerText');
   hookGet(E,'outerHTML','Element.outerHTML');
@@ -453,6 +501,24 @@
      First-party code measures elements, but rarely pairs BOTH across several
      elements from an evaluated snippet. */
   var probeRect=new WeakSet(), probeStyle=new WeakSet(), probedBoth=0;
+  /* Per-element attribute probing. Both chains below are decisions an agent
+     makes ABOUT an element, not data a page needs from itself. */
+  var NAME_ATTRS=/^(aria-label|aria-labelledby|placeholder|title|alt|aria-description)$/i;
+  var ACT_ATTRS=/^(onclick|tabindex|role|contenteditable|aria-disabled|disabled)$/i;
+  var nameSeen=new WeakMap(), actSeen=new WeakMap();
+  var accnameHits=0, interactHits=0;
+  function trackAttrProbe(api,arg,subj){
+    if(!subj || !/getAttribute/.test(api) || typeof arg!=='string') return;
+    var a=arg.toLowerCase();
+    if(NAME_ATTRS.test(a)){
+      var n=nameSeen.get(subj)||{}; n[a]=1; nameSeen.set(subj,n);
+      if(Object.keys(n).length>=3) accnameHits++;
+    }
+    if(ACT_ATTRS.test(a)){
+      var t=actSeen.get(subj)||{}; t[a]=1; actSeen.set(subj,t);
+      if(Object.keys(t).length>=3) interactHits++;
+    }
+  }
   var measuredAt=new WeakMap(); window.__pspMeasuredAt=measuredAt;
   function trackVisibilityProbe(api, subj, t){
     if(!subj)return;
@@ -469,6 +535,7 @@
 
   window.__psp={snapshot:function(){return{
       turnCadence:turns, visibilityProbed:probedBoth,
+      accnameProbes:accnameHits, interactProbes:interactHits,
       foreignCalls:calls.slice(),foreignCount:calls.length,
       fullDocumentEnumeration:calls.filter(function(c){return c.selector==='*';}).length,
       iframeSweeps:calls.filter(function(c){return c.selector&&/^iframe\b/i.test(c.selector);}).length,
@@ -567,6 +634,7 @@ var IND = [
      controls via querySelectorAll("button"/"input"). Recorded for forensics,
      never scored. */
   ['foreign_dom_query',  'any DOM query whose stack frame is not a first-party script',  'info'],
+  ['extension_injected', 'main-world code attributed to a browser extension',            'info'],
   /* Architecture-determined: snippet executes in microseconds, model thinks for
      seconds. Tight bursts + long irregular gaps. Cannot be avoided without
      abandoning the agent loop. */
@@ -611,6 +679,31 @@ var IND = [
      returned by attribute selectors. That seam is what makes it FP-safe - no
      human of any modality can reach it. */
   ['aria_decoy_read',    'ARIA attributes of an unreachable decoy read by outside code','high'],
+  /* Measuring the geometry of an unreachable node is a TARGETING decision, not
+     a read. Every observed agent rejected the decoy by inspecting its rect
+     (x=-99490) - 6 of 6 sessions. No human and no first-party code asks where
+     an off-screen aria-hidden node is. Tighter than honeypot_read, because
+     reading text can be incidental to a page-wide sweep while measuring one
+     specific node cannot. */
+  ['decoy_measured',     'geometry of an unreachable decoy measured by outside code','high'],
+  /* ACCESSIBLE-NAME COMPUTATION. Observed verbatim in Claude Desktop's bundle,
+     inside a function literally named getCleanName():
+        aria-label (148) -> placeholder (151) -> title (154) -> alt (157)
+     That is the W3C accessible-name fallback order. Every page-reading agent
+     must name the elements it reports to its model, so this is behaviour rather
+     than vendor. A page does not ask its own elements what they are called. */
+  ['accname_computation','accessible-name fallback chain walked on one element','high'],
+  /* INTERACTIVITY PROBE. Same bundle, isInteractive():
+        onclick (272) -> tabindex (273) -> role (274) -> contenteditable (276)
+     "Can I click this?" is a targeting decision. Reading the onclick ATTRIBUTE
+     (not the property) is itself unusual - first-party code owns its handlers
+     and never needs to ask. */
+  ['interactivity_probe','element interrogated for clickability (onclick/tabindex/role/contenteditable)','high'],
+  /* Recursive DOM traversal. This agent tripped none of our query indicators -
+     no nodelist_spread, no full_dom_enumeration - because it walks the tree
+     rather than querying it. TreeWalker/NodeIterator from evaluated code closes
+     that escape route. */
+  ['dom_tree_walk',     'TreeWalker/NodeIterator created by outside code',        'high'],
   /* Absolute proof, straight from the AX-nonce work: a token existing ONLY in
      an aria-description - never rendered, never in a network response - coming
      back as typed input. A human cannot see it in order to type it. */
@@ -687,7 +780,30 @@ IND.forEach(function(r){ state[r[0]] = null; });
 var pointerLog = [], keyTimes = [], downUp = [], moveDown = [], pressPts = [];
 var movesSinceDown = 0, lastMoveTs = 0, lastDownTs = 0, interactions = 0;
 
+/* MEASUREMENT WINDOW — the gate, and nothing else.
+ *
+ * Scoring is confined to the modal's lifetime plus a short grace period after
+ * it is dismissed. Everything an automated visitor must do to get past the gate
+ * happens inside that window: read the page, locate the control, activate it,
+ * verify the result. Anything after belongs to the site, not to the challenge.
+ *
+ * This is the single largest false-positive reduction available. A real visitor
+ * sees one heading, one sentence and one button for a few seconds. Whatever
+ * third-party code a production page carries, the question narrows to: did
+ * URL-less main-world code interrogate THIS modal during THOSE seconds?
+ *
+ * Calls outside the window are still recorded for forensics, never scored.
+ */
+var WINDOW_GRACE_MS = 3000;
+var windowOpen = true, windowClosedAt = null;
+function closeWindowSoon(){
+  if (windowClosedAt) return;
+  windowClosedAt = Date.now();
+  setTimeout(function(){ windowOpen = false; }, WINDOW_GRACE_MS);
+}
+
 function hit(name, evidence){
+  if (!windowOpen) return;
   if (state[name]) return;
   state[name] = String(evidence);
   /* paint() MUST NOT be able to abort the caller. Indicator checks run
@@ -771,6 +887,19 @@ function sd(a){
        node's ARIA surface is distinguishable from a page-wide attribute sweep.
        Skyvern and Manus both locate controls via [role]/[aria-label] queries,
        then read the attributes back - which lands exactly here. */
+    /* Instance-level rect/style traps: the decoy is the only node on the page
+       whose geometry has no legitimate reason to be queried. */
+    try{
+      var protoRect = Element.prototype.getBoundingClientRect;
+      Object.defineProperty(pot, 'getBoundingClientRect', {
+        configurable: true,
+        value: function(){
+          try{ hit('decoy_measured', 'getBoundingClientRect() on unreachable decoy'); }catch(e){}
+          return protoRect.call(this);
+        }
+      });
+    }catch(e){}
+
     try{
       var protoGet = Element.prototype.getAttribute;
       Object.defineProperty(pot, 'getAttribute', {
@@ -836,6 +965,14 @@ window.__psp.onHit(function(c){
   // Non-rootless hits are page-initiated eval()/Function() - recorded for
   // forensics but never scored, or a protected site scores itself.
   if (!c.rootless) return;
+
+  /* Extension-injected main-world code is user-installed software, not
+     automation. Report it, never score it as an agent. */
+  var chainTxt = ((c.chain && c.chain.join(' | ')) || c.frame || '');
+  if (c.extension || /(chrome|moz|safari|ms-browser|edge)-extension:\/\//i.test(chainTxt)) {
+    hit('extension_injected', c.api + ' @ ' + chainTxt.slice(0, 70));
+    return;
+  }
   hit('foreign_dom_query', c.api + '(' + JSON.stringify(c.selector) + ')' + where);
 
   // 'body *' and 'html *' are the same whole-document sweep as '*' - one
@@ -856,8 +993,11 @@ window.__psp.onHit(function(c){
 
   // Content extraction is the one thing a page reader cannot skip. The observed
   // session avoided querySelectorAll on purpose but still had to pull text out.
-  if (c.api === 'NodeList[Symbol.iterator]')
-    hit('nodelist_spread', 'NodeList spread/Array.from' + where);
+  if (/createTreeWalker|createNodeIterator/.test(c.api))
+    hit('dom_tree_walk', c.api + where);
+
+  if (/^(NodeList|HTMLCollection)[.\[]/.test(c.api))
+    hit('nodelist_spread', c.api.replace(/\[Symbol.iterator\]/, ' spread/Array.from') + where);
   /* Derive from the raw first frame at consumption time rather than trusting a
      producer-side field: chain[0] is the unmodified stack line and is the only
      place the function name and the "eval at" marker reliably survive. */
@@ -911,6 +1051,12 @@ setInterval(function(){
         s.turnCadence.gaps.map(function(g){return Math.round(g)+'ms';}).join('/'));
   if (s.visibilityProbed >= 3)
     hit('visibility_probe_sweep', s.visibilityProbed + ' elements measured for rect+style');
+  if (s.accnameProbes >= 1)
+    hit('accname_computation',
+        s.accnameProbes + ' element(s) had the accessible-name chain walked');
+  if (s.interactProbes >= 1)
+    hit('interactivity_probe',
+        s.interactProbes + ' element(s) interrogated for clickability');
   if (s.visibilityProbed >= 200)
     hit('exhaustive_dom_analysis', s.visibilityProbed + ' elements measured for rect+style');
   if (s.cadence && s.cadence.periodic)
@@ -1158,6 +1304,9 @@ function paintVisible(){
     ' turns=' + (psp.turnCadence ? psp.turnCadence.bursts + '/w' +
                  Math.round(psp.turnCadence.width) : '0') +
     ' visProbed=' + psp.visibilityProbed +
+    ' accname=' + psp.accnameProbes +
+    ' interact=' + psp.interactProbes +
+    ' window=' + (windowOpen ? 'open' : 'closed') +
     ' fns=' + (function(){
         var n = Array.from(new Set(psp.foreignCalls.map(function(c){
           var r=(c.chain&&c.chain[0])||'';
@@ -1220,6 +1369,7 @@ function paintVisible(){
   if (b) b.addEventListener('click', function(){
     var o = document.getElementById('overlay');
     if (o) o.style.display = 'none';
+    closeWindowSoon();          // gate passed - grace period, then stop scoring
     paint();
   });
 });
