@@ -619,6 +619,14 @@ var IND = [
   /* --- passive: fire with no user action at all --- */
   ['full_dom_enumeration','querySelectorAll("*") issued from a non-page origin',         'high'],
   ['iframe_sweep',       'blanket iframe scan issued from a non-page origin',            'high'],
+  /* Manus Cloud (2026-08-20) swept EIGHT distinct third-party CAPTCHA vendors
+     on a page that contains no CAPTCHA of any kind, and carried a `tryAccept`
+     frame alongside. A real site integrates one vendor, occasionally two, and
+     its own code - including cross-origin CDN scripts, which are registered as
+     page scripts from their <script src> - is excluded by the rootless gate.
+     Demanding THREE distinct vendors puts this out of reach of legitimate
+     integration code while identifying a bundled solver outright. */
+  ['captcha_solver_sweep','several third-party CAPTCHA vendors probed on a page that has none','high'],
   /* CONFIRMED TRUE POSITIVE against the hosted service (session v4, 2026-08-17):
      querySelectorAll("button"), ("input"), ("button,input") followed by
      getBoundingClientRect mapped over the results, all from <anonymous>:1:N -
@@ -981,6 +989,14 @@ window.__psp.onHit(function(c){
     hit('full_dom_enumeration', c.api + '("' + c.selector + '")' + where);
   if (c.selector && /^iframe\b/i.test(c.selector)) hit('iframe_sweep', c.api + '("' + c.selector + '")' + where);
 
+  if (c.selector) {
+    for (var vi = 0; vi < CAPTCHA_VENDORS.length; vi++)
+      if (CAPTCHA_VENDORS[vi][1].test(c.selector)) vendorsSeen[CAPTCHA_VENDORS[vi][0]] = 1;
+    var vk = Object.keys(vendorsSeen);
+    if (vk.length >= 3)
+      hit('captcha_solver_sweep', vk.length + ' vendors probed, no CAPTCHA on this page: ' + vk.join(','));
+  }
+
   /* Selecting BY accessibility semantics - i.e. an attribute-selector shape
      like [role=...] or [aria-label] passed to a query API. Deliberately NOT
      any api whose argument merely contains "aria-": Element.getAttribute
@@ -1031,8 +1047,17 @@ window.__psp.onHit(function(c){
   // A minified snippet evaluated in over the debugger protocol reports line 1
   // with a large column. Bundled first-party code spans many lines; extension
   // content scripts resolve to chrome-extension:// and never reach here.
+  /* Column threshold removed 2026-08-20. It was set to 40 when browser-use
+     Cloud wrote long LLM-authored selector snippets (columns 10-250). The
+     cloud has since collapsed its page read to the shortest expression that
+     exists - `document.body.innerText` - which puts the getter call at
+     column 15 and silently fell under the bar. The rootless gate above is
+     what establishes "not first party"; the column number never added any
+     FP protection on top of it, it only discarded true positives. Line 1 is
+     still required, because that is what separates an evaluated one-liner
+     from a multi-line injected bundle. */
   var m = /:1:(\d+)\s*$/.exec(c.frame);
-  if (/^<anonymous>/.test(c.frame) && m && Number(m[1]) > 40)
+  if (/^<anonymous>/.test(c.frame) && m)
     hit('injected_one_liner', c.api + ' from one-line eval at col ' + m[1]);
 });
 setInterval(function(){
@@ -1066,6 +1091,22 @@ setInterval(function(){
     hit('cli_api_probe', s.commandLineApiProbes + ' lookup(s)');
 }, 1200);
 
+/* Vendor hooks for captcha_solver_sweep. Deliberately literal: these are the
+   class and id names each vendor's own widget ships with, so matching one means
+   the caller is looking for that vendor's widget specifically. */
+var CAPTCHA_VENDORS = [
+  ['cloudflare', /cf-turnstile|cf-challenge|cf-browser-verification|challenge-form/i],
+  ['recaptcha',  /recaptcha/i],
+  ['hcaptcha',   /h-?captcha/i],
+  ['arkose',     /arkoselabs|funcaptcha|EnforcementChallenge/i],
+  ['geetest',    /geetest/i],
+  ['datadome',   /dd-captcha|datadome/i],
+  ['amazon',     /amzn-captcha/i],
+  ['perimeterx', /px-captcha/i],
+  ['generic',    /captcha-container|captcha-widget/i]
+];
+var vendorsSeen = Object.create(null);
+
 /* ---- pointer ---- */
 /* Every pointer indicator requires a genuine event. First-party widgets
    (carousels, drag helpers, custom controls) dispatch synthetic PointerEvents
@@ -1082,6 +1123,7 @@ addEventListener('pointermove', function(e){
 }, true);
 
 var trustedPointerEvents = 0;
+var aimClass = 'none';
 addEventListener('pointerdown', function(e){
   if (!e.isTrusted) return;
   trustedPointerEvents++;
@@ -1111,6 +1153,28 @@ addEventListener('pointerdown', function(e){
   if (movesSinceDown > 0 && movesSinceDown <= 2 && lastMv &&
       (Math.abs(lastMv.mx) > 150 || Math.abs(lastMv.my) > 150))
     hit('teleport_pointer', 'moves=' + movesSinceDown + ' jump=' + lastMv.mx + ',' + lastMv.my);
+  /* Measured 2026-08-20: a lone Input.dispatchMouseEvent reports
+     movementX/movementY === 0, because Chrome seeds "last position" from the
+     first event it sees. The displacement branch above is therefore
+     UNREACHABLE for the exact single-move teleport it was written to catch -
+     browser-use Cloud emitted one mouseMoved straight onto the target and
+     scored nothing. What is observable is the absence of a path: the whole
+     session holds at most two trusted mouse moves and the last one is already
+     inside the target box. A hand crossing the viewport samples at 60-120Hz
+     and emits tens of moves; one is not a slow hand, it is no hand. Requires
+     the move to land INSIDE the box, so a user whose cursor happens to rest
+     on the button and clicks without moving falls to zero_move_click instead
+     of here. */
+  else if (pointerLog.length > 0 && pointerLog.length <= 2 && lastMv) {
+    try {
+      var tr = e.target.getBoundingClientRect();
+      if (tr.width > 4 && tr.height > 4 &&
+          lastMv.x >= tr.left && lastMv.x <= tr.right &&
+          lastMv.y >= tr.top  && lastMv.y <= tr.bottom)
+        hit('teleport_pointer', pointerLog.length +
+            ' trusted move(s) all session, last already inside the target box');
+    } catch (e3) {}
+  }
 
   // Causal chain: did evaluated code measure THIS element just before the press?
   try{
@@ -1136,6 +1200,17 @@ addEventListener('pointerdown', function(e){
     if (r.width > 4 && r.height > 4){
       var dx = Math.abs(e.clientX-(r.x+r.width/2)), dy = Math.abs(e.clientY-(r.y+r.height/2));
       if (dx < 1 && dy < 1) hit('centre_landing','dx='+dx.toFixed(2)+' dy='+dy.toFixed(2));
+      /* Which channel produced the coordinates. Not scored - centre landing is
+         already scored above and this adds no separation against a human, who
+         never measures either way. It is a profiling field: Manus Cloud
+         measured the box first (aim=dom), browser-use Cloud took the pixel off
+         a screenshot with no DOM read at all (aim=vision). Both land on the
+         centre, which is why humanising the DOM path does not humanise aim. */
+      var measured = false;
+      try { measured = window.__pspMeasuredAt &&
+                       window.__pspMeasuredAt.get(e.target) !== undefined; } catch (e4) {}
+      if (dx < 1 && dy < 1) aimClass = measured ? 'dom' : 'vision';
+      else                  aimClass = measured ? 'dom-offcentre' : 'freehand';
     }
   }
 
@@ -1323,6 +1398,7 @@ function paintVisible(){
     ' tamper=' + (window.__integ.snapshot().tamper.length || 0) +
     ' preview=' + window.__integ.snapshot().previewHits +
     ' cadence=' + (cad ? cad.meanGapMs + 'ms/sd' + cad.sdMs + (cad.periodic ? '/periodic' : '') : 'none') +
+    ' aim=' + aimClass +
     ' clicks=' + downUp.length +
     ' dwellMs=' + (downUp.length ? downUp.map(function(x){return Math.round(x);}).join(',') : 'none');
 
