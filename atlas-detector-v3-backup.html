@@ -1,0 +1,1625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlas Browser Detector v4 — Property Anomaly Scanner</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; background: #fafafa; color: #1a1a1a; min-height: 100vh; padding: 32px 20px; }
+.container { max-width: 960px; margin: 0 auto; }
+
+.header { margin-bottom: 32px; border-bottom: 1px solid #ddd; padding-bottom: 16px; }
+.header h1 { font-size: 1.3em; font-weight: 600; letter-spacing: -0.02em; color: #111; }
+.header p { font-size: 0.78em; color: #666; margin-top: 4px; line-height: 1.5; }
+
+.verdict { padding: 16px 20px; border-radius: 4px; margin-bottom: 28px; border-left: 4px solid #ccc; background: #f5f5f5; }
+.verdict.detected { border-left-color: #c0392b; background: #fdf2f2; }
+.verdict.clean { border-left-color: #27ae60; background: #f2fdf5; }
+.verdict.scanning { border-left-color: #f39c12; background: #fffdf2; }
+.verdict-status { font-size: 0.7em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; }
+.verdict-result { font-size: 1.1em; font-weight: 700; margin: 4px 0; }
+.verdict.detected .verdict-result { color: #c0392b; }
+.verdict.clean .verdict-result { color: #27ae60; }
+.verdict.scanning .verdict-result { color: #f39c12; }
+.verdict-meta { font-size: 0.75em; color: #666; }
+
+.section { margin-bottom: 24px; }
+.section-heading { font-size: 0.7em; text-transform: uppercase; letter-spacing: 1.5px; color: #555; font-weight: 700; margin-bottom: 8px; padding: 6px 10px; background: #eee; border-radius: 3px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none; }
+.section-heading .badge { font-size: 0.85em; color: #888; font-weight: 400; }
+.section-heading:hover { background: #e0e0e0; }
+
+.probe-table { width: 100%; border-collapse: collapse; font-size: 0.73em; }
+.probe-table th { text-align: left; padding: 5px 8px; border-bottom: 2px solid #ddd; color: #666; font-weight: 600; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
+.probe-table td { padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+.probe-table tr.anomaly td { background: #fdf8f8; }
+.probe-table .col-status { width: 20px; text-align: center; font-size: 1em; }
+.probe-table .col-name { font-weight: 600; color: #2c3e50; white-space: nowrap; }
+.probe-table .col-val { color: #444; max-width: 500px; word-break: break-all; font-size: 0.92em; }
+.probe-table tr.anomaly .col-name { color: #c0392b; }
+
+.dump-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 3px; padding: 10px 12px; font-size: 0.68em; line-height: 1.5; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; color: #333; margin-top: 6px; }
+.dump-box.collapsed { max-height: 80px; overflow: hidden; }
+
+.copy-btn { font-size: 0.65em; padding: 3px 8px; background: #2c3e50; color: #fff; border: none; border-radius: 2px; cursor: pointer; margin-left: 8px; }
+.copy-btn:hover { background: #1a252f; }
+
+.hash-row { font-size: 0.72em; padding: 8px 12px; background: #fff; border: 1px solid #e0e0e0; border-radius: 3px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.hash-row .label { color: #888; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.85em; font-weight: 600; }
+.hash-row .value { font-weight: 700; color: #2c3e50; }
+
+.methodology { margin-top: 28px; padding-top: 16px; border-top: 1px solid #ddd; }
+.methodology h2 { font-size: 0.75em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; margin-bottom: 10px; }
+.methodology p { font-size: 0.72em; color: #555; line-height: 1.6; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.methodology code { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.95em; background: #eee; padding: 1px 4px; border-radius: 2px; }
+.footer { margin-top: 24px; font-size: 0.65em; color: #aaa; text-align: center; }
+.signals-table tr.miss td { background: #fff; }
+.signals-table .col-status { width: 20px; text-align: center; font-size: 1em; }
+.signals-table .col-id { width: 28px; color: #aaa; font-size: 0.85em; }
+.signals-table .col-name { font-weight: 600; color: #2c3e50; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.signals-table .col-val { color: #444; max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; }
+.signals-table .col-val:hover { white-space: normal; word-break: break-all; }
+.signals-table tr.hit .col-name { color: #c0392b; }
+
+.progress-bar { width: 100%; height: 3px; background: #e0e0e0; border-radius: 2px; margin-bottom: 16px; overflow: hidden; }
+.progress-fill { height: 100%; background: #f39c12; border-radius: 2px; transition: width 0.3s ease; }
+
+.methodology { margin-top: 28px; padding-top: 16px; border-top: 1px solid #ddd; }
+.methodology h2 { font-size: 0.75em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; margin-bottom: 10px; }
+.methodology p { font-size: 0.72em; color: #555; line-height: 1.6; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.methodology code { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.95em; background: #eee; padding: 1px 4px; border-radius: 2px; }
+.meth-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.meth-item { padding: 8px 10px; background: #fff; border: 1px solid #e0e0e0; border-radius: 3px; }
+.meth-item h3 { font-size: 0.75em; font-weight: 700; color: #333; margin-bottom: 3px; }
+.meth-item p { font-size: 0.68em; margin-bottom: 0; }
+.footer { margin-top: 24px; font-size: 0.65em; color: #aaa; text-align: center; }
+
+.summary-bar { display: flex; gap: 16px; margin-bottom: 16px; font-size: 0.72em; }
+.summary-item { padding: 8px 14px; border-radius: 3px; background: #fff; border: 1px solid #e0e0e0; }
+.summary-item .label { color: #888; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
+.summary-item .value { font-weight: 700; color: #333; margin-top: 2px; }
+.summary-item.hits .value { color: #c0392b; }
+
+@media (max-width: 700px) {
+  .meth-grid { grid-template-columns: 1fr; }
+  .summary-bar { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Atlas Browser Detection v3</h1>
+        <p>Comprehensive detection system for OpenAI's Atlas/ChatGPT browsing tool. 100+ signals across 12 categories: navigator fingerprinting, CSS/media queries, canvas/WebGL/audio rendering, timing analysis, API availability, storage behaviors, WebRTC/network, screen/display, font probing, DOM/iframe integrity, function tampering, and environmental constraints.</p>
+    </div>
+
+    <div class="progress-bar"><div id="progress-fill" class="progress-fill" style="width:0%"></div></div>
+
+    <div id="verdict" class="verdict scanning">
+        <div class="verdict-status">Verdict</div>
+        <div id="verdict-result" class="verdict-result">Scanning...</div>
+        <div id="verdict-meta" class="verdict-meta">Initializing 100+ signals...</div>
+    </div>
+
+    <div class="summary-bar" id="summary-bar">
+        <div class="summary-item"><div class="label">Signals</div><div class="value" id="sum-total">0</div></div>
+        <div class="summary-item hits"><div class="label">Hits</div><div class="value" id="sum-hits">0</div></div>
+        <div class="summary-item"><div class="label">Score</div><div class="value" id="sum-score">0</div></div>
+        <div class="summary-item"><div class="label">Time</div><div class="value" id="sum-time">...</div></div>
+    </div>
+
+    <div class="mvp-section">
+        <div class="mvp-label">Primary Signal (MVP)</div>
+        <div id="mvp-card" class="mvp-card">
+            <div class="mvp-title"><span class="tag">MVP</span> Console.log Override + ChatGPTBrowser Property</div>
+            <div class="mvp-desc">
+                Checks two known Atlas/ChatGPT browser signatures: (1) console.log.toString() containing "captureLogArguments" + "NodeList.forEach" (OpenAI's console hook), (2) window.ChatGPTBrowser property. These may be patched in newer versions, but remain the most specific direct signals.
+            </div>
+            <div id="mvp-detail" class="mvp-detail">Waiting...</div>
+        </div>
+    </div>
+
+    <div id="categories-container"></div>
+
+    <div class="methodology">
+        <h2>Methodology &amp; Signal Explanations</h2>
+        <p>All 100+ signals run client-side with zero external dependencies. Signals are organized in 12 categories. Each probes a different browser subsystem that Atlas (OpenAI's Chromium-based browsing tool, Mac-only, cloud-hosted) may expose differences in. The system fingerprints the <em>environment</em> rather than relying on easily-patched property checks.</p>
+        <p>Research sources: bot.sannysoft.com, browserleaks.com (canvas/webgl/css/fonts/features), fingerprint.com techniques, CreepJS, FingerprintJS, Antoine Vastel's fpscanner, pixelscan.net, Chromium source, W3C specs, MDN Web Docs, PerimeterX decoded signatures, intoli.com headless tests, arh.antoinevastel.com, deviceandbrowserinfo.com, and codebase detectors (200+ signals cataloged).</p>
+        <div class="meth-grid" id="meth-grid"></div>
+    </div>
+
+    <div class="footer">atlas-detector v3.0 | 100+ signals | 12 categories | system-level fingerprinting approach</div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+    var startTime = performance.now();
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function hash32(str) {
+        var h = 0x811c9dc5;
+        for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+        return (h >>> 0).toString(16).padStart(8, '0');
+    }
+
+    // Categories definition
+    var categories = [
+        { id: 'nav', name: 'Navigator & UA Fingerprinting', signals: [] },
+        { id: 'chrome', name: 'Chrome Object & Runtime', signals: [] },
+        { id: 'css', name: 'CSS & Media Queries', signals: [] },
+        { id: 'canvas', name: 'Canvas & WebGL & Audio', signals: [] },
+        { id: 'timing', name: 'Timing & Performance', signals: [] },
+        { id: 'api', name: 'Modern API Availability', signals: [] },
+        { id: 'storage', name: 'Storage & Network', signals: [] },
+        { id: 'screen', name: 'Screen & Display & Viewport', signals: [] },
+        { id: 'font', name: 'Font Detection', signals: [] },
+        { id: 'dom', name: 'DOM & Iframe & Worker', signals: [] },
+        { id: 'func', name: 'Function Integrity & Tampering', signals: [] },
+        { id: 'env', name: 'Environmental & Behavioral', signals: [] }
+    ];
+
+    var allSignals = [];
+    var signalNum = 0;
+
+    function addSignal(catId, name, fn) {
+        signalNum++;
+        var s = { num: signalNum, name: name, fn: fn, catId: catId, result: null };
+        allSignals.push(s);
+        var cat = categories.find(function(c) { return c.id === catId; });
+        if (cat) cat.signals.push(s);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 1: NAVIGATOR & UA FINGERPRINTING (15 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('nav', 'navigator.userAgent', function() {
+        var ua = navigator.userAgent;
+        var hit = /ChatGPT|OpenAI|Atlas|HeadlessChrome/i.test(ua);
+        return { hit: hit, val: ua };
+    });
+
+    addSignal('nav', 'navigator.platform', function() {
+        var p = navigator.platform;
+        // Atlas is Mac-only, should be MacIntel
+        return { hit: false, val: p };
+    });
+
+    addSignal('nav', 'navigator.vendor', function() {
+        var v = navigator.vendor;
+        return { hit: v !== 'Google Inc.', val: v || '(empty)' };
+    });
+
+    addSignal('nav', 'navigator.languages', function() {
+        var l = navigator.languages;
+        var hit = !l || l.length <= 1;
+        return { hit: hit, val: l ? l.join(', ') : '(null)' };
+    });
+
+    addSignal('nav', 'navigator.webdriver', function() {
+        var wd = navigator.webdriver;
+        return { hit: wd === true, val: String(wd) };
+    });
+
+    addSignal('nav', 'navigator.plugins.length', function() {
+        var n = navigator.plugins.length;
+        return { hit: n === 0, val: String(n) };
+    });
+
+    addSignal('nav', 'navigator.pdfViewerEnabled', function() {
+        var v = navigator.pdfViewerEnabled;
+        return { hit: v === false, val: String(v) };
+    });
+
+    addSignal('nav', 'navigator.hardwareConcurrency', function() {
+        var n = navigator.hardwareConcurrency;
+        return { hit: false, val: String(n) };
+    });
+
+    addSignal('nav', 'navigator.deviceMemory', function() {
+        var m = navigator.deviceMemory;
+        return { hit: false, val: m !== undefined ? String(m) + ' GB' : 'undefined' };
+    });
+
+    addSignal('nav', 'navigator.maxTouchPoints', function() {
+        var t = navigator.maxTouchPoints;
+        return { hit: false, val: String(t) };
+    });
+
+    addSignal('nav', 'navigator.cookieEnabled', function() {
+        return { hit: !navigator.cookieEnabled, val: String(navigator.cookieEnabled) };
+    });
+
+    addSignal('nav', 'navigator.connection', function() {
+        var c = navigator.connection;
+        if (!c) return { hit: false, val: 'not available' };
+        return { hit: false, val: 'type=' + (c.effectiveType||'?') + ' rtt=' + (c.rtt||'?') + ' downlink=' + (c.downlink||'?') };
+    });
+
+    addSignal('nav', 'userAgentData brands', function() {
+        try {
+            var uad = navigator.userAgentData;
+            if (!uad) return { hit: false, val: 'userAgentData not available' };
+            var brands = uad.brands.map(function(b) { return b.brand + '/' + b.version; });
+            var hasChatGPT = brands.some(function(b) { return /chatgpt/i.test(b); });
+            var hasChrome = brands.some(function(b) { return b.indexOf('Google Chrome') === 0; });
+            return { hit: hasChatGPT || !hasChrome, val: brands.join(', ') + ' | mobile=' + uad.mobile + ' | platform=' + (uad.platform||'?') };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('nav', 'navigator.productSub', function() {
+        return { hit: false, val: navigator.productSub || '(empty)' };
+    });
+
+    addSignal('nav', 'navigator.appVersion', function() {
+        var v = navigator.appVersion;
+        var hit = /HeadlessChrome|Electron/i.test(v);
+        return { hit: hit, val: v };
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 2: CHROME OBJECT & RUNTIME (10 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('chrome', 'window.chrome existence', function() {
+        var c = window.chrome;
+        var keys = c ? Object.keys(c) : [];
+        return { hit: !c || keys.length === 0, val: c ? 'keys: [' + keys.join(', ') + ']' : 'undefined' };
+    });
+
+    addSignal('chrome', 'chrome.loadTimes()', function() {
+        try {
+            var has = window.chrome && typeof window.chrome.loadTimes === 'function';
+            return { hit: !has, val: has ? 'present' : 'missing (stripped)' };
+        } catch(e) { return { hit: true, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('chrome', 'chrome.csi()', function() {
+        try {
+            var has = window.chrome && typeof window.chrome.csi === 'function';
+            return { hit: !has, val: has ? 'present' : 'missing (stripped)' };
+        } catch(e) { return { hit: true, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('chrome', 'chrome.runtime', function() {
+        try {
+            var has = window.chrome && window.chrome.runtime;
+            var id = has ? window.chrome.runtime.id : undefined;
+            return { hit: false, val: has ? 'present (id=' + id + ')' : 'not present' };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('chrome', 'CDP window properties', function() {
+        var props = Object.getOwnPropertyNames(window);
+        var cdp = props.filter(function(p) { return /^cdc_|^__cdc|^__webdriver|^__selenium|^__fxdriver|^__nightmare|^_phantom|^_Selenium|^calledSelenium|^webdriver/.test(p); });
+        return { hit: cdp.length > 0, val: cdp.length > 0 ? 'FOUND: ' + cdp.join(', ') : 'None found (total props: ' + props.length + ')' };
+    });
+
+    addSignal('chrome', 'window.__playwright', function() {
+        var pw = '__playwright' in window || '__pw_manual' in window;
+        return { hit: pw, val: pw ? 'DETECTED' : 'not found' };
+    });
+
+    addSignal('chrome', 'window.__puppeteer', function() {
+        var pp = '__puppeteer_evaluation_script__' in window || '_puppeteerUrl' in window;
+        return { hit: pp, val: pp ? 'DETECTED' : 'not found' };
+    });
+
+    addSignal('chrome', 'Notification.permission', function() {
+        try {
+            var p = Notification.permission;
+            return { hit: false, val: p };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('chrome', 'Permissions API pattern', function() {
+        return new Promise(function(resolve) {
+            try {
+                var perms = ['geolocation', 'notifications', 'camera', 'microphone', 'accelerometer', 'gyroscope', 'magnetometer', 'clipboard-read', 'clipboard-write'];
+                var results = {};
+                var done = 0;
+                perms.forEach(function(p) {
+                    navigator.permissions.query({ name: p }).then(function(r) {
+                        results[p] = r.state;
+                        done++;
+                        if (done === perms.length) finish();
+                    }).catch(function() {
+                        results[p] = 'error';
+                        done++;
+                        if (done === perms.length) finish();
+                    });
+                });
+                function finish() {
+                    var states = Object.values(results);
+                    var allSame = states.every(function(s) { return s === states[0]; });
+                    var summary = Object.entries(results).map(function(e) { return e[0] + '=' + e[1]; }).join(', ');
+                    resolve({ hit: allSame && states[0] === 'prompt', val: summary });
+                }
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('chrome', 'Error stack format', function() {
+        try {
+            var e = new Error('test');
+            var stack = e.stack || '';
+            var hasVM = /\bVM\d+:\d+\b/.test(stack);
+            var hasEval = /\beval\b/.test(stack);
+            return { hit: hasVM || hasEval, val: stack.split('\n').slice(0, 3).join(' | ') };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 3: CSS & MEDIA QUERIES (15 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('css', 'prefers-color-scheme', function() {
+        var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var light = window.matchMedia('(prefers-color-scheme: light)').matches;
+        return { hit: false, val: dark ? 'dark' : (light ? 'light' : 'no-preference') };
+    });
+
+    addSignal('css', 'prefers-reduced-motion', function() {
+        var r = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        return { hit: false, val: r ? 'reduce' : 'no-preference' };
+    });
+
+    addSignal('css', 'prefers-contrast', function() {
+        var more = window.matchMedia('(prefers-contrast: more)').matches;
+        var less = window.matchMedia('(prefers-contrast: less)').matches;
+        return { hit: false, val: more ? 'more' : (less ? 'less' : 'no-preference') };
+    });
+
+    addSignal('css', 'forced-colors', function() {
+        var f = window.matchMedia('(forced-colors: active)').matches;
+        return { hit: false, val: f ? 'active' : 'none' };
+    });
+
+    addSignal('css', 'inverted-colors', function() {
+        var inv = window.matchMedia('(inverted-colors: inverted)').matches;
+        var none = window.matchMedia('(inverted-colors: none)').matches;
+        return { hit: false, val: inv ? 'inverted' : (none ? 'none' : 'not supported') };
+    });
+
+    addSignal('css', 'pointer capability', function() {
+        var fine = window.matchMedia('(pointer: fine)').matches;
+        var coarse = window.matchMedia('(pointer: coarse)').matches;
+        var none = window.matchMedia('(pointer: none)').matches;
+        return { hit: none, val: fine ? 'fine' : (coarse ? 'coarse' : (none ? 'none' : 'unknown')) };
+    });
+
+    addSignal('css', 'hover capability', function() {
+        var hover = window.matchMedia('(hover: hover)').matches;
+        var none = window.matchMedia('(hover: none)').matches;
+        return { hit: none, val: hover ? 'hover' : (none ? 'none' : 'unknown') };
+    });
+
+    addSignal('css', 'any-pointer / any-hover', function() {
+        var af = window.matchMedia('(any-pointer: fine)').matches;
+        var ac = window.matchMedia('(any-pointer: coarse)').matches;
+        var ah = window.matchMedia('(any-hover: hover)').matches;
+        return { hit: false, val: 'any-pointer: ' + (af ? 'fine' : (ac ? 'coarse' : 'none')) + ', any-hover: ' + (ah ? 'hover' : 'none') };
+    });
+
+    addSignal('css', 'display-mode', function() {
+        var browser = window.matchMedia('(display-mode: browser)').matches;
+        var standalone = window.matchMedia('(display-mode: standalone)').matches;
+        var fullscreen = window.matchMedia('(display-mode: fullscreen)').matches;
+        var minui = window.matchMedia('(display-mode: minimal-ui)').matches;
+        return { hit: !browser, val: browser ? 'browser' : (standalone ? 'standalone' : (fullscreen ? 'fullscreen' : (minui ? 'minimal-ui' : 'unknown'))) };
+    });
+
+    addSignal('css', 'color-gamut', function() {
+        var srgb = window.matchMedia('(color-gamut: srgb)').matches;
+        var p3 = window.matchMedia('(color-gamut: p3)').matches;
+        var rec2020 = window.matchMedia('(color-gamut: rec2020)').matches;
+        return { hit: false, val: rec2020 ? 'rec2020' : (p3 ? 'p3' : (srgb ? 'srgb' : 'none')) };
+    });
+
+    addSignal('css', 'dynamic-range', function() {
+        var hdr = window.matchMedia('(dynamic-range: high)').matches;
+        return { hit: false, val: hdr ? 'high' : 'standard' };
+    });
+
+    addSignal('css', 'prefers-reduced-transparency', function() {
+        var r = window.matchMedia('(prefers-reduced-transparency: reduce)').matches;
+        return { hit: false, val: r ? 'reduce' : 'no-preference' };
+    });
+
+    addSignal('css', 'CSS @supports features', function() {
+        var tests = {
+            'aspect-ratio': 'aspect-ratio: 1/1',
+            'backdrop-filter': 'backdrop-filter: blur(1px)',
+            'container-type': 'container-type: inline-size',
+            'accent-color': 'accent-color: red',
+            'color-mix': 'color: color-mix(in srgb, red 50%, blue)',
+            'has-selector': 'selector(:has(*))',
+            'nesting': 'selector(& div)',
+            'subgrid': 'grid-template-rows: subgrid',
+            'field-sizing': 'field-sizing: content',
+            'anchor-position': 'position-anchor: --a',
+            'scroll-timeline': 'scroll-timeline-name: --t',
+            'view-transitions': 'view-transition-name: root'
+        };
+        var supported = [];
+        var el = document.createElement('div');
+        for (var name in tests) {
+            if (CSS.supports(tests[name])) supported.push(name);
+        }
+        return { hit: false, val: supported.length + '/12: ' + supported.join(', ') };
+    });
+
+    addSignal('css', 'System color keywords', function() {
+        var el = document.createElement('div');
+        el.style.display = 'none';
+        document.body.appendChild(el);
+        var colors = ['Canvas', 'CanvasText', 'LinkText', 'VisitedText', 'ActiveText', 'ButtonFace', 'ButtonText', 'Field', 'FieldText', 'Highlight', 'HighlightText', 'GrayText', 'AccentColor', 'AccentColorText'];
+        var vals = {};
+        colors.forEach(function(c) {
+            el.style.color = c;
+            vals[c] = getComputedStyle(el).color;
+        });
+        document.body.removeChild(el);
+        var h = hash32(JSON.stringify(vals));
+        return { hit: false, val: 'hash=' + h + ' | Canvas=' + vals.Canvas + ' CanvasText=' + vals.CanvasText + ' AccentColor=' + (vals.AccentColor||'?') };
+    });
+
+    addSignal('css', 'matchMedia orientation + resolution', function() {
+        var landscape = window.matchMedia('(orientation: landscape)').matches;
+        var dpi = 96;
+        for (var d = 72; d <= 600; d++) { if (window.matchMedia('(min-resolution: ' + d + 'dpi)').matches) dpi = d; else break; }
+        return { hit: false, val: 'orientation=' + (landscape ? 'landscape' : 'portrait') + ' resolution=' + dpi + 'dpi' };
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 4: CANVAS & WEBGL & AUDIO (12 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('canvas', 'Canvas 2D text fingerprint', function() {
+        try {
+            var c = document.createElement('canvas');
+            c.width = 300; c.height = 50;
+            var ctx = c.getContext('2d');
+            ctx.textBaseline = 'top';
+            ctx.font = '14px Arial';
+            ctx.fillStyle = '#f60';
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = '#069';
+            ctx.fillText('Cwm fjord veg balks', 2, 15);
+            ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+            ctx.fillText('Cwm fjord veg balks', 4, 17);
+            var data = c.toDataURL();
+            var h = hash32(data);
+            return { hit: false, val: 'hash=' + h + ' (len=' + data.length + ')' };
+        } catch(e) { return { hit: true, val: 'Canvas blocked: ' + e.message }; }
+    });
+
+    addSignal('canvas', 'Canvas emoji rendering', function() {
+        try {
+            var c = document.createElement('canvas');
+            c.width = 200; c.height = 30;
+            var ctx = c.getContext('2d');
+            ctx.font = '20px serif';
+            ctx.fillText('\ud83d\ude00\ud83d\ude80\ud83c\udf0d\u2764\ufe0f\ud83c\udf1f', 5, 22);
+            var h = hash32(c.toDataURL());
+            return { hit: false, val: 'emoji hash=' + h };
+        } catch(e) { return { hit: true, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('canvas', 'Canvas geometry fingerprint', function() {
+        try {
+            var c = document.createElement('canvas');
+            c.width = 120; c.height = 120;
+            var ctx = c.getContext('2d');
+            ctx.beginPath(); ctx.arc(60, 60, 50, 0, Math.PI * 2); ctx.fillStyle = '#3498db'; ctx.fill();
+            ctx.beginPath(); ctx.moveTo(20, 100); ctx.lineTo(60, 20); ctx.lineTo(100, 100); ctx.closePath();
+            ctx.fillStyle = 'rgba(231, 76, 60, 0.6)'; ctx.fill();
+            ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 3; ctx.strokeRect(15, 15, 90, 90);
+            var h = hash32(c.toDataURL());
+            return { hit: false, val: 'geom hash=' + h };
+        } catch(e) { return { hit: true, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('canvas', 'WebGL vendor + renderer', function() {
+        try {
+            var c = document.createElement('canvas');
+            var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+            if (!gl) return { hit: true, val: 'WebGL not available' };
+            var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+            var vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+            var renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+            var hit = /swiftshader|llvmpipe|mesa|software/i.test(renderer);
+            return { hit: hit, val: 'vendor=' + vendor + ' renderer=' + renderer };
+        } catch(e) { return { hit: true, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('canvas', 'WebGL parameters', function() {
+        try {
+            var c = document.createElement('canvas');
+            var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+            if (!gl) return { hit: false, val: 'no WebGL' };
+            var maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+            var maxVP = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+            var maxVU = gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS);
+            var aliased = gl.getParameter(gl.ALIASED_LINE_WIDTH_RANGE);
+            return { hit: false, val: 'maxTex=' + maxTex + ' maxVP=[' + maxVP[0] + ',' + maxVP[1] + '] maxVU=' + maxVU + ' lineW=[' + aliased[0] + ',' + aliased[1] + ']' };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('canvas', 'WebGL extensions count', function() {
+        try {
+            var c = document.createElement('canvas');
+            var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+            if (!gl) return { hit: false, val: 'no WebGL' };
+            var exts = gl.getSupportedExtensions() || [];
+            return { hit: false, val: exts.length + ' extensions | hash=' + hash32(exts.join(',')) };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('canvas', 'WebGL2 availability', function() {
+        try {
+            var c = document.createElement('canvas');
+            var gl2 = c.getContext('webgl2');
+            if (!gl2) return { hit: false, val: 'WebGL2 not available' };
+            var ver = gl2.getParameter(gl2.VERSION);
+            var slVer = gl2.getParameter(gl2.SHADING_LANGUAGE_VERSION);
+            return { hit: false, val: ver + ' | GLSL ' + slVer };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('canvas', 'WebGL image fingerprint', function() {
+        try {
+            var c = document.createElement('canvas');
+            c.width = 64; c.height = 64;
+            var gl = c.getContext('webgl');
+            if (!gl) return { hit: false, val: 'no WebGL' };
+            gl.clearColor(0.2, 0.4, 0.6, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            var pixels = new Uint8Array(4);
+            gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+            var h = hash32(c.toDataURL());
+            return { hit: false, val: 'hash=' + h + ' pixel=[' + pixels[0] + ',' + pixels[1] + ',' + pixels[2] + ',' + pixels[3] + ']' };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('canvas', 'Audio fingerprint', function() {
+        return new Promise(function(resolve) {
+            try {
+                var ac = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
+                var osc = ac.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(10000, ac.currentTime);
+                var comp = ac.createDynamicsCompressor();
+                comp.threshold.setValueAtTime(-50, ac.currentTime);
+                comp.knee.setValueAtTime(40, ac.currentTime);
+                comp.ratio.setValueAtTime(12, ac.currentTime);
+                comp.attack.setValueAtTime(0, ac.currentTime);
+                comp.release.setValueAtTime(0.25, ac.currentTime);
+                osc.connect(comp);
+                comp.connect(ac.destination);
+                osc.start(0);
+                ac.startRendering().then(function(buffer) {
+                    var data = buffer.getChannelData(0);
+                    var sum = 0;
+                    for (var i = 4500; i < 5000; i++) sum += Math.abs(data[i]);
+                    var h = hash32(sum.toString());
+                    resolve({ hit: false, val: 'hash=' + h + ' sum=' + sum.toFixed(10) + ' sampleRate=' + ac.sampleRate });
+                }).catch(function(e) { resolve({ hit: false, val: 'Render error: ' + e.message }); });
+            } catch(e) { resolve({ hit: false, val: 'AudioContext error: ' + e.message }); }
+        });
+    });
+
+    addSignal('canvas', 'AudioContext properties', function() {
+        try {
+            var ac = new (window.AudioContext || window.webkitAudioContext)();
+            var sr = ac.sampleRate;
+            var bl = ac.baseLatency;
+            var mc = ac.destination.maxChannelCount;
+            ac.close();
+            return { hit: false, val: 'sampleRate=' + sr + ' baseLatency=' + (bl !== undefined ? bl.toFixed(6) : 'N/A') + ' maxChannels=' + mc };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('canvas', 'Speech synthesis voices', function() {
+        return new Promise(function(resolve) {
+            try {
+                var voices = speechSynthesis.getVoices();
+                if (voices.length > 0) {
+                    resolve({ hit: voices.length <= 2, val: voices.length + ' voices | first: ' + voices[0].name + ' (' + voices[0].lang + ')' });
+                    return;
+                }
+                speechSynthesis.onvoiceschanged = function() {
+                    voices = speechSynthesis.getVoices();
+                    resolve({ hit: voices.length <= 2, val: voices.length + ' voices' + (voices.length > 0 ? ' | first: ' + voices[0].name : '') });
+                };
+                setTimeout(function() {
+                    voices = speechSynthesis.getVoices();
+                    resolve({ hit: voices.length <= 2, val: voices.length + ' voices (timeout)' });
+                }, 1500);
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('canvas', 'Media codecs support', function() {
+        try {
+            var v = document.createElement('video');
+            var codecs = {
+                h264: v.canPlayType('video/mp4; codecs="avc1.42E01E"'),
+                h265: v.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"'),
+                vp8: v.canPlayType('video/webm; codecs="vp8"'),
+                vp9: v.canPlayType('video/webm; codecs="vp9"'),
+                av1: v.canPlayType('video/mp4; codecs="av01.0.01M.08"'),
+                opus: v.canPlayType('audio/webm; codecs="opus"'),
+                aac: v.canPlayType('audio/mp4; codecs="mp4a.40.2"'),
+                ogg: v.canPlayType('audio/ogg; codecs="vorbis"')
+            };
+            var out = Object.entries(codecs).map(function(e) { return e[0] + '=' + (e[1] || 'no'); }).join(' ');
+            return { hit: false, val: out };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 5: TIMING & PERFORMANCE (10 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('timing', 'performance.now() precision', function() {
+        var samples = [];
+        var prev = performance.now();
+        for (var i = 0; i < 100; i++) {
+            var now = performance.now();
+            if (now !== prev) { samples.push(now - prev); prev = now; }
+        }
+        if (samples.length === 0) return { hit: true, val: 'FROZEN: never changed in 100 iterations' };
+        var minD = Math.min.apply(null, samples);
+        return { hit: false, val: 'minDelta=' + (minD * 1000).toFixed(0) + 'us samples=' + samples.length + ' first5=[' + samples.slice(0,5).map(function(s) { return (s*1000).toFixed(0); }).join(',') + ']us' };
+    });
+
+    addSignal('timing', 'setTimeout(0) precision', function() {
+        return new Promise(function(resolve) {
+            var t = []; var c = 0; var n = 15;
+            function m() { var s = performance.now(); setTimeout(function() { t.push(performance.now()-s); c++; if(c<n) m(); else finish(); }, 0); }
+            function finish() {
+                var avg = t.reduce(function(a,b){return a+b;},0)/t.length;
+                var std = Math.sqrt(t.reduce(function(a,v){return a+(v-avg)*(v-avg);},0)/t.length);
+                resolve({ hit: avg < 0.5 || std < 0.05, val: 'avg=' + avg.toFixed(2) + 'ms std=' + std.toFixed(2) + ' raw=[' + t.map(function(v){return v.toFixed(1);}).join(',') + ']' });
+            }
+            m();
+        });
+    });
+
+    addSignal('timing', 'requestAnimationFrame timing', function() {
+        return new Promise(function(resolve) {
+            var times = []; var frames = 0; var maxF = 10;
+            var prev = performance.now();
+            function tick(ts) {
+                var delta = ts - prev; prev = ts;
+                if (frames > 0) times.push(delta);
+                frames++;
+                if (frames < maxF + 1) requestAnimationFrame(tick);
+                else {
+                    var avg = times.reduce(function(a,b){return a+b;},0)/times.length;
+                    var suspicious = avg < 1 || avg > 50;
+                    resolve({ hit: suspicious, val: 'avg=' + avg.toFixed(2) + 'ms raw=[' + times.map(function(t){return t.toFixed(1);}).join(',') + ']' });
+                }
+            }
+            requestAnimationFrame(tick);
+        });
+    });
+
+    addSignal('timing', 'Date.now() vs performance.now()', function() {
+        var d1 = Date.now(); var p1 = performance.now();
+        var ops = 0; for (var i = 0; i < 100000; i++) ops += i;
+        var d2 = Date.now(); var p2 = performance.now();
+        var dateDelta = d2 - d1;
+        var perfDelta = p2 - p1;
+        var drift = Math.abs(dateDelta - perfDelta);
+        return { hit: drift > 10, val: 'dateDelta=' + dateDelta + 'ms perfDelta=' + perfDelta.toFixed(2) + 'ms drift=' + drift.toFixed(2) + 'ms' };
+    });
+
+    addSignal('timing', 'performance.memory', function() {
+        try {
+            var m = performance.memory;
+            if (!m) return { hit: false, val: 'not available' };
+            return { hit: false, val: 'usedHeap=' + (m.usedJSHeapSize / 1048576).toFixed(1) + 'MB total=' + (m.totalJSHeapSize / 1048576).toFixed(1) + 'MB limit=' + (m.jsHeapSizeLimit / 1048576).toFixed(0) + 'MB' };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('timing', 'Navigation timing', function() {
+        try {
+            var t = performance.getEntriesByType('navigation')[0];
+            if (!t) return { hit: false, val: 'not available' };
+            return { hit: false, val: 'domContentLoaded=' + t.domContentLoadedEventEnd.toFixed(0) + 'ms domComplete=' + t.domComplete.toFixed(0) + 'ms loadEvent=' + t.loadEventEnd.toFixed(0) + 'ms type=' + t.type };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('timing', 'Paint timing (FP, FCP)', function() {
+        try {
+            var entries = performance.getEntriesByType('paint');
+            if (!entries.length) return { hit: false, val: 'no paint entries' };
+            var out = entries.map(function(e) { return e.name + '=' + e.startTime.toFixed(0) + 'ms'; }).join(' ');
+            return { hit: false, val: out };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('timing', 'JS execution benchmark', function() {
+        var start = performance.now();
+        var sum = 0;
+        for (var i = 0; i < 1000000; i++) sum += Math.sin(i) * Math.cos(i);
+        var elapsed = performance.now() - start;
+        return { hit: false, val: elapsed.toFixed(2) + 'ms (1M sin*cos ops)' };
+    });
+
+    addSignal('timing', 'Max call stack depth', function() {
+        var depth = 0;
+        try {
+            (function recurse() { depth++; recurse(); })();
+        } catch(e) {
+            return { hit: false, val: 'depth=' + depth + ' error=' + e.name + ': ' + e.message.substring(0, 60) };
+        }
+    });
+
+    addSignal('timing', 'performance.timeOrigin', function() {
+        try {
+            var to = performance.timeOrigin;
+            var now = Date.now();
+            var pnow = performance.now();
+            var computed = to + pnow;
+            var drift = Math.abs(now - computed);
+            return { hit: drift > 100, val: 'timeOrigin=' + to.toFixed(0) + ' drift=' + drift.toFixed(2) + 'ms' };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 6: MODERN API AVAILABILITY (12 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('api', 'Scheduler API', function() {
+        return { hit: false, val: ('scheduler' in window) ? 'available' : 'not available' };
+    });
+
+    addSignal('api', 'Navigation API', function() {
+        return { hit: false, val: ('navigation' in window) ? 'available' : 'not available' };
+    });
+
+    addSignal('api', 'Web Locks API', function() {
+        return { hit: false, val: ('locks' in navigator) ? 'available' : 'not available' };
+    });
+
+    addSignal('api', 'Storage Access API', function() {
+        return { hit: false, val: ('requestStorageAccess' in document) ? 'available' : 'not available' };
+    });
+
+    addSignal('api', 'Media Session API', function() {
+        return { hit: false, val: ('mediaSession' in navigator) ? 'available' : 'not available' };
+    });
+
+    addSignal('api', 'Web Codecs (VideoDecoder)', function() {
+        return { hit: false, val: ('VideoDecoder' in window) ? 'available' : 'not available' };
+    });
+
+    addSignal('api', 'Trusted Types', function() {
+        return { hit: false, val: ('trustedTypes' in window) ? 'available' : 'not available' };
+    });
+
+    addSignal('api', 'Picture-in-Picture', function() {
+        return { hit: false, val: ('pictureInPictureEnabled' in document) ? document.pictureInPictureEnabled ? 'enabled' : 'disabled' : 'not available' };
+    });
+
+    addSignal('api', 'Compression Streams', function() {
+        return { hit: false, val: ('CompressionStream' in window && 'DecompressionStream' in window) ? 'available' : 'not available' };
+    });
+
+    addSignal('api', 'SharedArrayBuffer', function() {
+        var sab = typeof SharedArrayBuffer !== 'undefined';
+        return { hit: false, val: sab ? 'available' : 'not available (requires COOP/COEP)' };
+    });
+
+    addSignal('api', 'Credential Management', function() {
+        return { hit: false, val: ('credentials' in navigator) ? 'available' : 'not available' };
+    });
+
+    addSignal('api', 'Gamepad API', function() {
+        return { hit: false, val: ('getGamepads' in navigator) ? 'available (' + (navigator.getGamepads() || []).length + ' connected)' : 'not available' };
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 7: STORAGE & NETWORK (8 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('storage', 'Storage quota estimate', function() {
+        return new Promise(function(resolve) {
+            try {
+                navigator.storage.estimate().then(function(est) {
+                    resolve({ hit: false, val: 'quota=' + (est.quota / (1024*1024*1024)).toFixed(2) + 'GB usage=' + (est.usage / 1024).toFixed(1) + 'KB' });
+                }).catch(function(e) { resolve({ hit: false, val: 'Error: ' + e.message }); });
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('storage', 'IndexedDB available', function() {
+        return new Promise(function(resolve) {
+            try {
+                var req = indexedDB.open('atlas_test', 1);
+                req.onsuccess = function() { req.result.close(); indexedDB.deleteDatabase('atlas_test'); resolve({ hit: false, val: 'available' }); };
+                req.onerror = function() { resolve({ hit: true, val: 'blocked or error' }); };
+                req.onblocked = function() { resolve({ hit: true, val: 'blocked' }); };
+            } catch(e) { resolve({ hit: true, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('storage', 'localStorage / sessionStorage', function() {
+        try {
+            var ls = !!window.localStorage;
+            var ss = !!window.sessionStorage;
+            if (ls) { localStorage.setItem('atlas_t', '1'); localStorage.removeItem('atlas_t'); }
+            return { hit: !ls || !ss, val: 'localStorage=' + ls + ' sessionStorage=' + ss };
+        } catch(e) { return { hit: true, val: 'Blocked: ' + e.message }; }
+    });
+
+    addSignal('storage', 'CacheStorage API', function() {
+        return new Promise(function(resolve) {
+            try {
+                if (!('caches' in window)) { resolve({ hit: false, val: 'not available' }); return; }
+                caches.open('atlas_test').then(function(c) {
+                    caches.delete('atlas_test');
+                    resolve({ hit: false, val: 'available' });
+                }).catch(function(e) { resolve({ hit: true, val: 'blocked: ' + e.message }); });
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('storage', 'ServiceWorker available', function() {
+        return { hit: false, val: ('serviceWorker' in navigator) ? 'available' : 'not available' };
+    });
+
+    addSignal('storage', 'WebRTC ICE candidates', function() {
+        return new Promise(function(resolve) {
+            try {
+                var RTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+                if (!RTC) { resolve({ hit: true, val: 'WebRTC not available' }); return; }
+                var pc = new RTC({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+                var ips = []; var candidates = [];
+                var to = setTimeout(function() {
+                    pc.close();
+                    if (ips.length === 0) {
+                        resolve({ hit: true, val: 'No candidates gathered (blocked/datacenter)' });
+                    } else {
+                        var priv = ips.filter(function(ip) { return /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|100\.(6[4-9]|[7-9]\d|1[0-2]\d))/.test(ip); });
+                        resolve({ hit: false, val: 'IPs: ' + ips.join(', ') + (priv.length === ips.length ? ' (all private)' : '') + ' | candidates: ' + candidates.length });
+                    }
+                }, 3000);
+                pc.onicecandidate = function(e) {
+                    if (!e.candidate) return;
+                    candidates.push(e.candidate.candidate);
+                    var parts = e.candidate.candidate.split(' ');
+                    var ip = parts[4];
+                    if (ip && ips.indexOf(ip) === -1 && ip.indexOf('.') !== -1) ips.push(ip);
+                };
+                pc.createDataChannel('');
+                pc.createOffer().then(function(o) { return pc.setLocalDescription(o); }).catch(function(){});
+            } catch(e) { resolve({ hit: true, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('storage', 'Fetch + response headers', function() {
+        return new Promise(function(resolve) {
+            try {
+                var start = performance.now();
+                fetch(location.href, { method: 'HEAD', cache: 'no-store' }).then(function(r) {
+                    var elapsed = performance.now() - start;
+                    var server = r.headers.get('server') || '?';
+                    resolve({ hit: false, val: 'status=' + r.status + ' time=' + elapsed.toFixed(0) + 'ms server=' + server });
+                }).catch(function(e) { resolve({ hit: false, val: 'Fetch error: ' + e.message }); });
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('storage', 'Beacon API + sendBeacon', function() {
+        return { hit: false, val: ('sendBeacon' in navigator) ? 'available' : 'not available' };
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 8: SCREEN & DISPLAY & VIEWPORT (10 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('screen', 'screen.width x height', function() {
+        return { hit: false, val: screen.width + 'x' + screen.height };
+    });
+
+    addSignal('screen', 'screen.availWidth x availHeight', function() {
+        return { hit: false, val: screen.availWidth + 'x' + screen.availHeight };
+    });
+
+    addSignal('screen', 'window.innerWidth x innerHeight', function() {
+        return { hit: false, val: window.innerWidth + 'x' + window.innerHeight };
+    });
+
+    addSignal('screen', 'window.outerWidth x outerHeight', function() {
+        var ow = window.outerWidth;
+        var oh = window.outerHeight;
+        var iw = window.innerWidth;
+        var ih = window.innerHeight;
+        var chromeW = ow - iw;
+        var chromeH = oh - ih;
+        var hit = chromeW === 0 && chromeH === 0;
+        return { hit: hit, val: ow + 'x' + oh + ' (chrome: ' + chromeW + 'x' + chromeH + ')' + (hit ? ' ZERO chrome = headless?' : '') };
+    });
+
+    addSignal('screen', 'devicePixelRatio', function() {
+        var dpr = window.devicePixelRatio;
+        return { hit: false, val: String(dpr) };
+    });
+
+    addSignal('screen', 'screen.colorDepth + pixelDepth', function() {
+        return { hit: false, val: 'colorDepth=' + screen.colorDepth + ' pixelDepth=' + screen.pixelDepth };
+    });
+
+    addSignal('screen', 'screenX / screenY', function() {
+        return { hit: false, val: 'screenX=' + window.screenX + ' screenY=' + window.screenY };
+    });
+
+    addSignal('screen', 'Screen orientation', function() {
+        try {
+            var o = screen.orientation;
+            return { hit: false, val: o ? 'type=' + o.type + ' angle=' + o.angle : 'not available' };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('screen', 'visualViewport', function() {
+        try {
+            var vv = window.visualViewport;
+            if (!vv) return { hit: false, val: 'not available' };
+            return { hit: false, val: 'width=' + vv.width + ' height=' + vv.height + ' scale=' + vv.scale + ' offsetLeft=' + vv.offsetLeft + ' offsetTop=' + vv.offsetTop };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('screen', 'Broken image dimensions', function() {
+        return new Promise(function(resolve) {
+            var img = document.createElement('img');
+            img.onerror = function() {
+                var w = img.width;
+                var h = img.height;
+                resolve({ hit: w === 0 && h === 0, val: w + 'x' + h + (w === 0 ? ' (headless: broken images have 0x0)' : ' (normal: non-zero)') });
+            };
+            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==x';
+            setTimeout(function() { resolve({ hit: false, val: 'timeout' }); }, 2000);
+        });
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 9: FONT DETECTION (8 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('font', 'Mac system fonts probe', function() {
+        var fonts = ['.SF NS', 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Lucida Grande', 'Geneva', 'Monaco', 'Menlo', 'Apple Symbols', 'Apple Color Emoji', 'Avenir', 'Avenir Next', 'Futura', 'Optima', 'Palatino', 'Gill Sans', 'Hoefler Text', 'Didot', 'Baskerville', 'Copperplate'];
+        var c = document.createElement('canvas');
+        var ctx = c.getContext('2d');
+        var baseline = 'mmmmmmmmmmlli';
+        ctx.font = '72px monospace';
+        var baseW = ctx.measureText(baseline).width;
+        var detected = [];
+        fonts.forEach(function(f) {
+            ctx.font = '72px "' + f + '", monospace';
+            var w = ctx.measureText(baseline).width;
+            if (w !== baseW) detected.push(f);
+        });
+        return { hit: false, val: detected.length + '/' + fonts.length + ' detected: ' + detected.join(', ') };
+    });
+
+    addSignal('font', 'Windows fonts probe', function() {
+        var fonts = ['Segoe UI', 'Calibri', 'Cambria', 'Consolas', 'Tahoma', 'Verdana', 'Trebuchet MS', 'Franklin Gothic Medium', 'Candara', 'Constantia'];
+        var c = document.createElement('canvas');
+        var ctx = c.getContext('2d');
+        ctx.font = '72px monospace';
+        var baseW = ctx.measureText('mmmmmmmmmmlli').width;
+        var detected = [];
+        fonts.forEach(function(f) {
+            ctx.font = '72px "' + f + '", monospace';
+            if (ctx.measureText('mmmmmmmmmmlli').width !== baseW) detected.push(f);
+        });
+        return { hit: false, val: detected.length + '/' + fonts.length + ': ' + detected.join(', ') };
+    });
+
+    addSignal('font', 'Linux fonts probe', function() {
+        var fonts = ['Ubuntu', 'Cantarell', 'DejaVu Sans', 'Liberation Sans', 'Noto Sans', 'Droid Sans', 'FreeSans', 'Liberation Mono', 'Noto Serif'];
+        var c = document.createElement('canvas');
+        var ctx = c.getContext('2d');
+        ctx.font = '72px monospace';
+        var baseW = ctx.measureText('mmmmmmmmmmlli').width;
+        var detected = [];
+        fonts.forEach(function(f) {
+            ctx.font = '72px "' + f + '", monospace';
+            if (ctx.measureText('mmmmmmmmmmlli').width !== baseW) detected.push(f);
+        });
+        return { hit: false, val: detected.length + '/' + fonts.length + ': ' + detected.join(', ') };
+    });
+
+    addSignal('font', 'document.fonts count + status', function() {
+        try {
+            var f = document.fonts;
+            return { hit: false, val: 'size=' + f.size + ' status=' + f.status + ' ready=' + (f.ready ? 'yes' : 'no') };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('font', 'Emoji width test (platform)', function() {
+        var c = document.createElement('canvas');
+        var ctx = c.getContext('2d');
+        ctx.font = '32px serif';
+        var emojis = ['\ud83d\ude00', '\ud83d\ude80', '\ud83c\udf0d', '\u2764\ufe0f', '\ud83e\udd16', '\ud83c\udff3\ufe0f\u200d\ud83c\udf08'];
+        var widths = emojis.map(function(e) { return ctx.measureText(e).width.toFixed(2); });
+        return { hit: false, val: 'widths=[' + widths.join(', ') + '] hash=' + hash32(widths.join(',')) };
+    });
+
+    addSignal('font', 'System font keywords', function() {
+        var el = document.createElement('div');
+        el.style.display = 'none';
+        document.body.appendChild(el);
+        var keywords = ['caption', 'icon', 'menu', 'message-box', 'small-caption', 'status-bar'];
+        var fonts = {};
+        keywords.forEach(function(k) {
+            el.style.font = k;
+            fonts[k] = getComputedStyle(el).fontFamily;
+        });
+        document.body.removeChild(el);
+        return { hit: false, val: Object.entries(fonts).map(function(e) { return e[0] + '=' + e[1]; }).join(' | ') };
+    });
+
+    addSignal('font', 'DOMRect text measurement', function() {
+        try {
+            var span = document.createElement('span');
+            span.textContent = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            span.style.cssText = 'font: 16px Arial; position: absolute; left: -9999px; visibility: hidden;';
+            document.body.appendChild(span);
+            var rect = span.getBoundingClientRect();
+            var w = rect.width;
+            var h = rect.height;
+            document.body.removeChild(span);
+            return { hit: false, val: 'width=' + w.toFixed(4) + ' height=' + h.toFixed(4) + ' hash=' + hash32(w + ',' + h) };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('font', 'Monospace vs serif width ratio', function() {
+        var c = document.createElement('canvas');
+        var ctx = c.getContext('2d');
+        var text = 'The quick brown fox jumps';
+        ctx.font = '16px monospace';
+        var monoW = ctx.measureText(text).width;
+        ctx.font = '16px serif';
+        var serifW = ctx.measureText(text).width;
+        ctx.font = '16px sans-serif';
+        var sansW = ctx.measureText(text).width;
+        var ratio = (monoW / serifW).toFixed(4);
+        return { hit: false, val: 'mono=' + monoW.toFixed(2) + ' serif=' + serifW.toFixed(2) + ' sans=' + sansW.toFixed(2) + ' mono/serif=' + ratio };
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 10: DOM & IFRAME & WORKER (10 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('dom', 'Iframe contentWindow test', function() {
+        return new Promise(function(resolve) {
+            try {
+                var iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.srcdoc = '<html><body></body></html>';
+                document.body.appendChild(iframe);
+                setTimeout(function() {
+                    try {
+                        var iWin = iframe.contentWindow;
+                        var pUA = navigator.userAgent;
+                        var iUA = iWin.navigator.userAgent;
+                        var pP = navigator.plugins.length;
+                        var iP = iWin.navigator.plugins.length;
+                        var mismatches = [];
+                        if (pUA !== iUA) mismatches.push('UA mismatch');
+                        if (pP !== iP) mismatches.push('plugins: ' + pP + ' vs ' + iP);
+                        var iNav = Object.prototype.toString.call(iWin.navigator);
+                        if (iNav !== '[object Navigator]') mismatches.push('navigator tag: ' + iNav);
+                        document.body.removeChild(iframe);
+                        resolve({ hit: mismatches.length > 0, val: mismatches.length > 0 ? 'MISMATCH: ' + mismatches.join('; ') : 'Consistent' });
+                    } catch(e) { document.body.removeChild(iframe); resolve({ hit: false, val: 'Cross-origin: ' + e.message }); }
+                }, 200);
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('dom', 'Blob Worker communication', function() {
+        return new Promise(function(resolve) {
+            try {
+                var code = 'self.onmessage=function(e){self.postMessage({ua:self.navigator.userAgent,hw:self.navigator.hardwareConcurrency,lang:self.navigator.language});}';
+                var blob = new Blob([code], { type: 'application/javascript' });
+                var url = URL.createObjectURL(blob);
+                var w = new Worker(url);
+                var to = setTimeout(function() { w.terminate(); resolve({ hit: true, val: 'Worker timeout' }); }, 2000);
+                w.onmessage = function(e) {
+                    clearTimeout(to);
+                    w.terminate();
+                    URL.revokeObjectURL(url);
+                    var d = e.data;
+                    var uaMatch = d.ua === navigator.userAgent;
+                    resolve({ hit: !uaMatch, val: 'ua_match=' + uaMatch + ' hw=' + d.hw + ' lang=' + d.lang });
+                };
+                w.onerror = function() { clearTimeout(to); resolve({ hit: true, val: 'Worker error' }); };
+                w.postMessage('ping');
+            } catch(e) { resolve({ hit: true, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('dom', 'window.opener / parent / frameElement', function() {
+        return { hit: false, val: 'opener=' + !!window.opener + ' parent===self=' + (window.parent === window) + ' frameElement=' + !!window.frameElement + ' top===self=' + (window.top === window) };
+    });
+
+    addSignal('dom', 'document.visibilityState', function() {
+        var s = document.visibilityState;
+        return { hit: s === 'hidden' || s === 'prerender', val: s };
+    });
+
+    addSignal('dom', 'history.length', function() {
+        return { hit: false, val: String(history.length) };
+    });
+
+    addSignal('dom', 'document.hasFocus()', function() {
+        return { hit: !document.hasFocus(), val: String(document.hasFocus()) };
+    });
+
+    addSignal('dom', 'document.featurePolicy', function() {
+        try {
+            var fp = document.featurePolicy || document.permissionsPolicy;
+            if (!fp) return { hit: false, val: 'not available' };
+            var features = fp.allowedFeatures ? fp.allowedFeatures() : [];
+            return { hit: false, val: features.length + ' features allowed' };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('dom', 'window property count', function() {
+        var props = Object.getOwnPropertyNames(window);
+        var nonStandard = props.filter(function(p) {
+            return p.indexOf('cdc_') === 0 || p.indexOf('__') === 0 && !['__proto__','__defineGetter__','__defineSetter__','__lookupGetter__','__lookupSetter__'].includes(p);
+        });
+        return { hit: nonStandard.length > 5, val: 'total=' + props.length + ' nonStandard=' + nonStandard.length + (nonStandard.length > 0 ? ' [' + nonStandard.slice(0,5).join(',') + ']' : '') };
+    });
+
+    addSignal('dom', 'Mutation Observer timing', function() {
+        return new Promise(function(resolve) {
+            var t = performance.now();
+            var el = document.createElement('div');
+            el.style.display = 'none';
+            document.body.appendChild(el);
+            var obs = new MutationObserver(function() {
+                var delta = performance.now() - t;
+                obs.disconnect();
+                document.body.removeChild(el);
+                resolve({ hit: false, val: 'callback delta=' + delta.toFixed(2) + 'ms' });
+            });
+            obs.observe(el, { attributes: true });
+            t = performance.now();
+            el.setAttribute('data-test', '1');
+            setTimeout(function() { resolve({ hit: false, val: 'timeout' }); }, 2000);
+        });
+    });
+
+    addSignal('dom', 'SharedWorker available', function() {
+        try {
+            var sw = typeof SharedWorker !== 'undefined';
+            return { hit: false, val: sw ? 'available' : 'not available' };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 11: FUNCTION INTEGRITY & TAMPERING (10 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('func', 'console.log toString', function() {
+        try {
+            var s = Function.prototype.toString.call(console.log);
+            var hit = s.indexOf('captureLogArguments') !== -1 || s.indexOf('NodeList.forEach') !== -1;
+            return { hit: hit, val: s.substring(0, 120) };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('func', 'window.ChatGPTBrowser', function() {
+        var has = 'ChatGPTBrowser' in window;
+        return { hit: has, val: has ? 'DETECTED: ' + String(window.ChatGPTBrowser) : 'not found' };
+    });
+
+    addSignal('func', 'console.log is native', function() {
+        try {
+            var s = console.log.toString();
+            var native = /\{\s*\[native code\]\s*\}/.test(s);
+            return { hit: !native, val: native ? 'native' : 'MODIFIED: ' + s.substring(0, 100) };
+        } catch(e) { return { hit: true, val: 'toString threw: ' + e.message }; }
+    });
+
+    addSignal('func', 'setTimeout toString', function() {
+        try {
+            var s = setTimeout.toString();
+            var native = /\{\s*\[native code\]\s*\}/.test(s);
+            return { hit: !native, val: native ? 'native' : 'MODIFIED: ' + s.substring(0, 100) };
+        } catch(e) { return { hit: true, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('func', 'Function.prototype.toString integrity', function() {
+        try {
+            var fpts = Function.prototype.toString.toString();
+            var native = /\{\s*\[native code\]\s*\}/.test(fpts);
+            return { hit: !native, val: native ? 'native' : 'TAMPERED: ' + fpts.substring(0, 100) };
+        } catch(e) { return { hit: true, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('func', 'Proxy/Reflect on navigator', function() {
+        try {
+            var proto = Object.getPrototypeOf(navigator);
+            var tag = navigator[Symbol.toStringTag];
+            var desc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'userAgent');
+            var isProxy = false;
+            try { isProxy = navigator.constructor.toString().indexOf('Proxy') !== -1; } catch(e) {}
+            return { hit: isProxy, val: 'tag=' + tag + ' proto=' + String(proto) + ' descriptor=' + (desc ? 'configurable=' + desc.configurable : 'none') + (isProxy ? ' PROXY DETECTED' : '') };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('func', 'eval() availability', function() {
+        try {
+            var r = eval('1+1');
+            return { hit: false, val: 'eval works (result=' + r + ')' };
+        } catch(e) { return { hit: true, val: 'eval blocked: ' + e.message }; }
+    });
+
+    addSignal('func', 'Error.captureStackTrace', function() {
+        try {
+            var hasCST = typeof Error.captureStackTrace === 'function';
+            var limit = Error.stackTraceLimit;
+            return { hit: false, val: 'captureStackTrace=' + hasCST + ' stackTraceLimit=' + limit };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('func', 'RegExp static properties', function() {
+        try {
+            // Test if RegExp.$1 etc. have been polluted
+            'test'.match(/(test)/);
+            var r1 = RegExp.$1;
+            var rinput = RegExp.input;
+            return { hit: false, val: '$1=' + r1 + ' input=' + (rinput || '(empty)') };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('func', 'navigator.plugins type check', function() {
+        try {
+            var isPluginArray = navigator.plugins instanceof PluginArray;
+            var isMime = navigator.mimeTypes instanceof MimeTypeArray;
+            return { hit: !isPluginArray || !isMime, val: 'PluginArray=' + isPluginArray + ' MimeTypeArray=' + isMime };
+        } catch(e) { return { hit: true, val: 'Error: ' + e.message }; }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // CATEGORY 12: ENVIRONMENTAL & BEHAVIORAL (10 signals)
+    // ═══════════════════════════════════════════════════════════════
+
+    addSignal('env', 'Timezone', function() {
+        var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        var offset = new Date().getTimezoneOffset();
+        return { hit: false, val: tz + ' (UTC offset: ' + offset + ' min)' };
+    });
+
+    addSignal('env', 'Intl locale consistency', function() {
+        try {
+            var c = Intl.Collator().resolvedOptions().locale;
+            var d = Intl.DateTimeFormat().resolvedOptions().locale;
+            var n = Intl.NumberFormat().resolvedOptions().locale;
+            var consistent = (c === d && d === n);
+            return { hit: !consistent, val: 'Collator=' + c + ' DateTimeFormat=' + d + ' NumberFormat=' + n + (consistent ? ' (consistent)' : ' MISMATCH') };
+        } catch(e) { return { hit: false, val: 'Error: ' + e.message }; }
+    });
+
+    addSignal('env', 'Math engine fingerprint', function() {
+        // Different JS engines produce slightly different float results
+        var results = [
+            Math.acos(0.123456789),
+            Math.acosh(1e10),
+            Math.asin(0.123456789),
+            Math.asinh(1),
+            Math.atan(2),
+            Math.atanh(0.5),
+            Math.cbrt(Math.PI),
+            Math.cosh(10),
+            Math.expm1(1),
+            Math.log1p(10),
+            Math.sinh(1),
+            Math.tanh(1)
+        ];
+        var h = hash32(results.map(function(r) { return r.toPrecision(17); }).join(','));
+        return { hit: false, val: 'hash=' + h + ' acos=' + results[0].toPrecision(17) + ' cbrt(PI)=' + results[6].toPrecision(17) };
+    });
+
+    addSignal('env', 'Date formatting fingerprint', function() {
+        var d = new Date(2024, 0, 15, 12, 30, 0);
+        var full = d.toString();
+        var locale = d.toLocaleString();
+        var iso = d.toISOString();
+        return { hit: false, val: 'toString=' + full + ' | toLocaleString=' + locale };
+    });
+
+    addSignal('env', 'Battery API', function() {
+        return new Promise(function(resolve) {
+            try {
+                if (!navigator.getBattery) { resolve({ hit: false, val: 'not available' }); return; }
+                navigator.getBattery().then(function(b) {
+                    resolve({ hit: false, val: 'charging=' + b.charging + ' level=' + b.level + ' chargingTime=' + b.chargingTime + ' dischargingTime=' + b.dischargingTime });
+                }).catch(function(e) { resolve({ hit: false, val: 'Error: ' + e.message }); });
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('env', 'MediaDevices enumeration', function() {
+        return new Promise(function(resolve) {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                    resolve({ hit: true, val: 'mediaDevices not available' });
+                    return;
+                }
+                navigator.mediaDevices.enumerateDevices().then(function(devices) {
+                    var counts = { audioinput: 0, audiooutput: 0, videoinput: 0 };
+                    devices.forEach(function(d) { if (counts[d.kind] !== undefined) counts[d.kind]++; });
+                    resolve({ hit: false, val: 'audioinput=' + counts.audioinput + ' audiooutput=' + counts.audiooutput + ' videoinput=' + counts.videoinput + ' total=' + devices.length });
+                }).catch(function(e) { resolve({ hit: false, val: 'Error: ' + e.message }); });
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('env', 'Keyboard layout', function() {
+        return new Promise(function(resolve) {
+            try {
+                if (!navigator.keyboard || !navigator.keyboard.getLayoutMap) {
+                    resolve({ hit: false, val: 'Keyboard API not available' });
+                    return;
+                }
+                navigator.keyboard.getLayoutMap().then(function(map) {
+                    var entries = [];
+                    map.forEach(function(v, k) { entries.push(k + '=' + v); });
+                    resolve({ hit: false, val: entries.length + ' keys. Sample: ' + entries.slice(0, 10).join(', ') });
+                }).catch(function(e) { resolve({ hit: false, val: 'Error: ' + e.message }); });
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('env', 'WebGPU availability', function() {
+        return new Promise(function(resolve) {
+            try {
+                if (!('gpu' in navigator)) { resolve({ hit: false, val: 'not available' }); return; }
+                navigator.gpu.requestAdapter().then(function(adapter) {
+                    if (!adapter) { resolve({ hit: false, val: 'available but no adapter' }); return; }
+                    resolve({ hit: false, val: 'available: ' + (adapter.name || 'unnamed') + ' vendor=' + (adapter.vendor || '?') });
+                }).catch(function(e) { resolve({ hit: false, val: 'Error: ' + e.message }); });
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+    addSignal('env', 'Bluetooth/USB/HID/Serial APIs', function() {
+        var apis = {
+            bluetooth: 'bluetooth' in navigator,
+            usb: 'usb' in navigator,
+            hid: 'hid' in navigator,
+            serial: 'serial' in navigator
+        };
+        return { hit: false, val: Object.entries(apis).map(function(e) { return e[0] + '=' + e[1]; }).join(' ') };
+    });
+
+    addSignal('env', 'Synthetic event isTrusted', function() {
+        return new Promise(function(resolve) {
+            try {
+                var el = document.createElement('button');
+                el.style.display = 'none';
+                document.body.appendChild(el);
+                var result = null;
+                el.addEventListener('click', function(e) {
+                    result = e.isTrusted;
+                });
+                el.dispatchEvent(new MouseEvent('click'));
+                document.body.removeChild(el);
+                resolve({ hit: false, val: 'dispatchEvent isTrusted=' + result + ' (expected: false for synthetic)' });
+            } catch(e) { resolve({ hit: false, val: 'Error: ' + e.message }); }
+        });
+    });
+
+
+    // ═══════════════════════════════════════════════════════════════
+    // MVP SIGNAL
+    // ═══════════════════════════════════════════════════════════════
+
+    function runMVP() {
+        return new Promise(function(resolve) {
+            var results = [];
+
+            // Check 1: console.log override
+            try {
+                var s = Function.prototype.toString.call(console.log);
+                var hasCapture = s.indexOf('captureLogArguments') !== -1;
+                var hasNodeList = s.indexOf('NodeList.forEach') !== -1;
+                if (hasCapture && hasNodeList) {
+                    results.push('DETECTED: console.log contains "captureLogArguments" + "NodeList.forEach"');
+                } else if (hasCapture || hasNodeList) {
+                    results.push('PARTIAL: console.log contains ' + (hasCapture ? '"captureLogArguments"' : '"NodeList.forEach"'));
+                } else {
+                    results.push('console.log: native (no OpenAI hook found)');
+                }
+            } catch(e) { results.push('console.log check error: ' + e.message); }
+
+            // Check 2: window.ChatGPTBrowser
+            try {
+                if ('ChatGPTBrowser' in window) {
+                    results.push('DETECTED: window.ChatGPTBrowser = ' + String(window.ChatGPTBrowser));
+                } else {
+                    results.push('window.ChatGPTBrowser: not found');
+                }
+            } catch(e) { results.push('ChatGPTBrowser check error: ' + e.message); }
+
+            // Check 3: userAgentData brands for "chatgpt"
+            try {
+                if (navigator.userAgentData) {
+                    var brands = navigator.userAgentData.brands.map(function(b) { return b.brand; });
+                    var hasCGPT = brands.some(function(b) { return /chatgpt/i.test(b); });
+                    if (hasCGPT) results.push('DETECTED: userAgentData brand contains "chatgpt"');
+                    else results.push('userAgentData brands: [' + brands.join(', ') + ']');
+                }
+            } catch(e) {}
+
+            // Check 4: UA string
+            try {
+                if (/ChatGPT-User|chatgpt/i.test(navigator.userAgent)) {
+                    results.push('DETECTED: UA contains ChatGPT identifier');
+                }
+            } catch(e) {}
+
+            var hit = results.some(function(r) { return r.indexOf('DETECTED') === 0; });
+            resolve({ hit: hit, detail: results.join('\n') });
+        });
+    }
+
+
+    // ═══════════════════════════════════════════════════════════════
+    // EXECUTION ENGINE
+    // ═══════════════════════════════════════════════════════════════
+
+    function renderCategories() {
+        var container = document.getElementById('categories-container');
+        var html = '';
+        categories.forEach(function(cat) {
+            html += '<div class="category-section" id="cat-' + cat.id + '">';
+            html += '<div class="category-heading" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'table\':\'none\'">';
+            html += cat.name + ' <span class="badge">' + cat.signals.length + ' signals</span></div>';
+            html += '<table class="signals-table">';
+            html += '<thead><tr><th class="col-status"></th><th class="col-id">#</th><th class="col-name">Signal</th><th class="col-val">Value</th></tr></thead>';
+            html += '<tbody>';
+            cat.signals.forEach(function(s) {
+                html += '<tr id="sig-' + s.num + '" class="pending"><td class="col-status" id="status-' + s.num + '">⏳</td><td class="col-id">' + s.num + '</td><td class="col-name">' + esc(s.name) + '</td><td class="col-val" id="val-' + s.num + '">...</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        });
+        container.innerHTML = html;
+    }
+
+    function updateSignalUI(s) {
+        var row = document.getElementById('sig-' + s.num);
+        var status = document.getElementById('status-' + s.num);
+        var val = document.getElementById('val-' + s.num);
+        if (!row) return;
+        row.className = s.result.hit ? 'hit' : 'miss';
+        status.textContent = s.result.hit ? '🔴' : '🟢';
+        val.textContent = s.result.val;
+        val.title = s.result.val;
+    }
+
+    function updateProgress(done, total) {
+        var pct = Math.round((done / total) * 100);
+        document.getElementById('progress-fill').style.width = pct + '%';
+        document.getElementById('verdict-meta').textContent = 'Scanning... ' + done + '/' + total + ' signals (' + pct + '%)';
+    }
+
+    async function runAllSignals() {
+        renderCategories();
+        var total = allSignals.length;
+        var done = 0;
+        var hits = 0;
+
+        // Run MVP first
+        var mvpResult = await runMVP();
+        var mvpCard = document.getElementById('mvp-card');
+        var mvpDetail = document.getElementById('mvp-detail');
+        mvpCard.className = 'mvp-card ' + (mvpResult.hit ? 'hit' : 'miss');
+        mvpDetail.textContent = mvpResult.detail;
+
+        // Run signals in batches of 8 to avoid blocking
+        var batchSize = 8;
+        for (var i = 0; i < allSignals.length; i += batchSize) {
+            var batch = allSignals.slice(i, i + batchSize);
+            var promises = batch.map(function(s) {
+                return new Promise(function(resolve) {
+                    try {
+                        var result = s.fn();
+                        if (result && typeof result.then === 'function') {
+                            result.then(function(r) { s.result = r; updateSignalUI(s); done++; if(r.hit) hits++; updateProgress(done, total); resolve(); })
+                                .catch(function(e) { s.result = { hit: false, val: 'Error: ' + e.message }; updateSignalUI(s); done++; updateProgress(done, total); resolve(); });
+                        } else {
+                            s.result = result;
+                            updateSignalUI(s);
+                            done++;
+                            if(result.hit) hits++;
+                            updateProgress(done, total);
+                            resolve();
+                        }
+                    } catch(e) {
+                        s.result = { hit: false, val: 'Error: ' + e.message };
+                        updateSignalUI(s);
+                        done++;
+                        updateProgress(done, total);
+                        resolve();
+                    }
+                });
+            });
+            await Promise.all(promises);
+        }
+
+        // Final verdict
+        var elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        var verdict = document.getElementById('verdict');
+        var verdictResult = document.getElementById('verdict-result');
+        var verdictMeta = document.getElementById('verdict-meta');
+        var mvpHit = mvpResult.hit;
+
+        document.getElementById('sum-total').textContent = total;
+        document.getElementById('sum-hits').textContent = hits + (mvpHit ? '+MVP' : '');
+        document.getElementById('sum-score').textContent = hits + (mvpHit ? 100 : 0);
+        document.getElementById('sum-time').textContent = elapsed + 's';
+
+        document.getElementById('progress-fill').style.width = '100%';
+        document.getElementById('progress-fill').style.background = hits > 3 || mvpHit ? '#c0392b' : '#27ae60';
+
+        if (mvpHit || hits >= 5) {
+            verdict.className = 'verdict detected';
+            verdictResult.textContent = 'Atlas / ChatGPT Browser Detected';
+            verdictMeta.textContent = total + ' signals scanned, ' + hits + ' hits' + (mvpHit ? ' + MVP hit' : '') + ' in ' + elapsed + 's';
+        } else if (hits >= 2) {
+            verdict.className = 'verdict detected';
+            verdictResult.textContent = 'Suspicious — Possible Atlas';
+            verdictMeta.textContent = total + ' signals scanned, ' + hits + ' hits in ' + elapsed + 's — review flagged signals';
+        } else {
+            verdict.className = 'verdict clean';
+            verdictResult.textContent = 'No Atlas Detected';
+            verdictMeta.textContent = total + ' signals scanned, ' + hits + ' hits in ' + elapsed + 's — appears to be standard browser';
+        }
+
+        // Render methodology
+        renderMethodology();
+    }
+
+    function renderMethodology() {
+        var grid = document.getElementById('meth-grid');
+        var items = [
+            { t: 'Navigator Fingerprinting', d: 'UA string, platform, vendor, languages, webdriver flag, plugins, client hints, hardware/device specs. Atlas may have minimal plugins, single language, or unusual UA patterns.' },
+            { t: 'Chrome Object Probing', d: 'Tests chrome.loadTimes(), chrome.csi(), runtime, CDP bindings (cdc_ properties), Playwright/Puppeteer globals. Automation frameworks inject detectable properties.' },
+            { t: 'CSS Media Queries', d: '15 CSS media features via matchMedia(): color scheme, motion, contrast, pointer/hover capability, display mode, color gamut, dynamic range. Cloud VMs may report default/unusual values.' },
+            { t: 'Canvas/WebGL/Audio Rendering', d: 'Canvas 2D text+geometry+emoji hashing, WebGL vendor/renderer/params/extensions, audio oscillator fingerprint, codec support. GPU differences reveal environment.' },
+            { t: 'Timing Analysis', d: 'performance.now() precision, setTimeout(0) jitter, rAF frame timing, Date vs performance drift, memory stats, navigation/paint timing, JS benchmark, call stack depth.' },
+            { t: 'Modern API Probing', d: '12 modern APIs: Scheduler, Navigation, Web Locks, Storage Access, Media Session, Web Codecs, Trusted Types, PiP, Compression, SharedArrayBuffer, Credentials, Gamepad.' },
+            { t: 'Storage & Network', d: 'Storage quota, IndexedDB, localStorage, CacheStorage, ServiceWorker, WebRTC ICE candidates (IP leak), fetch timing, Beacon API availability.' },
+            { t: 'Screen & Display', d: 'screen/window dimensions, outer vs inner (chrome size), DPR, color depth, position, orientation, visualViewport, broken image test.' },
+            { t: 'Font Detection', d: 'Platform-specific font probing (Mac/Windows/Linux), document.fonts API, emoji width fingerprint, system font keywords, DOMRect text measurement, monospace/serif ratio.' },
+            { t: 'DOM & Iframe & Worker', d: 'Iframe consistency check, Blob Worker UA comparison, window hierarchy, visibility, history, focus, feature policy, property enumeration, MutationObserver, SharedWorker.' },
+            { t: 'Function Integrity', d: 'console.log/setTimeout/Function.prototype.toString native checks, Proxy detection on navigator, eval availability, Error stack features, RegExp state, PluginArray type.' },
+            { t: 'Environmental & Behavioral', d: 'Timezone, Intl locale consistency, Math engine fingerprint, Battery API, MediaDevices, keyboard layout, WebGPU, hardware APIs (BT/USB/HID/Serial), isTrusted events.' }
+        ];
+        grid.innerHTML = items.map(function(m) {
+            return '<div class="meth-item"><h3>' + m.t + '</h3><p>' + m.d + '</p></div>';
+        }).join('');
+    }
+
+    // Start on load
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', runAllSignals);
+    } else {
+        runAllSignals();
+    }
+})();
+</script>
+</body>
+</html>

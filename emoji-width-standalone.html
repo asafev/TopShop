@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emoji Width Standalone - Metrics for Emoji 0, 5, 6, 7</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1000px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { color: #333; }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .metric:last-child { border-bottom: none; }
+        .metric-name { font-weight: 600; color: #555; }
+        .metric-value { font-family: 'Consolas', monospace; color: #007acc; }
+        .emoji-preview {
+            font-size: 48px;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        .emoji-card {
+            display: grid;
+            grid-template-columns: 80px 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            text-align: left;
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        th { background: #f9f9f9; }
+        .highlight { background: #fffde7; }
+        .json-output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover { background: #005a9e; }
+        .hidden-canvas {
+            position: absolute;
+            left: -9999px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔬 Emoji Width Measurement - Standalone</h1>
+    
+    <div class="card">
+        <h2>Configuration (matches emojii.js exactly)</h2>
+        <div class="metric">
+            <span class="metric-name">Canvas CSS Size</span>
+            <span class="metric-value" id="sizeCssPx">64px</span>
+        </div>
+        <div class="metric">
+            <span class="metric-name">Glyph Font Size</span>
+            <span class="metric-value" id="glyphPx">48px</span>
+        </div>
+        <div class="metric">
+            <span class="metric-name">Font Stack</span>
+            <span class="metric-value" id="fontStack">Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif</span>
+        </div>
+        <div class="metric">
+            <span class="metric-name">Device Pixel Ratio</span>
+            <span class="metric-value" id="dpr">-</span>
+        </div>
+        <div class="metric">
+            <span class="metric-name">Physical Canvas Size</span>
+            <span class="metric-value" id="physicalSize">-</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📊 Average Width (emojiAvgWidth)</h2>
+        <p>This is the average of <code>ctx.measureText(emoji).width</code> across all 8 emojis.</p>
+        <div class="metric">
+            <span class="metric-name">emojiAvgWidth (full, 8 emojis)</span>
+            <span class="metric-value" id="avgWidthFull">-</span>
+        </div>
+        <div class="metric">
+            <span class="metric-name">emojiAvgWidth (filtered: 0,5,6,7)</span>
+            <span class="metric-value" id="avgWidthFiltered">-</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🎯 Filtered Metrics (Emoji 0, 5, 6, 7 only)</h2>
+        <div id="filteredMetrics"></div>
+    </div>
+
+    <div class="card">
+        <h2>📋 All 8 Emojis Width Comparison</h2>
+        <table id="allEmojisTable">
+            <thead>
+                <tr>
+                    <th>Index</th>
+                    <th>Emoji</th>
+                    <th>Codepoints</th>
+                    <th>Width (px)</th>
+                    <th>Included</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>📤 Export (JSON)</h2>
+        <button onclick="copyToClipboard()">Copy to Clipboard</button>
+        <button onclick="downloadJSON()">Download JSON</button>
+        <div class="json-output" id="jsonOutput"></div>
+    </div>
+
+    <canvas id="measureCanvas" class="hidden-canvas"></canvas>
+
+    <script>
+/**
+ * Standalone Emoji Width Measurement
+ * 
+ * This code produces the EXACT same values as emojii.js for emojiAvgWidth
+ * by replicating the exact configuration and measurement approach.
+ * 
+ * Exports metrics only for emoji indices: 0, 5, 6, 7
+ */
+
+// Configuration - EXACT match to emojii.js defaults
+const CONFIG = {
+    sizeCssPx: 64,          // logical size
+    glyphPx: 48,            // font size
+    sampleGrid: 8,          // dHash grid width/height
+    emojiFontStack: "Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif",
+    
+    // EXACT emoji codepoints from emojii.js (lines 10-18)
+    emojiCodepoints: [
+        [0x1F600],                                              // 0: 😀 (grinning face)
+        [0x1F44D],                                              // 1: 👍 (thumbs up)
+        [0x2764, 0xFE0F],                                       // 2: ❤️ (red heart)
+        [0x1F9D1, 0x200D, 0x2695, 0xFE0F],                      // 3: 🧑‍⚕️ (health worker)
+        [0x1F469, 0x200D, 0x2764, 0xFE0F, 0x200D, 0x1F468],     // 4: 👩‍❤️‍👨 (couple with heart)
+        [0x1F3F3, 0xFE0F, 0x200D, 0x26A7, 0xFE0F],              // 5: 🏳️‍⚧️ (transgender flag)
+        [0x1F441, 0xFE0F, 0x200D, 0x1F5E8, 0xFE0F],             // 6: 👁️‍🗨️ (eye in speech bubble)
+        [0x1F680]                                               // 7: 🚀 (rocket)
+    ]
+};
+
+// Indices to include in filtered export
+const FILTERED_INDICES = [0, 5, 6, 7];
+
+// Helper: unsigned 32-bit
+function u32(n) { return n >>> 0; }
+
+// FNV-1a 32-bit hash (same as emojii.js)
+function fnv1a32(bytes) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < bytes.length; i++) {
+        h ^= bytes[i];
+        h = u32(Math.imul(h, 0x01000193));
+    }
+    return h;
+}
+
+// Push functions for byte buffer (same as emojii.js)
+function pushU32(arr, v) {
+    arr.push(v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255);
+}
+
+function pushI16(arr, v) {
+    const x = (v & 0xffff);
+    arr.push(x & 255, (x >>> 8) & 255);
+}
+
+function quantizeFloat(f, scale) {
+    const v = Math.round((f || 0) * scale);
+    return Math.max(-32768, Math.min(32767, v));
+}
+
+// Compute dHash (same as emojii.js lines 46-86)
+function computeAlphaDHash(imageData, w, h, grid) {
+    const cellW = w / grid;
+    const cellH = h / grid;
+
+    const avg = new Array(grid * grid).fill(0);
+    const counts = new Array(grid * grid).fill(0);
+    const data = imageData.data;
+
+    for (let y = 0; y < h; y++) {
+        const gy = Math.min(grid - 1, (y / cellH) | 0);
+        for (let x = 0; x < w; x++) {
+            const gx = Math.min(grid - 1, (x / cellW) | 0);
+            const idx = (y * w + x) * 4;
+            const a = data[idx + 3];
+            const gi = gy * grid + gx;
+            avg[gi] += a;
+            counts[gi] += 1;
+        }
+    }
+
+    for (let i = 0; i < avg.length; i++) {
+        avg[i] = counts[i] ? (avg[i] / counts[i]) : 0;
+    }
+
+    let bitsLo = 0, bitsHi = 0;
+    let bitPos = 0;
+
+    for (let gy = 0; gy < grid; gy++) {
+        for (let gx = 0; gx < grid - 1; gx++) {
+            const left = avg[gy * grid + gx];
+            const right = avg[gy * grid + gx + 1];
+            const bit = right > left ? 1 : 0;
+
+            if (bitPos < 32) bitsLo |= (bit << bitPos);
+            else bitsHi |= (bit << (bitPos - 32));
+            bitPos++;
+        }
+    }
+
+    return { bitsLo: u32(bitsLo), bitsHi: u32(bitsHi), bitLen: bitPos };
+}
+
+// Compute bitmap stats (same as emojii.js lines 88-138)
+function computeBitmapStats(imageData, w, h) {
+    const data = imageData.data;
+    let nonZeroA = 0;
+    let sumX = 0, sumY = 0;
+    let edgeLike = 0;
+
+    const seen = new Uint8Array(4096);
+    let uniqueColorCount = 0;
+
+    function alphaAt(x, y) {
+        const i = (y * w + x) * 4;
+        return data[i + 3];
+    }
+
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+
+            if (a > 0) {
+                nonZeroA++;
+                sumX += x;
+                sumY += y;
+
+                const rq = r >>> 4, gq = g >>> 4, bq = b >>> 4;
+                const bucket = (rq << 8) | (gq << 4) | bq;
+                if (!seen[bucket]) {
+                    seen[bucket] = 1;
+                    uniqueColorCount++;
+                }
+            }
+
+            if (x + 1 < w) {
+                const da = Math.abs(a - alphaAt(x + 1, y));
+                if (da > 32) edgeLike++;
+            }
+            if (y + 1 < h) {
+                const da = Math.abs(a - alphaAt(x, y + 1));
+                if (da > 32) edgeLike++;
+            }
+        }
+    }
+
+    const total = w * h;
+    const coverage = total ? (nonZeroA / total) : 0;
+    const cx = nonZeroA ? (sumX / nonZeroA) / (w - 1) : 0;
+    const cy = nonZeroA ? (sumY / nonZeroA) / (h - 1) : 0;
+
+    return {
+        nonZeroA,
+        coverage,
+        cx,
+        cy,
+        edgeLike,
+        uniqueColorCount
+    };
+}
+
+// Read text metrics (same as emojii.js lines 140-154)
+function readTextMetrics(ctx, text) {
+    const m = ctx.measureText(text);
+    return {
+        width: m.width || 0,
+        abLeft: m.actualBoundingBoxLeft || 0,
+        abRight: m.actualBoundingBoxRight || 0,
+        abAscent: m.actualBoundingBoxAscent || 0,
+        abDescent: m.actualBoundingBoxDescent || 0,
+        fbAscent: m.fontBoundingBoxAscent || 0,
+        fbDescent: m.fontBoundingBoxDescent || 0,
+        emAscent: m.emHeightAscent || 0,
+        emDescent: m.emHeightDescent || 0
+    };
+}
+
+/**
+ * Main measurement function - produces EXACT same values as emojii.js
+ */
+function measureEmojis() {
+    const dpr = (typeof devicePixelRatio === "number" && devicePixelRatio > 0) ? devicePixelRatio : 1;
+
+    const canvas = document.getElementById('measureCanvas');
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    
+    if (!ctx) {
+        return { error: "no-context" };
+    }
+
+    // DPR-normalized canvas (exact match to emojii.js lines 163-169)
+    const w = Math.round(CONFIG.sizeCssPx * dpr);
+    const h = Math.round(CONFIG.sizeCssPx * dpr);
+    canvas.width = w;
+    canvas.height = h;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Stable feature bytes buffer
+    const bytes = [];
+
+    // Per-emoji metrics
+    const emojiMetrics = [];
+
+    // Aggregates (full set)
+    let totalCoverage = 0;
+    let totalUniqueColors = 0;
+    let totalWidth = 0;
+    let totalEdgeLike = 0;
+    let totalNonZeroA = 0;
+
+    // Aggregates (filtered set: indices 0, 5, 6, 7)
+    let filteredTotalWidth = 0;
+    let filteredTotalCoverage = 0;
+    let filteredCount = 0;
+
+    // Draw settings (exact match to emojii.js lines 206-210)
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
+    ctx.font = `${CONFIG.glyphPx}px ${CONFIG.emojiFontStack}`;
+
+    for (let idx = 0; idx < CONFIG.emojiCodepoints.length; idx++) {
+        const cps = CONFIG.emojiCodepoints[idx];
+        const emoji = String.fromCodePoint.apply(null, cps);
+
+        // Clear (exact match to emojii.js line 218)
+        ctx.clearRect(0, 0, CONFIG.sizeCssPx, CONFIG.sizeCssPx);
+
+        // Draw at consistent anchor (exact match to emojii.js line 221)
+        ctx.fillText(emoji, 6, CONFIG.sizeCssPx - 10);
+
+        // Text metrics (this is where width comes from!)
+        const tm = readTextMetrics(ctx, emoji);
+
+        // Read pixels
+        const img = ctx.getImageData(0, 0, w, h);
+
+        // Compute dHash and bitmap stats
+        const dh = computeAlphaDHash(img, w, h, CONFIG.sampleGrid);
+        const st = computeBitmapStats(img, w, h);
+
+        // Store per-emoji metrics (exact match to emojii.js lines 230-256)
+        const metrics = {
+            index: idx,
+            emoji,
+            codepoints: cps,
+            codepointsHex: cps.map(cp => '0x' + cp.toString(16).toUpperCase()).join(', '),
+            textMetrics: {
+                width: tm.width,
+                actualBoundingBox: {
+                    left: tm.abLeft,
+                    right: tm.abRight,
+                    ascent: tm.abAscent,
+                    descent: tm.abDescent
+                },
+                fontBoundingBox: {
+                    ascent: tm.fbAscent,
+                    descent: tm.fbDescent
+                }
+            },
+            bitmapStats: {
+                filledPixels: st.nonZeroA,
+                coverage: st.coverage,
+                centerOfMass: { x: st.cx, y: st.cy },
+                edgeLikeCount: st.edgeLike,
+                uniqueColors: st.uniqueColorCount
+            },
+            dHash: {
+                lo: dh.bitsLo,
+                hi: dh.bitsHi,
+                hex: (dh.bitsHi ? dh.bitsHi.toString(16).padStart(8, '0') : '') + dh.bitsLo.toString(16).padStart(8, '0')
+            },
+            isFiltered: FILTERED_INDICES.includes(idx)
+        };
+
+        emojiMetrics.push(metrics);
+
+        // Accumulate full aggregates (exact match to emojii.js lines 258-262)
+        totalCoverage += st.coverage;
+        totalUniqueColors += st.uniqueColorCount;
+        totalWidth += tm.width;
+        totalEdgeLike += st.edgeLike;
+        totalNonZeroA += st.nonZeroA;
+
+        // Accumulate filtered aggregates
+        if (FILTERED_INDICES.includes(idx)) {
+            filteredTotalWidth += tm.width;
+            filteredTotalCoverage += st.coverage;
+            filteredCount++;
+        }
+
+        // Append to byte buffer (for hash calculation)
+        pushI16(bytes, quantizeFloat(tm.width, 10));
+        pushI16(bytes, quantizeFloat(tm.abLeft, 10));
+        pushI16(bytes, quantizeFloat(tm.abRight, 10));
+        pushI16(bytes, quantizeFloat(tm.abAscent, 10));
+        pushI16(bytes, quantizeFloat(tm.abDescent, 10));
+        pushI16(bytes, quantizeFloat(tm.fbAscent, 10));
+        pushI16(bytes, quantizeFloat(tm.fbDescent, 10));
+        pushI16(bytes, quantizeFloat(tm.emAscent, 10));
+        pushI16(bytes, quantizeFloat(tm.emDescent, 10));
+
+        pushU32(bytes, u32(st.nonZeroA));
+        pushI16(bytes, quantizeFloat(st.coverage, 10000));
+        pushI16(bytes, quantizeFloat(st.cx, 10000));
+        pushI16(bytes, quantizeFloat(st.cy, 10000));
+        pushU32(bytes, u32(st.edgeLike));
+        pushU32(bytes, u32(st.uniqueColorCount));
+
+        pushU32(bytes, dh.bitsLo);
+        pushU32(bytes, dh.bitsHi);
+    }
+
+    const emojiCount = CONFIG.emojiCodepoints.length;
+    const stableU32 = fnv1a32(bytes);
+    const stableHash = ("00000000" + stableU32.toString(16)).slice(-8);
+
+    // Full aggregates (exact match to emojii.js lines 294-300)
+    const aggregatesFull = {
+        avgCoverage: emojiCount ? totalCoverage / emojiCount : 0,
+        avgWidth: emojiCount ? totalWidth / emojiCount : 0,
+        avgEdgeLike: emojiCount ? totalEdgeLike / emojiCount : 0,
+        totalUniqueColors,
+        totalFilledPixels: totalNonZeroA
+    };
+
+    // Filtered aggregates (indices 0, 5, 6, 7)
+    const aggregatesFiltered = {
+        avgCoverage: filteredCount ? filteredTotalCoverage / filteredCount : 0,
+        avgWidth: filteredCount ? filteredTotalWidth / filteredCount : 0,
+        indices: FILTERED_INDICES,
+        count: filteredCount
+    };
+
+    return {
+        config: {
+            dpr,
+            sizeCssPx: CONFIG.sizeCssPx,
+            glyphPx: CONFIG.glyphPx,
+            sampleGrid: CONFIG.sampleGrid,
+            physicalCanvasSize: { w, h },
+            fontStack: CONFIG.emojiFontStack
+        },
+        stableHash,
+        aggregatesFull,
+        aggregatesFiltered,
+        emojiMetrics,
+        filteredMetrics: emojiMetrics.filter(m => m.isFiltered)
+    };
+}
+
+// Global result storage
+let measurementResult = null;
+
+// Run measurement and update UI
+function runMeasurement() {
+    measurementResult = measureEmojis();
+
+    // Update config display
+    document.getElementById('dpr').textContent = measurementResult.config.dpr;
+    document.getElementById('physicalSize').textContent = 
+        `${measurementResult.config.physicalCanvasSize.w} × ${measurementResult.config.physicalCanvasSize.h}px`;
+
+    // Update average width displays
+    document.getElementById('avgWidthFull').textContent = 
+        measurementResult.aggregatesFull.avgWidth.toFixed(2) + ' px';
+    document.getElementById('avgWidthFiltered').textContent = 
+        measurementResult.aggregatesFiltered.avgWidth.toFixed(2) + ' px';
+
+    // Populate all emojis table
+    const tbody = document.querySelector('#allEmojisTable tbody');
+    tbody.innerHTML = '';
+    
+    for (const em of measurementResult.emojiMetrics) {
+        const tr = document.createElement('tr');
+        if (em.isFiltered) tr.classList.add('highlight');
+        tr.innerHTML = `
+            <td>${em.index}</td>
+            <td><span class="emoji-preview" style="font-size:24px">${em.emoji}</span></td>
+            <td style="font-family:monospace;font-size:11px">${em.codepointsHex}</td>
+            <td><strong>${em.textMetrics.width.toFixed(4)}</strong></td>
+            <td>${em.isFiltered ? '✅' : '—'}</td>
+        `;
+        tbody.appendChild(tr);
+    }
+
+    // Populate filtered metrics
+    const filteredDiv = document.getElementById('filteredMetrics');
+    filteredDiv.innerHTML = '';
+    
+    for (const em of measurementResult.filteredMetrics) {
+        const card = document.createElement('div');
+        card.className = 'emoji-card';
+        card.style.marginBottom = '20px';
+        card.style.paddingBottom = '20px';
+        card.style.borderBottom = '1px solid #eee';
+        
+        card.innerHTML = `
+            <div class="emoji-preview">${em.emoji}</div>
+            <div>
+                <h4 style="margin:0 0 10px 0">Emoji ${em.index}: ${em.emoji}</h4>
+                <table style="font-size:13px">
+                    <tr><td>Width</td><td><strong>${em.textMetrics.width.toFixed(4)} px</strong></td></tr>
+                    <tr><td>Coverage</td><td>${em.bitmapStats.coverage.toFixed(4)}</td></tr>
+                    <tr><td>Filled Pixels</td><td>${em.bitmapStats.filledPixels}</td></tr>
+                    <tr><td>Unique Colors</td><td>${em.bitmapStats.uniqueColors}</td></tr>
+                    <tr><td>Edge-like Count</td><td>${em.bitmapStats.edgeLikeCount}</td></tr>
+                    <tr><td>dHash</td><td style="font-family:monospace">${em.dHash.hex}</td></tr>
+                </table>
+            </div>
+        `;
+        filteredDiv.appendChild(card);
+    }
+
+    // Update JSON output
+    const exportData = {
+        _description: "Emoji metrics for indices 0, 5, 6, 7 - exact match to emojii.js",
+        _generated: new Date().toISOString(),
+        config: measurementResult.config,
+        stableHash: measurementResult.stableHash,
+        emojiAvgWidth_full: {
+            value: measurementResult.aggregatesFull.avgWidth.toFixed(2),
+            description: "Average emoji text width (px) - all 8 emojis"
+        },
+        emojiAvgWidth_filtered: {
+            value: measurementResult.aggregatesFiltered.avgWidth.toFixed(2),
+            description: "Average emoji text width (px) - emojis 0, 5, 6, 7 only"
+        },
+        filteredEmojis: measurementResult.filteredMetrics.map(em => ({
+            index: em.index,
+            emoji: em.emoji,
+            codepoints: em.codepoints,
+            width: em.textMetrics.width,
+            coverage: em.bitmapStats.coverage,
+            filledPixels: em.bitmapStats.filledPixels,
+            uniqueColors: em.bitmapStats.uniqueColors,
+            edgeLikeCount: em.bitmapStats.edgeLikeCount,
+            dHash: em.dHash.hex
+        }))
+    };
+
+    document.getElementById('jsonOutput').textContent = JSON.stringify(exportData, null, 2);
+}
+
+function copyToClipboard() {
+    const text = document.getElementById('jsonOutput').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        alert('Copied to clipboard!');
+    });
+}
+
+function downloadJSON() {
+    const text = document.getElementById('jsonOutput').textContent;
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'emoji-metrics-0-5-6-7.json';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// Run on page load
+window.addEventListener('DOMContentLoaded', runMeasurement);
+    </script>
+</body>
+</html>

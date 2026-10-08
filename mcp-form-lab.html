@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contact Us — Acme Corp</title>
+
+<!-- ╔══════════════════════════════════════════════════════════════════╗
+     ║  EARLY TRAPS — must execute before any automation touches page  ║
+     ║  v0.4.0 — OpenClaw / chrome-devtools-mcp detection lab         ║
+     ╚══════════════════════════════════════════════════════════════════╝ -->
+<script id="earlyTraps">
+(function installTraps() {
+  'use strict';
+  const _t0 = performance.now();
+
+  // ── Global state ──────────────────────────────────────────────────────
+  window.__diag = {
+    version: '0.4.0',
+    startTime: _t0,
+    fields: {},
+    signals: {},
+    events: [],
+    mouseTrail: [],
+    // Trap buckets
+    mutationObservers: [],      // every MO construction
+    getterHits: [],             // pptr: .type getter accesses
+    stackTraces: [],            // pptr: in call stack for DOM APIs
+    promiseWithResolversCalls: [], // Promise.withResolvers() call log
+    computedStyleCalls: [],     // getComputedStyle from pptr: context
+    // Behavioral counters
+    focusWithMouse: 0,
+    focusWithoutMouse: 0,
+    pointerBeforeFocus: {},     // fieldId → boolean
+    tabKeyCount: 0,
+    clipboardEvents: [],
+    beforeInputCounts: {},      // fieldId → number
+    scrollEventCount: 0,
+    scrollBeforeInteraction: false,
+    firstInteractionTime: null,
+    // Environment
+    navWebdriver: null,
+    cdpArtifacts: [],
+  };
+
+  // ── Internal log (safe before DOM is ready) ────────────────────────────
+  function _log(type, detail) {
+    const entry = { t: +(performance.now() - _t0).toFixed(2), type, ...detail };
+    window.__diag.events.push(entry);
+    // Safe DOM write — only works after DOMContentLoaded
+    requestAnimationFrame(() => {
+      const el = document.getElementById('rawLog');
+      if (el) { el.textContent += JSON.stringify(entry) + '\n'; el.scrollTop = el.scrollHeight; }
+    });
+  }
+  window.__diagLog = _log;
+
+  // ══════════════════════════════════════════════════════════════════════
+  // TRAP 1 — MutationObserver constructor
+  // chrome-devtools-mcp WaitForHelper.ts:waitForStableDom() runs in the
+  // MAIN page world (context 10) via page.evaluateHandle() and creates:
+  //   new MutationObserver(cb).observe(document.body,
+  //     {childList:true, subtree:true, attributes:true})
+  // The stack at construction time will contain the pptr: script URL.
+  // ══════════════════════════════════════════════════════════════════════
+  const _OrigMO = window.MutationObserver;
+  window.MutationObserver = function MutationObserver(callback) {
+    const inst = new _OrigMO(callback);
+    const stack = (new Error().stack) || '';
+    const isPptr = stack.includes('pptr:') || stack.includes('__puppeteer_evaluation_script__');
+    const entry = {
+      t: +(performance.now() - _t0).toFixed(2),
+      stack: stack.split('\n').slice(0, 6).join('\n'),
+      isPptr,
+      fullBodyWatch: false,
+    };
+    window.__diag.mutationObservers.push(entry);
+    if (isPptr) _log('mo-pptr-construct', { stack: entry.stack.substring(0, 200) });
+
+    // Intercept .observe() to detect the specific waitForStableDom signature
+    const _origObserve = inst.observe.bind(inst);
+    inst.observe = function(target, opts) {
+      const isBodyTarget = target === document.body || target === document.documentElement;
+      const isWaitForStableOpts = opts &&
+        opts.childList === true && opts.subtree === true && opts.attributes === true;
+      if (isBodyTarget && isWaitForStableOpts) {
+        entry.fullBodyWatch = true;
+        _log('mo-waitForStableDom-signature', {
+          target: target.tagName, isPptr,
+          stack: entry.stack.substring(0, 120),
+        });
+      }
+      return _origObserve(target, opts);
+    };
+    return inst;
+  };
+  window.MutationObserver.prototype = _OrigMO.prototype;
+  try { Object.defineProperty(window.MutationObserver, 'name', { value: 'MutationObserver', configurable: true }); } catch(_) {}
+
+  // ══════════════════════════════════════════════════════════════════════
+  // TRAP 2 — Promise.withResolvers
+  // WaitForHelper.ts uses: const {promise, resolve, reject} = Promise.withResolvers()
+  // This runs 24× per form fill session (once per action, in main world).
+  // Stack will show pptr: script URL if called from Puppeteer evaluate.
+  // ══════════════════════════════════════════════════════════════════════
+  if (typeof Promise.withResolvers === 'function') {
+    const _origWR = Promise.withResolvers.bind(Promise);
+    Promise.withResolvers = function withResolvers() {
+      const stack = (new Error().stack) || '';
+      const isPptr = stack.includes('pptr:') || stack.includes('__puppeteer_evaluation_script__');
+      const entry = {
+        t: +(performance.now() - _t0).toFixed(2),
+        isPptr,
+        stack: stack.split('\n').slice(0, 4).join('\n'),
+      };
+      window.__diag.promiseWithResolversCalls.push(entry);
+      if (isPptr) _log('promise-withResolvers-pptr', { count: window.__diag.promiseWithResolversCalls.filter(e => e.isPptr).length });
+      return _origWR();
+    };
+    try { Object.defineProperty(Promise, 'withResolvers', { value: Promise.withResolvers, configurable: true, writable: true }); } catch(_) {}
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // TRAP 3 — HTMLInputElement.type getter
+  // input.ts fillFormElement() calls: handle.evaluate(el => el.type === 'checkbox' || el.type === 'radio')
+  // This runs in context 10 (main world), reads .type — stack shows pptr: URL.
+  // ══════════════════════════════════════════════════════════════════════
+  const _typeDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'type');
+  if (_typeDesc && _typeDesc.get) {
+    const _origTypeGetter = _typeDesc.get;
+    Object.defineProperty(HTMLInputElement.prototype, 'type', {
+      get() {
+        const stack = (new Error().stack) || '';
+        const isPptr = stack.includes('pptr:') || stack.includes('__puppeteer_evaluation_script__');
+        if (isPptr) {
+          const hit = { prop: 'type', element: this.id || this.name || '?',
+            t: +(performance.now() - _t0).toFixed(2), stack: stack.split('\n').slice(0, 5).join('\n') };
+          window.__diag.getterHits.push(hit);
+          _log('getter-type-pptr', { element: hit.element, stack: hit.stack.substring(0, 150) });
+        }
+        return _origTypeGetter.call(this);
+      },
+      set: _typeDesc.set,
+      enumerable: _typeDesc.enumerable,
+      configurable: true,
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // TRAP 4 — HTMLElement.focus() / blur() / HTMLInputElement.select()
+  // Stack sniff: Puppeteer locator internals create scripts named pptr:evaluate;...
+  // focus() specifically is called from Puppeteer's Locator fill pipeline.
+  // ══════════════════════════════════════════════════════════════════════
+  ['focus', 'blur'].forEach(method => {
+    const _orig = HTMLElement.prototype[method];
+    if (typeof _orig !== 'function') return;
+    HTMLElement.prototype[method] = function(...args) {
+      const stack = (new Error().stack) || '';
+      const isPptr = stack.includes('pptr:') || stack.includes('__puppeteer_evaluation_script__');
+      if (isPptr) {
+        const hit = { api: method, element: this.id || this.tagName,
+          t: +(performance.now() - _t0).toFixed(2), stack: stack.split('\n').slice(0, 5).join('\n') };
+        window.__diag.stackTraces.push(hit);
+        _log('stack-pptr-' + method, { element: hit.element });
+      }
+      return _orig.apply(this, args);
+    };
+    try { Object.defineProperty(HTMLElement.prototype[method], 'name', { value: method, configurable: true }); } catch(_) {}
+  });
+
+  const _origSelect = HTMLInputElement.prototype.select;
+  if (typeof _origSelect === 'function') {
+    HTMLInputElement.prototype.select = function(...args) {
+      const stack = (new Error().stack) || '';
+      const isPptr = stack.includes('pptr:') || stack.includes('__puppeteer_evaluation_script__');
+      if (isPptr) {
+        window.__diag.stackTraces.push({ api: 'select', element: this.id || this.tagName,
+          t: +(performance.now() - _t0).toFixed(2), stack: stack.split('\n').slice(0, 4).join('\n') });
+        _log('stack-pptr-select', { element: this.id });
+      }
+      return _origSelect.apply(this, args);
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // TRAP 5 — getBoundingClientRect
+  // Puppeteer's isIntersectingViewport check normally runs in isolated world
+  // (context 12) so this may NOT fire for chrome-devtools-mcp. But if any
+  // main-world evaluate touches it, we'll catch it. Keep as low-confidence signal.
+  // ══════════════════════════════════════════════════════════════════════
+  const _origGBCR = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function() {
+    const stack = (new Error().stack) || '';
+    const isPptr = stack.includes('pptr:') || stack.includes('__puppeteer_evaluation_script__');
+    if (isPptr) {
+      window.__diag.stackTraces.push({ api: 'getBCR', element: this.id || this.tagName,
+        t: +(performance.now() - _t0).toFixed(2), stack: stack.split('\n').slice(0, 4).join('\n') });
+      _log('stack-pptr-bcr', { element: this.id || this.tagName });
+    }
+    return _origGBCR.call(this);
+  };
+
+  // ══════════════════════════════════════════════════════════════════════
+  // TRAP 6 — getComputedStyle
+  // Some Puppeteer visibility checks call this in the main world.
+  // Kept as supplementary data.
+  // ══════════════════════════════════════════════════════════════════════
+  const _origGCS = window.getComputedStyle;
+  window.getComputedStyle = function(el, ...rest) {
+    const stack = (new Error().stack) || '';
+    const isPptr = stack.includes('pptr:') || stack.includes('__puppeteer_evaluation_script__');
+    if (isPptr && el) {
+      window.__diag.computedStyleCalls.push({ element: el.id || el.tagName,
+        t: +(performance.now() - _t0).toFixed(2) });
+      _log('computed-style-pptr', { element: el.id || el.tagName });
+    }
+    return _origGCS.call(window, el, ...rest);
+  };
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ENV CHECK — runs at install time (synchronous, before any eval)
+  // ══════════════════════════════════════════════════════════════════════
+  window.__diag.navWebdriver = !!navigator.webdriver;
+
+  // CDP / webdriver artifact scan
+  const _cdpKeys = [
+    '$cdc_asdjflasutopfhvcZLmcfl_', '__cdc_asdjflasutopfhvcZLmcfl_',
+    'cdc_adoQpoasnfa76pfcZLmcfl', '__webdriver_evaluate', '__selenium_evaluate',
+    '__webdriver_script_fn', '__driver_evaluate', '__webdriver_unwrapped',
+    '__fxdriver_evaluate', '__driver_unwrapped', '__webdriver_script_func',
+    'domAutomation', 'domAutomationController', '_phantom', '__nightmare',
+    '_selenium', 'callPhantom', '_Selenium_IDE_Recorder',
+  ];
+  _cdpKeys.forEach(k => {
+    try { if (window[k] !== undefined) window.__diag.cdpArtifacts.push({ key: k, type: typeof window[k] }); } catch(_) {}
+  });
+
+})();
+</script>
+
+<style>
+  :root {
+    --bg: #0e1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922; --orange: #e3822a;
+    --input-bg: #0d1117; --input-border: #30363d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6; }
+
+  .page-wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px; }
+  .form-header { margin-bottom: 24px; }
+  .form-header h1 { font-size: 24px; font-weight: 600; }
+  .form-header p { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .form-grid .full { grid-column: 1 / -1; }
+
+  .field label { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 8px 12px; font-size: 14px; color: var(--text);
+    background: var(--input-bg); border: 1px solid var(--input-border);
+    border-radius: 6px; outline: none; transition: border-color 0.2s;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
+  .field textarea { resize: vertical; min-height: 80px; }
+  .field select { cursor: pointer; }
+  .field select option { background: var(--surface); }
+  .checkbox-field { display: flex; align-items: center; gap: 8px; }
+  .checkbox-field input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+
+  .form-actions { margin-top: 20px; display: flex; gap: 12px; align-items: center; }
+  .btn { padding: 8px 20px; font-size: 14px; font-weight: 500; border: none;
+    border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { filter: brightness(1.15); }
+  .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--border); }
+
+  /* Diagnostics */
+  .diag-toggle { position: fixed; bottom: 12px; right: 12px; font-size: 11px;
+    padding: 4px 10px; background: var(--surface); color: var(--muted);
+    border: 1px solid var(--border); border-radius: 4px; cursor: pointer; z-index: 100; }
+  .diag-toggle:hover { color: var(--text); }
+
+  #diagPanel { display: none; position: fixed; bottom: 40px; right: 12px; width: 460px;
+    max-height: 75vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px; z-index: 99; font-size: 12px; }
+  #diagPanel.open { display: block; }
+
+  #diagPanel h3 { font-size: 14px; margin-bottom: 8px; color: var(--accent);
+    border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+
+  /* Score display */
+  .score-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 8px;
+    background: var(--bg); border-radius: 6px; border: 1px solid var(--border); }
+  .score-circle { width: 52px; height: 52px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 18px; font-weight: 700;
+    flex-shrink: 0; border: 3px solid var(--border); }
+  .score-circle.low    { border-color: var(--green);  color: var(--green);  background: #0d2114; }
+  .score-circle.medium { border-color: var(--yellow); color: var(--yellow); background: #1e1804; }
+  .score-circle.high   { border-color: var(--orange); color: var(--orange); background: #1e1204; }
+  .score-circle.critical{ border-color: var(--red);   color: var(--red);    background: #1e0a0a; }
+  .score-meta { flex: 1; }
+  .score-label { font-size: 13px; font-weight: 600; color: var(--text); }
+  .score-sublabel { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* Signal rows */
+  .signal-group-header { font-size: 11px; color: var(--yellow); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 0 2px; }
+  .signal-row { display: flex; align-items: center; gap: 8px; padding: 5px 0;
+    border-bottom: 1px solid rgba(48,54,61,0.5); }
+  .signal-row:last-child { border-bottom: none; }
+  .signal-badge { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .signal-badge.green  { background: var(--green); }
+  .signal-badge.red    { background: var(--red); }
+  .signal-badge.yellow { background: var(--yellow); }
+  .signal-badge.orange { background: var(--orange); }
+  .signal-badge.gray   { background: var(--muted); }
+  .signal-name { font-weight: 500; flex: 1; font-size: 11.5px; }
+  .signal-detail { color: var(--muted); font-size: 10.5px; max-width: 180px;
+    text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+
+  .diag-section { margin-top: 12px; }
+  .diag-section h4 { font-size: 11px; color: var(--yellow); margin-bottom: 4px;
+    text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .export-row { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .export-row .btn { font-size: 11px; padding: 4px 12px; }
+
+  .raw-log { max-height: 130px; overflow-y: auto; background: var(--bg);
+    padding: 8px; border-radius: 4px; font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 10px; color: var(--muted); white-space: pre; margin-top: 6px; }
+
+  /* Beacon config */
+  .beacon-row { display: flex; gap: 6px; margin-top: 6px; }
+  .beacon-row input { flex: 1; padding: 4px 8px; font-size: 11px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 4px; color: var(--text); }
+  .beacon-status { font-size: 10px; color: var(--muted); margin-top: 3px; }
+</style>
+</head>
+<body>
+
+<div class="page-wrap">
+  <div class="form-header">
+    <h1>Contact Us</h1>
+    <p>Fill out the form below and our team will get back to you shortly.</p>
+  </div>
+
+  <form id="contactForm" autocomplete="off" novalidate>
+    <div class="form-grid">
+      <div class="field">
+        <label for="firstName">First Name</label>
+        <input type="text" id="firstName" name="firstName" placeholder="John">
+      </div>
+      <div class="field">
+        <label for="lastName">Last Name</label>
+        <input type="text" id="lastName" name="lastName" placeholder="Doe">
+      </div>
+      <div class="field">
+        <label for="email">Email Address</label>
+        <input type="email" id="email" name="email" placeholder="john@company.com">
+      </div>
+      <div class="field">
+        <label for="phone">Phone Number</label>
+        <input type="tel" id="phone" name="phone" placeholder="+1 (555) 000-0000">
+      </div>
+      <div class="field">
+        <label for="company">Company</label>
+        <input type="text" id="company" name="company" placeholder="Acme Corp">
+      </div>
+      <div class="field">
+        <label for="jobTitle">Job Title</label>
+        <select id="jobTitle" name="jobTitle">
+          <option value="">Select...</option>
+          <option value="engineering">Engineering</option>
+          <option value="product">Product</option>
+          <option value="design">Design</option>
+          <option value="data-science">Data Science</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field full">
+        <label for="message">Message</label>
+        <textarea id="message" name="message" placeholder="How can we help you?"></textarea>
+      </div>
+      <div class="field full checkbox-field">
+        <input type="checkbox" id="newsletter" name="newsletter">
+        <label for="newsletter" style="margin-bottom:0">Subscribe to our newsletter</label>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Submit</button>
+      <button type="reset" class="btn btn-secondary">Clear</button>
+    </div>
+  </form>
+</div>
+
+<!-- Diagnostics toggle -->
+<button class="diag-toggle" id="diagToggle">diagnostics</button>
+
+<!-- Diagnostics panel -->
+<div id="diagPanel">
+  <h3>OpenClaw / MCP Detection Lab <span id="diagVersion" style="font-weight:400;font-size:11px;color:var(--muted)">v0.4.0</span></h3>
+
+  <!-- Score -->
+  <div class="score-row" id="scoreRow">
+    <div class="score-circle gray" id="scoreCircle">—</div>
+    <div class="score-meta">
+      <div class="score-label" id="scoreLabel">No interaction yet</div>
+      <div class="score-sublabel" id="scoreSubLabel">Interact with the form to generate signals</div>
+    </div>
+  </div>
+
+  <!-- Signal groups -->
+  <div id="signalList"></div>
+
+  <!-- Raw event log -->
+  <div class="diag-section">
+    <h4>Event Log <span id="eventCount" style="color:var(--muted);font-weight:400"></span></h4>
+    <div id="rawLog" class="raw-log"></div>
+  </div>
+
+  <!-- Beacon -->
+  <div class="diag-section">
+    <h4>POST Beacon (optional)</h4>
+    <div class="beacon-row">
+      <input type="text" id="beaconUrl" placeholder="https://your-server/collect" value="">
+      <button class="btn btn-secondary" id="beaconBtn" style="font-size:11px;padding:4px 10px">Send</button>
+    </div>
+    <div class="beacon-status" id="beaconStatus"></div>
+  </div>
+
+  <!-- Export -->
+  <div class="export-row">
+    <button class="btn btn-secondary" id="exportBtn">Export JSON</button>
+    <button class="btn btn-secondary" id="clearLogBtn">Clear Log</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SCRIPT 2 — Per-field event instrumentation + behavioral collectors
+     (runs after DOM is ready; traps already installed from <head>)
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script id="instrumentation">
+(function() {
+  'use strict';
+  const D = window.__diag;
+  const _log = window.__diagLog;
+  const FORM_FIELDS = '#contactForm input, #contactForm select, #contactForm textarea';
+
+  // ── Per-field state ───────────────────────────────────────────────────
+  document.querySelectorAll(FORM_FIELDS).forEach(el => {
+    D.fields[el.id] = {
+      keydowns: [], keyIntervals: [], inputEvents: [],
+      focusTime: null, blurTime: null,
+      mouseBeforeFocus: false,
+      pointerBeforeFocus: false,
+      tabFocused: false,
+      mouseOverTime: null,
+      eventSequence: [],
+      valueChanges: [],
+      fillPatternDetected: false,
+      selectAllDetected: false,
+      insertReplacementText: false,
+      deleteContentDetected: false,
+      lastMouseX: null, lastMouseY: null,
+      beforeInputCount: 0,
+    };
+    D.pointerBeforeFocus[el.id] = false;
+  });
+
+  // ── Mouse tracking ────────────────────────────────────────────────────
+  let _lastMouseMove = 0;
+  let _lastMouseX = -999, _lastMouseY = -999;
+  document.addEventListener('mousemove', e => {
+    _lastMouseMove = performance.now();
+    _lastMouseX = e.clientX; _lastMouseY = e.clientY;
+    D.mouseTrail.push({ x: e.clientX, y: e.clientY, t: +(performance.now() - D.startTime).toFixed(2) });
+    if (D.mouseTrail.length > 500) D.mouseTrail.shift();
+  }, true);
+
+  // ── Scroll tracking (before vs after first form interaction) ─────────
+  document.addEventListener('scroll', () => {
+    D.scrollEventCount++;
+    if (!D.firstInteractionTime) {
+      D.scrollBeforeInteraction = true;
+    }
+    _log('scroll', { count: D.scrollEventCount, beforeInteraction: !D.firstInteractionTime });
+  }, true);
+
+  // ── Tab key navigation counter ────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Tab') D.tabKeyCount++;
+  }, true);
+
+  // ── Clipboard events ──────────────────────────────────────────────────
+  ['paste', 'copy', 'cut'].forEach(evType => {
+    document.addEventListener(evType, e => {
+      const entry = { type: evType, field: e.target?.id || '?',
+        t: +(performance.now() - D.startTime).toFixed(2) };
+      D.clipboardEvents.push(entry);
+      _log('clipboard-' + evType, entry);
+    }, true);
+  });
+
+  // ── Pointer events (before focus means real click) ────────────────────
+  document.querySelectorAll(FORM_FIELDS).forEach(el => {
+    const fid = el.id;
+    ['pointerdown', 'pointerenter'].forEach(evType => {
+      el.addEventListener(evType, () => {
+        D.pointerBeforeFocus[fid] = true;
+        if (D.fields[fid]) D.fields[fid].pointerBeforeFocus = true;
+      }, true);
+    });
+  });
+
+  // ── Value setter trap (programmatic assignment without input event) ────
+  document.querySelectorAll('#contactForm input[type="text"], #contactForm input[type="email"], #contactForm input[type="tel"], #contactForm textarea').forEach(el => {
+    let _lastInputTime = 0;
+    let _lastVal = el.value;
+    el.addEventListener('input', () => { _lastInputTime = performance.now(); }, true);
+    setInterval(() => {
+      if (el.value !== _lastVal) {
+        const gap = performance.now() - _lastInputTime;
+        if (gap > 80) _log('value-no-input', { field: el.id, val: el.value, gapMs: +gap.toFixed(1) });
+        _lastVal = el.value;
+      }
+    }, 40);
+  });
+
+  // ── Our own stable MO (using original, not our wrapped version) ────────
+  // Watch for CDP-side attribute mutations on the form
+  const _OrigMO_internal = Object.getOwnPropertyDescriptor(window, 'MutationObserver')
+    ? window.MutationObserver : MutationObserver; // fallback
+  // We stored the original before wrapping; use a direct Reflect trick
+  // Actually we can reconstruct: create an iframe and steal its MO
+  let _SafeMO;
+  try {
+    const _iframe = document.createElement('iframe');
+    _iframe.style.display = 'none';
+    document.body.appendChild(_iframe);
+    _SafeMO = _iframe.contentWindow.MutationObserver;
+    document.body.removeChild(_iframe);
+  } catch(_) { _SafeMO = null; }
+
+  if (_SafeMO) {
+    new _SafeMO(mutations => {
+      for (const m of mutations) {
+        if (m.type === 'attributes') {
+          _log('attr-mutation', {
+            target: m.target.id || m.target.tagName,
+            attr: m.attributeName,
+          });
+        }
+      }
+    }).observe(document.getElementById('contactForm') || document.body,
+      { attributes: true, subtree: true, attributeOldValue: true });
+  }
+
+  // ── Per-field event listeners ─────────────────────────────────────────
+  document.querySelectorAll(FORM_FIELDS).forEach(el => {
+    const fid = el.id;
+    const fd = D.fields[fid];
+    if (!fd) return;
+
+    el.addEventListener('mouseenter', () => { fd.mouseOverTime = performance.now(); }, true);
+
+    el.addEventListener('focus', e => {
+      const now = performance.now();
+      if (!D.firstInteractionTime) D.firstInteractionTime = now;
+      fd.focusTime = now;
+      const mouseRecent = (now - _lastMouseMove) < 200;
+      const hadPointer = fd.pointerBeforeFocus;
+      fd.mouseBeforeFocus = mouseRecent;
+      if (mouseRecent || hadPointer) D.focusWithMouse++;
+      else D.focusWithoutMouse++;
+      // Tab-key focus: relatedTarget is the previously focused element
+      fd.tabFocused = !!(e.relatedTarget);
+      fd.eventSequence.push({ e: 'focus', t: +(now - D.startTime).toFixed(2), mouse: mouseRecent, ptr: hadPointer });
+      _log('focus', { field: fid, mouseRecent, pointer: hadPointer, tab: fd.tabFocused });
+    }, true);
+
+    el.addEventListener('blur', () => {
+      fd.blurTime = performance.now();
+      fd.eventSequence.push({ e: 'blur', t: +(performance.now() - D.startTime).toFixed(2) });
+    }, true);
+
+    // beforeinput — fires before the DOM is mutated; CDP path may skip it
+    el.addEventListener('beforeinput', e => {
+      fd.beforeInputCount++;
+      D.beforeInputCounts[fid] = (D.beforeInputCounts[fid] || 0) + 1;
+      fd.eventSequence.push({ e: 'beforeinput', inputType: e.inputType,
+        t: +(performance.now() - D.startTime).toFixed(2) });
+    }, true);
+
+    el.addEventListener('keydown', e => {
+      const now = performance.now();
+      fd.keydowns.push(now);
+      if (fd.keydowns.length > 1) {
+        const iv = now - fd.keydowns[fd.keydowns.length - 2];
+        fd.keyIntervals.push(+iv.toFixed(3));
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        fd.selectAllDetected = true;
+        fd.eventSequence.push({ e: 'selectAll', t: +(now - D.startTime).toFixed(2) });
+        _log('selectAll', { field: fid });
+      }
+      fd.eventSequence.push({ e: 'keydown', key: e.key, isTrusted: e.isTrusted,
+        t: +(now - D.startTime).toFixed(2) });
+      _log('keydown', { field: fid, key: e.key, isTrusted: e.isTrusted });
+    }, true);
+
+    el.addEventListener('input', e => {
+      const now = performance.now();
+      const inputType = e.inputType || 'unknown';
+      fd.inputEvents.push({ inputType, t: now });
+      fd.valueChanges.push({ value: el.value, t: +(now - D.startTime).toFixed(2) });
+      fd.eventSequence.push({ e: 'input', inputType, t: +(now - D.startTime).toFixed(2) });
+
+      if (inputType === 'insertReplacementText') {
+        fd.insertReplacementText = true;
+        fd.fillPatternDetected = true;
+        _log('fillPattern-insertReplacementText', { field: fid });
+      }
+      if (inputType === 'deleteContentBackward' || inputType === 'deleteContent') {
+        fd.deleteContentDetected = true;
+      }
+    }, true);
+
+    el.addEventListener('select', () => {
+      fd.eventSequence.push({ e: 'select', t: +(performance.now() - D.startTime).toFixed(2) });
+    }, true);
+
+    el.addEventListener('change', () => {
+      fd.eventSequence.push({ e: 'change', t: +(performance.now() - D.startTime).toFixed(2),
+        value: el.value || el.checked });
+      _log('change', { field: fid, value: el.type === 'checkbox' ? el.checked : el.value });
+    }, true);
+  });
+
+  // ── Field focus order for sequence timing ─────────────────────────────
+  window.__fieldFocusOrder = [];
+  document.querySelectorAll(FORM_FIELDS).forEach(el => {
+    el.addEventListener('focus', () => {
+      window.__fieldFocusOrder.push({ field: el.id, t: performance.now() });
+    }, true);
+  });
+
+  // ── Auto-observe our own internal MO for waitForStableDom fires ────────
+  // Track how many MOs have the full-body-watch signature
+  // (checked in signals via D.mutationObservers)
+})();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SCRIPT 3 — Analysis, scoring, dashboard, export
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script id="dashboard">
+(function() {
+  'use strict';
+  const D = window.__diag;
+
+  // ── Signal definitions ─────────────────────────────────────────────────
+  // weight: points toward bot score (out of 100 total)
+  // confidence: HIGH / MEDIUM / LOW
+  const SIGNAL_DEFS = [
+    // ── API Traps (most specific to chrome-devtools-mcp) ─────────────────
+    { id: 'promiseWithResolvers', name: 'Promise.withResolvers (waitForStableDom)',
+      group: 'API Traps', weight: 20, confidence: 'HIGH' },
+    { id: 'mutationObserver', name: 'MutationObserver Full-Body Watch',
+      group: 'API Traps', weight: 15, confidence: 'HIGH' },
+    { id: 'getterTrap', name: 'HTMLInputElement.type Getter (pptr:)',
+      group: 'API Traps', weight: 12, confidence: 'HIGH' },
+    { id: 'stackTrace', name: 'pptr: URL in DOM API Call Stack',
+      group: 'API Traps', weight: 10, confidence: 'HIGH' },
+
+    // ── Behavioral ───────────────────────────────────────────────────────
+    { id: 'keystrokeTiming', name: 'Keystroke Timing (CV < 0.15)',
+      group: 'Behavioral', weight: 12, confidence: 'HIGH' },
+    { id: 'fieldSequence', name: 'Field-to-Field Gap (< 200ms)',
+      group: 'Behavioral', weight: 8, confidence: 'MEDIUM' },
+    { id: 'pointerBeforeFocus', name: 'Pointer Events Before Focus',
+      group: 'Behavioral', weight: 8, confidence: 'MEDIUM' },
+    { id: 'fillPattern', name: 'Fill Pattern (SelectAll/insertReplacementText)',
+      group: 'Behavioral', weight: 8, confidence: 'MEDIUM' },
+    { id: 'scrollBeforeInteraction', name: 'Scroll Before First Field',
+      group: 'Behavioral', weight: 5, confidence: 'MEDIUM' },
+    { id: 'beforeInputEvents', name: 'beforeinput Events Present',
+      group: 'Behavioral', weight: 4, confidence: 'MEDIUM' },
+    { id: 'valueNoInput', name: 'Value Set Without input Event',
+      group: 'Behavioral', weight: 4, confidence: 'MEDIUM' },
+
+    // ── Environment ──────────────────────────────────────────────────────
+    { id: 'navWebdriver', name: 'navigator.webdriver = true',
+      group: 'Environment', weight: 10, confidence: 'MEDIUM' },
+    { id: 'cdpArtifacts', name: 'CDP / Webdriver Artifact Properties',
+      group: 'Environment', weight: 6, confidence: 'MEDIUM' },
+    { id: 'mouseBeforeFocus', name: 'Mouse Presence Before Focus',
+      group: 'Environment', weight: 4, confidence: 'LOW' },
+  ];
+
+  // ── Per-field analysis helpers ─────────────────────────────────────────
+  function analyzeKeystrokeTiming(fid) {
+    const fd = D.fields[fid];
+    if (!fd || fd.keyIntervals.length < 3) return null;
+    const ivs = fd.keyIntervals;
+    const mean = ivs.reduce((a,b) => a+b, 0) / ivs.length;
+    const variance = ivs.reduce((a,b) => a + Math.pow(b-mean,2), 0) / ivs.length;
+    const stddev = Math.sqrt(variance);
+    const cv = mean > 0 ? stddev / mean : 0;
+    return {
+      count: ivs.length, mean: +mean.toFixed(2), stddev: +stddev.toFixed(2),
+      cv: +cv.toFixed(4), min: +Math.min(...ivs).toFixed(2), max: +Math.max(...ivs).toFixed(2),
+      verdict: cv < 0.15 ? 'machine' : cv < 0.30 ? 'uncertain' : 'human',
+    };
+  }
+
+  function analyzeFieldSequence() {
+    const ffo = window.__fieldFocusOrder || [];
+    if (ffo.length < 2) return null;
+    const gaps = [];
+    for (let i = 1; i < ffo.length; i++) {
+      gaps.push({ from: ffo[i-1].field, to: ffo[i].field, gap: +(ffo[i].t - ffo[i-1].t).toFixed(2) });
+    }
+    const fastGaps = gaps.filter(g => g.gap < 200).length;
+    const mean = gaps.reduce((a,b) => a+b.gap, 0) / gaps.length;
+    return { transitions: gaps, meanGap: +mean.toFixed(2),
+      fastCount: fastGaps, total: gaps.length,
+      verdict: fastGaps > gaps.length * 0.5 ? 'machine' : 'human' };
+  }
+
+  // ── Signal computation ─────────────────────────────────────────────────
+  function computeSignals() {
+    const S = D.signals = {};
+
+    // 1. Promise.withResolvers — pptr: calls (HIGH)
+    const pwrPptr = D.promiseWithResolversCalls.filter(e => e.isPptr);
+    if (D.promiseWithResolversCalls.length === 0) {
+      S.promiseWithResolvers = { status: 'gray', detail: 'Not called yet', points: 0 };
+    } else if (pwrPptr.length > 0) {
+      S.promiseWithResolvers = { status: 'red',
+        detail: `${pwrPptr.length} pptr: call(s) — waitForStableDom signature`, points: 20,
+        data: pwrPptr };
+    } else {
+      S.promiseWithResolvers = { status: 'green',
+        detail: `${D.promiseWithResolversCalls.length} call(s), none from pptr:`, points: 0 };
+    }
+
+    // 2. MutationObserver full-body watch (HIGH)
+    const moFull = D.mutationObservers.filter(m => m.fullBodyWatch);
+    const moSusp = D.mutationObservers.filter(m => m.isPptr);
+    if (moFull.length > 0) {
+      S.mutationObserver = { status: 'red',
+        detail: `${moFull.length} MO(s) with body+subtree+attr watch`, points: 15, data: moFull };
+    } else if (moSusp.length > 0) {
+      S.mutationObserver = { status: 'orange',
+        detail: `${moSusp.length} pptr: MO(s), no full-body signature yet`, points: 8, data: moSusp };
+    } else if (D.mutationObservers.length > 0) {
+      S.mutationObserver = { status: 'green',
+        detail: `${D.mutationObservers.length} MO(s), none suspicious`, points: 0 };
+    } else {
+      S.mutationObserver = { status: 'gray', detail: 'No MOs detected', points: 0 };
+    }
+
+    // 3. Getter trap (HIGH)
+    if (D.getterHits.length > 0) {
+      S.getterTrap = { status: 'red',
+        detail: `${D.getterHits.length} pptr: .type access(es)`, points: 12, data: D.getterHits };
+    } else {
+      S.getterTrap = { status: 'gray', detail: 'No pptr: getter accesses', points: 0 };
+    }
+
+    // 4. Stack traces (HIGH)
+    const pptrStacks = D.stackTraces;
+    if (pptrStacks.length > 0) {
+      S.stackTrace = { status: 'red',
+        detail: `${pptrStacks.length} pptr: stack(s): ${[...new Set(pptrStacks.map(s=>s.api))].join(', ')}`,
+        points: 10, data: pptrStacks };
+    } else {
+      S.stackTrace = { status: 'gray', detail: 'No pptr: in DOM API stacks', points: 0 };
+    }
+
+    // 5. Keystroke timing (HIGH)
+    let worstCV = { cv: 999, field: null, result: null };
+    let anyTyped = false;
+    for (const [fid] of Object.entries(D.fields)) {
+      const r = analyzeKeystrokeTiming(fid);
+      if (r) { anyTyped = true; if (r.cv < worstCV.cv) worstCV = { cv: r.cv, field: fid, result: r }; }
+    }
+    if (!anyTyped) {
+      S.keystrokeTiming = { status: 'gray', detail: 'No typing yet', points: 0 };
+    } else if (worstCV.result.verdict === 'machine') {
+      S.keystrokeTiming = { status: 'red',
+        detail: `CV=${worstCV.result.cv} stddev=${worstCV.result.stddev}ms (${worstCV.field})`, points: 12, data: worstCV.result };
+    } else if (worstCV.result.verdict === 'uncertain') {
+      S.keystrokeTiming = { status: 'yellow',
+        detail: `CV=${worstCV.result.cv} stddev=${worstCV.result.stddev}ms — borderline`, points: 4 };
+    } else {
+      S.keystrokeTiming = { status: 'green',
+        detail: `CV=${worstCV.result.cv} stddev=${worstCV.result.stddev}ms — human`, points: 0 };
+    }
+
+    // 6. Field sequence gaps (MEDIUM)
+    const seqR = analyzeFieldSequence();
+    if (!seqR) {
+      S.fieldSequence = { status: 'gray', detail: 'Need ≥2 transitions', points: 0 };
+    } else if (seqR.verdict === 'machine') {
+      S.fieldSequence = { status: 'red',
+        detail: `Mean ${seqR.meanGap}ms — ${seqR.fastCount}/${seqR.total} gaps <200ms`, points: 8, data: seqR };
+    } else {
+      S.fieldSequence = { status: 'green',
+        detail: `Mean ${seqR.meanGap}ms — normal pacing`, points: 0 };
+    }
+
+    // 7. Pointer events before focus (MEDIUM)
+    const totalFocus = D.focusWithMouse + D.focusWithoutMouse;
+    const noPointerFocuses = Object.values(D.pointerBeforeFocus).filter(v => !v).length;
+    const anyFocused = Object.values(D.pointerBeforeFocus).some((_, i, arr) => true);
+    const focusedFields = Object.entries(D.fields).filter(([,fd]) => fd.focusTime !== null);
+
+    if (focusedFields.length === 0) {
+      S.pointerBeforeFocus = { status: 'gray', detail: 'No focused fields yet', points: 0 };
+    } else {
+      const noPointerCount = focusedFields.filter(([fid, fd]) => !fd.pointerBeforeFocus).length;
+      const ratio = noPointerCount / focusedFields.length;
+      if (ratio > 0.7) {
+        S.pointerBeforeFocus = { status: 'red',
+          detail: `${noPointerCount}/${focusedFields.length} fields focused without pointer event`,
+          points: 8 };
+      } else if (ratio > 0.3) {
+        S.pointerBeforeFocus = { status: 'yellow',
+          detail: `${noPointerCount}/${focusedFields.length} without pointer — mixed`, points: 3 };
+      } else {
+        S.pointerBeforeFocus = { status: 'green',
+          detail: `Pointer events present before focus`, points: 0 };
+      }
+    }
+
+    // 8. Fill pattern (MEDIUM)
+    const fillFields = [];
+    for (const [fid, fd] of Object.entries(D.fields)) {
+      if (fd.insertReplacementText) fillFields.push(fid + '(IRT)');
+      else if (fd.selectAllDetected && !fd.mouseBeforeFocus) fillFields.push(fid + '(SA)');
+    }
+    if (fillFields.length > 0) {
+      S.fillPattern = { status: 'red', detail: fillFields.join(', '), points: 8, data: fillFields };
+    } else {
+      S.fillPattern = { status: 'green', detail: 'No automation fill pattern', points: 0 };
+    }
+
+    // 9. Scroll before first interaction (MEDIUM)
+    if (!D.firstInteractionTime) {
+      S.scrollBeforeInteraction = { status: 'gray', detail: 'No interaction yet', points: 0 };
+    } else if (D.scrollBeforeInteraction) {
+      S.scrollBeforeInteraction = { status: 'green', detail: 'User scrolled before filling', points: 0 };
+    } else {
+      S.scrollBeforeInteraction = { status: 'yellow',
+        detail: 'No scroll before first field — bots skip scrolling', points: 5 };
+    }
+
+    // 10. beforeinput events (MEDIUM — absence is suspicious)
+    const totalKeydowns = Object.values(D.fields).reduce((a,fd) => a + fd.keydowns.length, 0);
+    const totalBeforeInput = Object.values(D.beforeInputCounts).reduce((a,b) => a+b, 0);
+    if (totalKeydowns === 0) {
+      S.beforeInputEvents = { status: 'gray', detail: 'No keydowns yet', points: 0 };
+    } else {
+      // If we have keydowns but no beforeinput at all, suspicious
+      if (totalBeforeInput === 0 && totalKeydowns > 2) {
+        S.beforeInputEvents = { status: 'yellow',
+          detail: `${totalKeydowns} keydowns, 0 beforeinput — CDP may skip this`, points: 4 };
+      } else {
+        const ratio = totalBeforeInput / totalKeydowns;
+        S.beforeInputEvents = { status: ratio > 0.5 ? 'green' : 'yellow',
+          detail: `${totalBeforeInput} beforeinput / ${totalKeydowns} keydowns`, points: ratio > 0.5 ? 0 : 2 };
+      }
+    }
+
+    // 11. Value without input (MEDIUM)
+    const valNoInput = D.events.filter(e => e.type === 'value-no-input');
+    S.valueNoInput = valNoInput.length > 0
+      ? { status: 'yellow', detail: `${valNoInput.length} silent value change(s)`, points: 4, data: valNoInput }
+      : { status: 'green', detail: 'All values match input events', points: 0 };
+
+    // 12. navigator.webdriver (MEDIUM)
+    if (D.navWebdriver === null) {
+      S.navWebdriver = { status: 'gray', detail: 'Not checked', points: 0 };
+    } else if (D.navWebdriver === true) {
+      S.navWebdriver = { status: 'red', detail: 'navigator.webdriver = true', points: 10 };
+    } else {
+      S.navWebdriver = { status: 'green', detail: 'navigator.webdriver = false', points: 0 };
+    }
+
+    // 13. CDP artifacts (MEDIUM)
+    if (D.cdpArtifacts.length > 0) {
+      S.cdpArtifacts = { status: 'red',
+        detail: D.cdpArtifacts.map(a => a.key).join(', '), points: 6, data: D.cdpArtifacts };
+    } else {
+      S.cdpArtifacts = { status: 'green', detail: 'No webdriver artifacts found', points: 0 };
+    }
+
+    // 14. Mouse before focus (LOW)
+    if (totalFocus === 0) {
+      S.mouseBeforeFocus = { status: 'gray', detail: 'No focus events yet', points: 0 };
+    } else {
+      const noMouseRatio = D.focusWithoutMouse / totalFocus;
+      if (noMouseRatio > 0.7) {
+        S.mouseBeforeFocus = { status: 'yellow',
+          detail: `${D.focusWithoutMouse}/${totalFocus} focus without mouse movement`, points: 4 };
+      } else {
+        S.mouseBeforeFocus = { status: 'green',
+          detail: `${D.focusWithMouse}/${totalFocus} with mouse`, points: 0 };
+      }
+    }
+
+    return S;
+  }
+
+  // ── Score computation ──────────────────────────────────────────────────
+  function computeScore(S) {
+    const totalWeight = SIGNAL_DEFS.reduce((a,d) => a + d.weight, 0);
+    let points = 0;
+    for (const def of SIGNAL_DEFS) {
+      const sig = S[def.id];
+      if (sig && sig.points) points += sig.points;
+    }
+    return Math.min(100, Math.round((points / totalWeight) * 100));
+  }
+
+  // ── Dashboard render ───────────────────────────────────────────────────
+  function render() {
+    const S = computeSignals();
+    const score = computeScore(S);
+
+    // Score display
+    const circle = document.getElementById('scoreCircle');
+    const label = document.getElementById('scoreLabel');
+    const sublabel = document.getElementById('scoreSubLabel');
+    if (circle && label) {
+      circle.textContent = score;
+      circle.className = 'score-circle ' + (
+        score >= 70 ? 'critical' : score >= 40 ? 'high' : score >= 20 ? 'medium' : 'low'
+      );
+      label.textContent = score >= 70 ? '🤖 Likely OpenClaw / MCP Bot'
+        : score >= 40 ? '⚠️ Probable Automation'
+        : score >= 20 ? '🟡 Suspicious — Monitor'
+        : '✅ Likely Human';
+      sublabel.textContent = `Bot confidence score: ${score}/100 — ${Object.values(S).filter(s => s.status === 'red').length} red, ${Object.values(S).filter(s => s.status === 'yellow').length} yellow`;
+    }
+
+    // Signal list — grouped
+    const container = document.getElementById('signalList');
+    if (!container) return;
+    container.innerHTML = '';
+
+    let lastGroup = null;
+    for (const def of SIGNAL_DEFS) {
+      if (def.group !== lastGroup) {
+        lastGroup = def.group;
+        const gh = document.createElement('div');
+        gh.className = 'signal-group-header';
+        gh.textContent = def.group;
+        container.appendChild(gh);
+      }
+      const sig = S[def.id] || { status: 'gray', detail: '—' };
+      const row = document.createElement('div');
+      row.className = 'signal-row';
+      const badge = sig.status === 'orange' ? 'orange' : sig.status;
+      row.innerHTML = `
+        <span class="signal-badge ${badge}"></span>
+        <span class="signal-name">${def.name} <span style="color:var(--muted);font-size:10px">[${def.confidence}·${def.weight}pt]</span></span>
+        <span class="signal-detail" title="${sig.detail}">${sig.detail}</span>
+      `;
+      container.appendChild(row);
+    }
+
+    // Event count
+    const ec = document.getElementById('eventCount');
+    if (ec) ec.textContent = `(${D.events.length})`;
+  }
+
+  // ── Controls ────────────────────────────────────────────────────────────
+  document.getElementById('diagToggle').addEventListener('click', () => {
+    document.getElementById('diagPanel').classList.toggle('open');
+    render();
+  });
+  document.getElementById('clearLogBtn')?.addEventListener('click', () => {
+    D.events = [];
+    document.getElementById('rawLog').textContent = '';
+  });
+
+  // Auto-refresh while panel is open
+  setInterval(() => {
+    if (document.getElementById('diagPanel')?.classList.contains('open')) render();
+  }, 600);
+
+  // ── Export JSON ─────────────────────────────────────────────────────────
+  function buildExport() {
+    computeSignals();
+    const formData = {};
+    document.querySelectorAll('#contactForm input, #contactForm select, #contactForm textarea').forEach(el => {
+      formData[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    const perField = {};
+    for (const [fid, fd] of Object.entries(D.fields)) {
+      perField[fid] = {
+        keyIntervals: fd.keyIntervals,
+        keystrokeAnalysis: analyzeKeystrokeTiming(fid),
+        fillPattern: { selectAll: fd.selectAllDetected, insertReplacementText: fd.insertReplacementText,
+          deleteContent: fd.deleteContentDetected },
+        mouseBeforeFocus: fd.mouseBeforeFocus, pointerBeforeFocus: fd.pointerBeforeFocus,
+        tabFocused: fd.tabFocused, beforeInputCount: fd.beforeInputCount,
+        eventSequence: fd.eventSequence,
+      };
+    }
+    return {
+      version: D.version,
+      exportTime: new Date().toISOString(),
+      durationMs: +(performance.now() - D.startTime).toFixed(2),
+      score: computeScore(D.signals),
+      signals: D.signals,
+      formValues: formData,
+      perField,
+      mouseTrail: D.mouseTrail.slice(-100),
+      mutationObservers: D.mutationObservers,
+      promiseWithResolversCalls: D.promiseWithResolversCalls,
+      getterHits: D.getterHits,
+      stackTraces: D.stackTraces,
+      computedStyleCalls: D.computedStyleCalls,
+      cdpArtifacts: D.cdpArtifacts,
+      navWebdriver: D.navWebdriver,
+      clipboardEvents: D.clipboardEvents,
+      scrollEventCount: D.scrollEventCount,
+      scrollBeforeInteraction: D.scrollBeforeInteraction,
+      tabKeyCount: D.tabKeyCount,
+      fieldFocusOrder: window.__fieldFocusOrder || [],
+      events: D.events,
+      summary: {
+        totalSignals: SIGNAL_DEFS.length,
+        red: Object.values(D.signals).filter(s => s.status === 'red').length,
+        yellow: Object.values(D.signals).filter(s => s.status === 'yellow').length,
+        green: Object.values(D.signals).filter(s => s.status === 'green').length,
+        gray: Object.values(D.signals).filter(s => s.status === 'gray').length,
+      },
+    };
+  }
+
+  document.getElementById('exportBtn')?.addEventListener('click', () => {
+    const data = buildExport();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    a.download = `mcp-lab-${Date.now()}.json`;
+    a.click(); URL.revokeObjectURL(url);
+  });
+
+  // ── Beacon send ─────────────────────────────────────────────────────────
+  document.getElementById('beaconBtn')?.addEventListener('click', async () => {
+    const url = document.getElementById('beaconUrl')?.value?.trim();
+    const status = document.getElementById('beaconStatus');
+    if (!url) { if (status) status.textContent = '⚠ Enter a URL first'; return; }
+    const data = buildExport();
+    try {
+      if (status) status.textContent = 'Sending…';
+      const res = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (status) status.textContent = `✓ Sent — HTTP ${res.status}`;
+    } catch(e) {
+      if (status) status.textContent = `✗ Error: ${e.message}`;
+    }
+  });
+
+  // ── Form submit ──────────────────────────────────────────────────────────
+  document.getElementById('contactForm')?.addEventListener('submit', e => {
+    e.preventDefault();
+    document.getElementById('diagPanel')?.classList.add('open');
+    render();
+    window.__diagLog('form-submit', {});
+  });
+
+})();
+</script>
+
+</body>
+</html>

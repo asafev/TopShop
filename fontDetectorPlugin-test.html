@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Font Detector Plugin - Bitfield Fingerprinting</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', -apple-system, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            margin: 0;
+            padding: 20px;
+        }
+        h2 { color: #58a6ff; margin-top: 0; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        button {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        button:hover { background: #2ea043; }
+        button.secondary { background: #21262d; border: 1px solid #30363d; }
+        button.secondary:hover { background: #30363d; }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .summary-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .summary-card h3 {
+            margin: 0 0 12px 0;
+            color: #58a6ff;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        .stat { display: flex; justify-content: space-between; margin: 8px 0; }
+        .stat-label { color: #8b949e; }
+        .stat-value { color: #7ee787; font-family: 'Courier New', monospace; }
+        .stat-value.hash { color: #ffa657; font-size: 12px; }
+        .stat-value.bitfield { 
+            color: #a5d6ff; 
+            font-size: 11px; 
+            word-break: break-all;
+            text-align: right;
+            max-width: 180px;
+        }
+        
+        .perf-bar {
+            height: 6px;
+            background: #21262d;
+            border-radius: 3px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .perf-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #238636, #7ee787);
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+        
+        .json-output {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .section-title {
+            color: #8b949e;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin: 20px 0 10px 0;
+        }
+        
+        .font-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        .font-pill {
+            background: #21262d;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            color: #c9d1d9;
+        }
+    </style>
+</head>
+<body>
+    <h2>🔤 Font Detector Plugin - Bitfield Fingerprinting</h2>
+    
+    <div class="controls">
+        <button onclick="runDetect('lengths')">Detect (Lengths - Fast)</button>
+        <button onclick="runDetect('domRect')">Detect (DOMRect)</button>
+        <button class="secondary" onclick="runBoth()">Compare Both Methods</button>
+        <button class="secondary" onclick="showFontLists()">Show Font Lists</button>
+    </div>
+    
+    <div id="summary" class="summary-grid"></div>
+    
+    <div class="section-title">Full JSON Output</div>
+    <div id="output" class="json-output">Click a button to run detection...</div>
+
+    <script src="fontDetectorPlugin.js"></script>
+    <script>
+        const detector = new FontDetectorPlugin();
+
+        function renderSummary(result) {
+            const maxMs = Math.max(
+                result.performance.breakdown.regionalNonLatinMs,
+                result.performance.breakdown.platformCoreMs,
+                result.performance.breakdown.generalMs
+            );
+            
+            return `
+                <div class="summary-card">
+                    <h3>📊 Combined Fingerprint</h3>
+                    <div class="stat">
+                        <span class="stat-label">Method</span>
+                        <span class="stat-value">${result.method}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Hash</span>
+                        <span class="stat-value hash">${result.fingerprint.hash}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Fonts Detected</span>
+                        <span class="stat-value">${result.fingerprint.supportedCount} / ${result.fingerprint.testedCount}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Total Time</span>
+                        <span class="stat-value">${result.performance.totalMs}ms</span>
+                    </div>
+                </div>
+                
+                ${Object.entries(result.categories).map(([key, cat]) => `
+                    <div class="summary-card">
+                        <h3>${key === 'regionalNonLatin' ? '🌏' : key === 'platformCore' ? '💻' : '🎨'} ${key}</h3>
+                        <div class="stat">
+                            <span class="stat-label">Bitfield</span>
+                            <span class="stat-value bitfield">${cat.bitfield}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Hash</span>
+                            <span class="stat-value hash">${cat.hash || 'none'}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Detected</span>
+                            <span class="stat-value">${cat.supportedCount} / ${cat.totalCount}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Time</span>
+                            <span class="stat-value">${cat.performanceMs}ms</span>
+                        </div>
+                        <div class="perf-bar">
+                            <div class="perf-fill" style="width: ${(cat.performanceMs / maxMs * 100).toFixed(0)}%"></div>
+                        </div>
+                        ${cat.supported.length > 0 ? `
+                            <div class="font-pills">
+                                ${cat.supported.slice(0, 8).map(f => `<span class="font-pill">${f}</span>`).join('')}
+                                ${cat.supported.length > 8 ? `<span class="font-pill">+${cat.supported.length - 8} more</span>` : ''}
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('')}
+            `;
+        }
+
+        async function runDetect(method) {
+            document.getElementById('output').textContent = `Running ${method} detection...`;
+            document.getElementById('summary').innerHTML = '';
+            
+            const result = await detector.setMethod(method).detect();
+            
+            document.getElementById('summary').innerHTML = renderSummary(result);
+            document.getElementById('output').textContent = JSON.stringify(result, null, 2);
+            console.log(`${method} Result:`, result);
+        }
+
+        async function runBoth() {
+            document.getElementById('output').textContent = 'Comparing both methods...';
+            document.getElementById('summary').innerHTML = '';
+            
+            const result = await detector.detectBoth();
+            
+            document.getElementById('summary').innerHTML = `
+                <div class="summary-card">
+                    <h3>⚡ Performance Comparison</h3>
+                    <div class="stat">
+                        <span class="stat-label">Lengths Time</span>
+                        <span class="stat-value">${result.comparison.performance.lengthsTotalMs}ms</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">DOMRect Time</span>
+                        <span class="stat-value">${result.comparison.performance.domRectTotalMs}ms</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Winner</span>
+                        <span class="stat-value">${result.comparison.performance.winner} (${result.comparison.performance.difference} faster)</span>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <h3>🔍 Accuracy Comparison</h3>
+                    <div class="stat">
+                        <span class="stat-label">Hashes Match</span>
+                        <span class="stat-value">${result.comparison.hashesMatch ? '✅ Yes' : '❌ No'}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Counts Match</span>
+                        <span class="stat-value">${result.comparison.countsMatch ? '✅ Yes' : '❌ No'}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Bitfields Match</span>
+                        <span class="stat-value">${result.comparison.bitfieldsMatch ? '✅ Yes' : '❌ No'}</span>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <h3>📈 Lengths Method</h3>
+                    <div class="stat">
+                        <span class="stat-label">Hash</span>
+                        <span class="stat-value hash">${result.lengths.fingerprint.hash}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Detected</span>
+                        <span class="stat-value">${result.lengths.fingerprint.supportedCount} fonts</span>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <h3>📐 DOMRect Method</h3>
+                    <div class="stat">
+                        <span class="stat-label">Hash</span>
+                        <span class="stat-value hash">${result.domRect.fingerprint.hash}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Detected</span>
+                        <span class="stat-value">${result.domRect.fingerprint.supportedCount} fonts</span>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('output').textContent = JSON.stringify(result, null, 2);
+            console.log('Comparison Result:', result);
+        }
+
+        function showFontLists() {
+            const lists = detector.getFontLists();
+            document.getElementById('summary').innerHTML = `
+                <div class="summary-card">
+                    <h3>📋 Font Lists Summary</h3>
+                    <div class="stat">
+                        <span class="stat-label">Regional Non-Latin</span>
+                        <span class="stat-value">${lists.totals.regionalNonLatin} fonts</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Platform Core</span>
+                        <span class="stat-value">${lists.totals.platformCore} fonts</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">General</span>
+                        <span class="stat-value">${lists.totals.general} fonts</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Total</span>
+                        <span class="stat-value">${lists.totals.total} fonts</span>
+                    </div>
+                </div>
+            `;
+            document.getElementById('output').textContent = JSON.stringify(lists, null, 2);
+        }
+    </script>
+</body>
+</html>

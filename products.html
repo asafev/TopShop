@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TechShop — Products</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #121418;
+      --bg-card: #1e2228;
+      --text-primary: #f5f4f1;
+      --text-muted: #9a9790;
+      --accent: #e5a830;
+      --border-primary: #333840;
+      --warning: #f39c12;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: var(--bg-card);
+      border: 1px solid var(--border-primary);
+      border-radius: 16px;
+      padding: 48px;
+      max-width: 520px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .icon { font-size: 48px; margin-bottom: 20px; }
+    h1 { font-size: 24px; margin-bottom: 12px; color: var(--warning); }
+    .message { color: var(--text-muted); font-size: 15px; line-height: 1.6; margin-bottom: 24px; }
+    .session-info {
+      background: rgba(243, 156, 18, 0.1);
+      border: 1px solid rgba(243, 156, 18, 0.3);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .session-id { font-family: monospace; color: var(--warning); word-break: break-all; }
+    .btn {
+      display: inline-block;
+      padding: 14px 32px;
+      background: var(--accent);
+      color: #000;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #f0b840; }
+    .footer { margin-top: 24px; font-size: 12px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">⚠️</div>
+    <h1>Access Denied</h1>
+    <p class="message">
+      You haven't completed the entry form yet. Our products catalog requires verification before browsing.
+    </p>
+    <div class="session-info">
+      <div>Your session ID:</div>
+      <div class="session-id" id="sessionId"></div>
+      <div style="margin-top: 8px;">Status: <strong style="color: #e74c3c;">Not verified</strong></div>
+    </div>
+    <a href="topshopsale.html" class="btn">← Go Back & Complete Form</a>
+    <p class="footer">Complete the form on the welcome page to access our products.</p>
+  </div>
+
+  <script>
+    // Generate a random-looking session ID for display
+    function generateSessionId() {
+      const chars = '0123456789abcdef';
+      let id = '';
+      const segments = [8, 4, 4, 4, 12];
+      segments.forEach((len, i) => {
+        for (let j = 0; j < len; j++) {
+          id += chars[Math.floor(Math.random() * chars.length)];
+        }
+        if (i < segments.length - 1) id += '-';
+      });
+      return id;
+    }
+    
+    document.getElementById('sessionId').textContent = generateSessionId();
+  </script>
+</body>
+</html>

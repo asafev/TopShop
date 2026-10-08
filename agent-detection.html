@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent Detection</title>
+    <style>
+        :root {
+            --bg-primary: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-detected: #fef2f2;
+            --bg-safe: #f0fdf4;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --border-color: #e2e8f0;
+            --accent-danger: #ef4444;
+            --accent-danger-light: #fca5a5;
+            --accent-success: #22c55e;
+            --accent-success-light: #86efac;
+            --accent-info: #3b82f6;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --radius: 12px;
+            --radius-sm: 8px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Status Banner */
+        .status-banner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            padding: 1rem 1.5rem;
+            border-radius: var(--radius);
+            margin-bottom: 2rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .status-banner.loading {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .status-banner.detected {
+            background: var(--bg-detected);
+            border: 1px solid var(--accent-danger-light);
+            color: var(--accent-danger);
+        }
+
+        .status-banner.safe {
+            background: var(--bg-safe);
+            border: 1px solid var(--accent-success-light);
+            color: var(--accent-success);
+        }
+
+        .status-icon {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-info);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Detection Cards */
+        .detections-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .detection-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 1.25rem 1.5rem;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.2s ease;
+        }
+
+        .detection-card:hover {
+            box-shadow: var(--shadow-md);
+        }
+
+        .detection-card.detected {
+            border-left: 4px solid var(--accent-danger);
+            background: linear-gradient(to right, var(--bg-detected), var(--bg-card) 50%);
+        }
+
+        .detection-card.not-detected {
+            opacity: 0.6;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+
+        .agent-name {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            font-size: 1.05rem;
+        }
+
+        .agent-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .agent-badge.detected {
+            background: var(--accent-danger);
+            color: white;
+        }
+
+        .agent-badge.safe {
+            background: var(--accent-success-light);
+            color: #166534;
+        }
+
+        .confidence-meter {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .confidence-bar {
+            width: 60px;
+            height: 6px;
+            background: var(--border-color);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: var(--accent-danger);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        .detection-method {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-primary);
+            border-radius: var(--radius-sm);
+        }
+
+        /* Indicators */
+        .indicators {
+            margin-top: 1rem;
+        }
+
+        .indicators-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .indicator-item {
+            display: flex;
+            flex-direction: column;
+            padding: 0.75rem;
+            background: var(--bg-primary);
+            border-radius: var(--radius-sm);
+            margin-bottom: 0.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .indicator-name {
+            font-weight: 500;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .indicator-description {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .indicator-value {
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 0.75rem;
+            color: var(--accent-info);
+            background: #eff6ff;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            word-break: break-all;
+            margin-top: 0.25rem;
+        }
+
+        /* Summary Stats */
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 1rem 1.25rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .stat-value.danger { color: var(--accent-danger); }
+        .stat-value.success { color: var(--accent-success); }
+        .stat-value.info { color: var(--accent-info); }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        /* Live indicator */
+        .live-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 1rem;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-success);
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.9); }
+        }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            body { padding: 1rem; }
+            .header h1 { font-size: 1.5rem; }
+            .detection-card { padding: 1rem; }
+        }
+
+        /* Detected agents section */
+        .section-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin: 2rem 0 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .section-title.danger { color: var(--accent-danger); }
+
+        /* Real-time event log */
+        .event-log {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 1rem;
+            margin-top: 2rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .event-log-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .event-item {
+            font-size: 0.8rem;
+            padding: 0.25rem 0;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .event-item:last-child { border-bottom: none; }
+
+        .event-time {
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+
+        .event-message {
+            color: var(--text-primary);
+        }
+
+        .event-message.detected { color: var(--accent-danger); font-weight: 500; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>AI Agent Detection</h1>
+            <p>Real-time monitoring for browser automation and AI agents</p>
+        </header>
+
+        <div id="statusBanner" class="status-banner loading">
+            <div class="status-icon"><div class="spinner"></div></div>
+            <span>Scanning for AI agents...</span>
+        </div>
+
+        <div id="summaryStats" class="summary-stats" style="display: none;">
+            <div class="stat-card">
+                <div id="detectedCount" class="stat-value danger">0</div>
+                <div class="stat-label">Agents Detected</div>
+            </div>
+            <div class="stat-card">
+                <div id="totalScanned" class="stat-value info">0</div>
+                <div class="stat-label">Total Scanned</div>
+            </div>
+            <div class="stat-card">
+                <div id="highestConfidence" class="stat-value danger">0%</div>
+                <div class="stat-label">Highest Confidence</div>
+            </div>
+        </div>
+
+        <div id="detectedSection" style="display: none;">
+            <div class="section-title danger">⚠️ Detected Agents</div>
+            <div id="detectedAgents" class="detections-grid"></div>
+        </div>
+
+        <div id="eventLog" class="event-log" style="display: none;">
+            <div class="event-log-title">📡 Live Detection Events</div>
+            <div id="eventList"></div>
+        </div>
+
+        <div class="live-indicator">
+            <div class="live-dot"></div>
+            <span>MutationObserver active — detecting agents in real-time</span>
+        </div>
+    </div>
+
+    <script type="module">
+        import { AIAgentDetector } from './agentDetector.js';
+
+        const detector = new AIAgentDetector();
+        const eventList = document.getElementById('eventList');
+        let eventCount = 0;
+
+        function formatTime(date) {
+            return date.toLocaleTimeString('en-US', { 
+                hour12: false, 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit' 
+            });
+        }
+
+        function addEvent(message, isDetection = false) {
+            const eventLog = document.getElementById('eventLog');
+            eventLog.style.display = 'block';
+            
+            const item = document.createElement('div');
+            item.className = 'event-item';
+            item.innerHTML = `
+                <span class="event-time">${formatTime(new Date())}</span>
+                <span class="event-message ${isDetection ? 'detected' : ''}">${message}</span>
+            `;
+            eventList.insertBefore(item, eventList.firstChild);
+            
+            // Keep only last 20 events
+            while (eventList.children.length > 20) {
+                eventList.removeChild(eventList.lastChild);
+            }
+        }
+
+        function createDetectionCard(result) {
+            const card = document.createElement('div');
+            card.className = `detection-card ${result.detected ? 'detected' : 'not-detected'}`;
+            
+            const confidencePercent = Math.round(result.confidence * 100);
+            
+            let indicatorsHTML = '';
+            if (result.indicators && result.indicators.length > 0) {
+                indicatorsHTML = `
+                    <div class="indicators">
+                        <div class="indicators-title">Detection Indicators</div>
+                        ${result.indicators.map(ind => `
+                            <div class="indicator-item">
+                                <div class="indicator-name">${ind.name}</div>
+                                <div class="indicator-description">${ind.description}</div>
+                                <div class="indicator-value">${escapeHtml(ind.value)}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            card.innerHTML = `
+                <div class="card-header">
+                    <div class="agent-name">
+                        ${result.name}
+                        <span class="agent-badge ${result.detected ? 'detected' : 'safe'}">
+                            ${result.detected ? '⚠ Detected' : '✓ Clear'}
+                        </span>
+                    </div>
+                    ${result.detected ? `
+                        <div class="confidence-meter">
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" style="width: ${confidencePercent}%"></div>
+                            </div>
+                            <span>${confidencePercent}%</span>
+                        </div>
+                    ` : ''}
+                </div>
+                ${result.detected ? `
+                    <div class="detection-method">
+                        <strong>Method:</strong> ${result.detectionMethod}
+                        ${result.primarySignal ? `<br><strong>Primary Signal:</strong> ${result.primarySignal}` : ''}
+                    </div>
+                    ${indicatorsHTML}
+                ` : ''}
+            `;
+
+            return card;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        function updateUI(results) {
+            const statusBanner = document.getElementById('statusBanner');
+            const summaryStats = document.getElementById('summaryStats');
+            const detectedSection = document.getElementById('detectedSection');
+            const detectedAgents = document.getElementById('detectedAgents');
+
+            const detected = results.filter(r => r.detected);
+            const detectedCount = detected.length;
+            const totalScanned = results.length;
+            const highestConfidence = detected.length > 0 
+                ? Math.max(...detected.map(r => r.confidence)) 
+                : 0;
+
+            // Update status banner
+            if (detectedCount > 0) {
+                statusBanner.className = 'status-banner detected';
+                statusBanner.innerHTML = `
+                    <div class="status-icon">⚠️</div>
+                    <span>${detectedCount} AI Agent${detectedCount > 1 ? 's' : ''} Detected</span>
+                `;
+            } else {
+                statusBanner.className = 'status-banner safe';
+                statusBanner.innerHTML = `
+                    <div class="status-icon">✓</div>
+                    <span>No AI Agents Detected</span>
+                `;
+            }
+
+            // Update summary stats
+            summaryStats.style.display = 'grid';
+            document.getElementById('detectedCount').textContent = detectedCount;
+            document.getElementById('totalScanned').textContent = totalScanned;
+            document.getElementById('highestConfidence').textContent = 
+                `${Math.round(highestConfidence * 100)}%`;
+
+            // Show detected agents
+            if (detectedCount > 0) {
+                detectedSection.style.display = 'block';
+                detectedAgents.innerHTML = '';
+                
+                // Sort by confidence (highest first)
+                detected.sort((a, b) => b.confidence - a.confidence);
+                
+                detected.forEach(result => {
+                    detectedAgents.appendChild(createDetectionCard(result));
+                });
+            }
+        }
+
+        // Listen for real-time agent detection events (from MutationObserver)
+        window.addEventListener('agentDetected', (event) => {
+            const detail = event.detail;
+            addEvent(`🚨 ${detail.name} detected! (${Math.round(detail.confidence * 100)}% confidence)`, true);
+            
+            // Re-run full detection to update UI
+            runDetection();
+        });
+
+        async function runDetection() {
+            addEvent('Starting agent detection scan...');
+            
+            try {
+                const results = await detector.runAllDetections();
+                updateUI(results);
+                
+                const detected = results.filter(r => r.detected);
+                if (detected.length > 0) {
+                    detected.forEach(r => {
+                        addEvent(`Detected: ${r.name} (${Math.round(r.confidence * 100)}% confidence)`, true);
+                    });
+                } else {
+                    addEvent('Scan complete — no agents detected');
+                }
+            } catch (error) {
+                addEvent(`Error during detection: ${error.message}`);
+                console.error('Detection error:', error);
+            }
+        }
+
+        // Run initial detection
+        runDetection();
+
+        // Also check for any pre-existing detections from early hooks
+        setTimeout(() => {
+            if (window.__botSignals) {
+                Object.keys(window.__botSignals).forEach(key => {
+                    const detection = window.__botSignals[key];
+                    if (detection?.detected) {
+                        addEvent(`Pre-existing detection: ${detection.name}`, true);
+                    }
+                });
+            }
+        }, 100);
+    </script>
+</body>
+</html>

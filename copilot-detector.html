@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copilot Browser Tool Detector</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            padding: 24px;
+            min-height: 100vh;
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.8rem;
+            margin-bottom: 8px;
+            color: #58a6ff;
+        }
+        .subtitle {
+            text-align: center;
+            color: #8b949e;
+            margin-bottom: 24px;
+            font-size: 0.9rem;
+        }
+        .verdict-box {
+            text-align: center;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 28px;
+            border: 2px solid;
+        }
+        .verdict-box.automated {
+            background: rgba(248, 81, 73, 0.1);
+            border-color: #f85149;
+        }
+        .verdict-box.suspicious {
+            background: rgba(210, 153, 34, 0.1);
+            border-color: #d29922;
+        }
+        .verdict-box.normal {
+            background: rgba(63, 185, 80, 0.1);
+            border-color: #3fb950;
+        }
+        .verdict-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #8b949e;
+            margin-bottom: 4px;
+        }
+        .verdict-text {
+            font-size: 1.6rem;
+            font-weight: 700;
+        }
+        .verdict-box.automated .verdict-text { color: #f85149; }
+        .verdict-box.suspicious .verdict-text { color: #d29922; }
+        .verdict-box.normal .verdict-text { color: #3fb950; }
+        .score-bar {
+            margin-top: 12px;
+            height: 8px;
+            background: #21262d;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .score-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.6s ease;
+        }
+        .verdict-box.automated .score-fill { background: #f85149; }
+        .verdict-box.suspicious .score-fill { background: #d29922; }
+        .verdict-box.normal .score-fill { background: #3fb950; }
+        .score-label {
+            margin-top: 6px;
+            font-size: 0.85rem;
+            color: #8b949e;
+        }
+        .tier {
+            margin-bottom: 24px;
+        }
+        .tier-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #21262d;
+        }
+        .tier-badge {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .tier-1 .tier-badge { background: #f8514933; color: #f85149; }
+        .tier-2 .tier-badge { background: #d2992233; color: #d29922; }
+        .tier-3 .tier-badge { background: #8b949e33; color: #8b949e; }
+        .tier-title {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .signal-card {
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            transition: border-color 0.2s;
+        }
+        .signal-card:hover {
+            border-color: #30363d;
+        }
+        .signal-icon {
+            font-size: 1.2rem;
+            flex-shrink: 0;
+            width: 28px;
+            text-align: center;
+            padding-top: 2px;
+        }
+        .signal-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .signal-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
+        .signal-note {
+            font-size: 0.8rem;
+            color: #8b949e;
+            margin-bottom: 6px;
+        }
+        .signal-details {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.75rem;
+            background: #0d1117;
+            padding: 6px 10px;
+            border-radius: 4px;
+            color: #7ee787;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+        .signal-details.not-detected {
+            color: #8b949e;
+        }
+        .signal-weight {
+            flex-shrink: 0;
+            font-size: 0.7rem;
+            background: #21262d;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #8b949e;
+            font-weight: 600;
+        }
+        .detected .signal-name { color: #f85149; }
+        .not-detected-card .signal-name { color: #3fb950; }
+        #loading {
+            text-align: center;
+            padding: 60px;
+            color: #8b949e;
+        }
+        .spinner {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid #21262d;
+            border-top-color: #58a6ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <h1>🔍 Copilot Browser Tool Detector</h1>
+    <p class="subtitle">Fingerprinting VS Code Copilot's embedded Playwright browser</p>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>Running detection signals...</div>
+    </div>
+    <div id="results" style="display:none;"></div>
+
+    <script>
+    (async function() {
+        const signals = [];
+
+        // Wait for speech voices to load (async on Chromium)
+        await new Promise(resolve => {
+            if (speechSynthesis.getVoices().length > 0) return resolve();
+            speechSynthesis.onvoiceschanged = resolve;
+            // Trigger voice load + timeout safety
+            speechSynthesis.getVoices();
+            setTimeout(resolve, 500);
+        });
+
+        // === TIER 1: Definitive Markers ===
+
+        // Signal 1: CDP Stack Leak via Proxy Trap
+        // When CDP Runtime.enable is active, console methods serialize objects,
+        // triggering Proxy traps. We capture Error().stack INSIDE the trap.
+        // This reveals the CDP serialization call path even from inline page JS.
+        const cdpStackLeak = (() => {
+            const capturedStacks = [];
+            let trapFireCount = 0;
+            
+            const trap = new Proxy({}, {
+                ownKeys() {
+                    trapFireCount++;
+                    capturedStacks.push(new Error('cdp-stack-leak').stack);
+                    return [];
+                }
+            });
+            const obj = Object.create(trap);
+            
+            // console.groupEnd normally ignores arguments entirely.
+            // But with CDP Runtime.enable, it serializes them → triggers ownKeys.
+            console.groupEnd(obj);
+            
+            const hasConsoleSerialization = capturedStacks.some(s => s.includes('console.groupEnd'));
+            
+            return {
+                trapFired: trapFireCount > 0,
+                trapFireCount,
+                hasConsoleSerialization,
+                // 2+ fires per call = full CDP serialization pipeline
+                isFullCDP: trapFireCount >= 2,
+                capturedStacks,
+            };
+        })();
+        signals.push({
+            tier: 1,
+            name: 'CDP Stack Leak via console.groupEnd Proxy',
+            weight: 50,
+            detected: cdpStackLeak.trapFired && cdpStackLeak.hasConsoleSerialization,
+            details: cdpStackLeak.trapFired
+                ? `Trap fired ${cdpStackLeak.trapFireCount}x. Stack inside trap: ${cdpStackLeak.capturedStacks[0]?.split('\n').slice(0, 4).map(l => l.trim()).join(' → ')}`
+                : 'Proxy ownKeys trap did NOT fire — no CDP session active',
+            note: 'console.groupEnd() normally ignores its arguments. When CDP Runtime.enable is active, V8 serializes objects for the Runtime.consoleAPICalled event, triggering Proxy ownKeys traps. Capturing Error().stack inside the trap reveals the CDP serialization call chain. This fires 4x per call (preview + full serialization), confirming an active CDP session. Works from inline page JS.',
+        });
+
+        // Signal 1b: CDP Serialization Depth (fire count analysis)
+        signals.push({
+            tier: 1,
+            name: 'CDP Serialization Depth (4x fire per call)',
+            weight: 30,
+            detected: cdpStackLeak.isFullCDP,
+            details: `ownKeys fired ${cdpStackLeak.trapFireCount}x for 1 console.groupEnd call. ` +
+                     (cdpStackLeak.isFullCDP
+                        ? 'Full CDP pipeline confirmed (serialization + preview).'
+                        : cdpStackLeak.trapFired
+                            ? 'Partial serialization — possible DevTools open but not full CDP.'
+                            : 'No serialization — no CDP session.'),
+            note: 'CDP Runtime.enable triggers ownKeys 2+ times per console call for serialization and preview generation. Zero fires = no CDP. ≥2 fires = active Playwright/automation CDP session.',
+        });
+
+        // Signal 2: UA contains Code/ + Electron/
+        const ua = navigator.userAgent;
+        const hasCode = /Code\/[\d.]+/.test(ua);
+        const hasElectron = /Electron\/[\d.]+/.test(ua);
+        signals.push({
+            tier: 1,
+            name: 'User-Agent: Code/ + Electron/',
+            weight: 40,
+            detected: hasCode && hasElectron,
+            details: hasCode && hasElectron
+                ? `Code/${(ua.match(/Code\/([\d.]+)/) || [])[1]}, Electron/${(ua.match(/Electron\/([\d.]+)/) || [])[1]}, Chrome/${(ua.match(/Chrome\/([\d.]+)/) || [])[1]}`
+                : `UA: ${ua.substring(0, 100)}`,
+            note: 'VS Code Electron shell explicitly identifies itself in the User-Agent string.',
+        });
+
+        // Signal 3: Client Hints brands — only 2, no "Google Chrome"
+        const brands = navigator.userAgentData?.brands || [];
+        const hasGoogleChrome = brands.some(b => b.brand.includes('Google Chrome'));
+        signals.push({
+            tier: 1,
+            name: 'Client Hints: Missing "Google Chrome" Brand',
+            weight: 25,
+            detected: brands.length === 2 && !hasGoogleChrome,
+            details: `Brands (${brands.length}): ${brands.map(b => `${b.brand} v${b.version}`).join(', ') || 'N/A'}`,
+            note: 'Normal Chrome reports 3 brands (Google Chrome + Chromium + Not_A Brand). Electron only has 2.',
+        });
+
+        // === TIER 2: Strong Supporting Signals ===
+
+        // Signal 5: Zero plugins + PDF viewer disabled
+        signals.push({
+            tier: 2,
+            name: 'Zero Plugins + PDF Viewer Disabled',
+            weight: 20,
+            detected: navigator.plugins.length === 0 && !navigator.pdfViewerEnabled,
+            details: `plugins.length=${navigator.plugins.length}, pdfViewerEnabled=${navigator.pdfViewerEnabled}`,
+            note: 'Desktop Chrome 90+ always registers 5 PDF-related plugins. Electron/automation has none.',
+        });
+
+        // Signal 6: Empty chrome object
+        const chromeKeys = window.chrome ? Object.getOwnPropertyNames(window.chrome).length : -1;
+        signals.push({
+            tier: 2,
+            name: 'Empty chrome Object (no runtime/app)',
+            weight: 15,
+            detected: !!window.chrome && chromeKeys === 0,
+            details: `window.chrome exists=${!!window.chrome}, ownPropertyNames count=${chromeKeys}`,
+            note: 'Normal Chrome has chrome.runtime, chrome.app, etc. Electron creates an empty chrome stub.',
+        });
+
+        // Signal 6b: chrome.loadTimes / chrome.csi stripped (deprecated APIs still in real Chrome)
+        const hasLoadTimes = typeof window.chrome?.loadTimes === 'function';
+        const hasCsi = typeof window.chrome?.csi === 'function';
+        signals.push({
+            tier: 2,
+            name: 'chrome.loadTimes / chrome.csi Missing',
+            weight: 15,
+            detected: !hasLoadTimes && !hasCsi,
+            details: `loadTimes=${typeof window.chrome?.loadTimes}, csi=${typeof window.chrome?.csi}`,
+            note: 'Real Chrome retains these deprecated APIs as functions for backward compatibility. Electron strips them entirely.',
+        });
+
+        // Signal 6d: Permissions Pattern Anomaly
+        // In automation: notifications="granted" while all other permissions are "denied".
+        // In real Chrome: fresh profile has everything "prompt"; interacted profile has a mix.
+        // The absence of ANY "prompt" state is the key differential.
+        const permissionsAnomaly = await (async () => {
+            const toTest = ['geolocation', 'camera', 'microphone', 'notifications'];
+            const results = {};
+            for (const name of toTest) {
+                try {
+                    const r = await navigator.permissions.query({ name });
+                    results[name] = r.state;
+                } catch(e) { results[name] = 'error'; }
+            }
+            const states = Object.values(results).filter(v => v !== 'error');
+            const hasPrompt = states.includes('prompt');
+            const notifGranted = results.notifications === 'granted';
+            const othersAllDenied = ['geolocation', 'camera', 'microphone']
+                .every(k => results[k] === 'denied');
+            return {
+                results,
+                hasPrompt,
+                notifGranted,
+                othersAllDenied,
+                anomaly: !hasPrompt && notifGranted && othersAllDenied,
+            };
+        })();
+        signals.push({
+            tier: 2,
+            name: 'Permissions Pattern: Granted+Denied (no "prompt")',
+            weight: 15,
+            detected: permissionsAnomaly.anomaly,
+            details: `notifications=${permissionsAnomaly.results.notifications}, geo=${permissionsAnomaly.results.geolocation}, camera=${permissionsAnomaly.results.camera}, mic=${permissionsAnomaly.results.microphone}. Any "prompt"=${permissionsAnomaly.hasPrompt}`,
+            note: 'Real Chrome fresh profile: all permissions are "prompt". After user interaction: mixed states. Automation/Electron auto-grants notifications but blocks all others → no permission is ever "prompt".',
+        });
+
+        // === TIER 3: Medium/Weak Supporting Signals ===
+
+        // Signal 7: Notification permission auto-granted
+        signals.push({
+            tier: 3,
+            name: 'Notification.permission Auto-Granted',
+            weight: 10,
+            detected: Notification.permission === 'granted',
+            details: `Notification.permission = "${Notification.permission}"`,
+            note: 'Real browsers default to "default" (not yet asked). Auto-granted suggests embedded/automation context.',
+        });
+
+        // Signal 10: Limited speech synthesis voices
+        const voices = speechSynthesis.getVoices();
+        signals.push({
+            tier: 3,
+            name: 'Limited Speech Synthesis Voices (≤5)',
+            weight: 5,
+            detected: voices.length > 0 && voices.length <= 5,
+            details: `voices=${voices.length}: ${voices.map(v => v.name).join(', ') || '(none loaded)'}`,
+            note: 'Normal Chrome on Windows: 20+ voices. Electron typically exposes only 3 SAPI5 voices.',
+        });
+
+        // Signal 11: navigator.share undefined
+        signals.push({
+            tier: 3,
+            name: 'Web Share API Unavailable',
+            weight: 5,
+            detected: !navigator.share,
+            details: `navigator.share = ${typeof navigator.share}`,
+            note: 'Web Share API is absent in Electron-based browsers.',
+        });
+
+        // Signal 12: Chrome Extension APIs Missing
+        // Real Chrome always exposes extension runtime APIs. Electron never does.
+        const chromeExtensionAPIs = (() => {
+            const apis = {
+                runtime: typeof chrome?.runtime?.getPlatformInfo === 'function',
+                contextMenus: typeof chrome?.contextMenus?.create === 'function',
+                tabs: typeof chrome?.tabs?.query === 'function',
+                storage: typeof chrome?.storage?.local?.set === 'function'
+            };
+            const available = Object.values(apis).filter(v => v).length;
+            return { apis, available, missing: 4 - available };
+        })();
+        signals.push({
+            tier: 1,
+            name: 'Chrome Extension APIs Missing',
+            weight: 35,
+            detected: chromeExtensionAPIs.available === 0,
+            details: `Extension APIs available: ${chromeExtensionAPIs.available}/4. Missing: ${chromeExtensionAPIs.missing}`,
+            note: 'Real Chrome always exposes chrome.runtime, chrome.contextMenus, chrome.tabs, chrome.storage APIs. Electron never implements these extension APIs.',
+        });
+
+        // Signal 13: Performance Timing Precision Reduced
+        // Automation contexts reduce timing precision to prevent fingerprinting.
+        const timingPrecision = (() => {
+            const start = performance.now();
+            const end = performance.now();
+            const diff = end - start;
+            const decimalPlaces = diff.toString().split('.')[1]?.length || 0;
+            return { diff, decimalPlaces, reduced: decimalPlaces <= 2 };
+        })();
+        signals.push({
+            tier: 2,
+            name: 'Performance Timing Precision Reduced',
+            weight: 12,
+            detected: timingPrecision.reduced,
+            details: `performance.now() precision: ${timingPrecision.decimalPlaces} decimal places`,
+            note: 'Real Chrome has high-precision timing (3+ decimal places). Automation contexts reduce precision to prevent timing-based fingerprinting.',
+        });
+
+        // === CALCULATE VERDICT ===
+        let totalWeight = 0, detectedWeight = 0;
+        for (const s of signals) {
+            totalWeight += s.weight;
+            if (s.detected) detectedWeight += s.weight;
+        }
+        const pct = Math.round((detectedWeight / totalWeight) * 100);
+        const verdict = detectedWeight >= 80 ? 'COPILOT_BROWSER_TOOL' :
+                        detectedWeight >= 50 ? 'PLAYWRIGHT_AUTOMATION' :
+                        detectedWeight >= 25 ? 'SUSPICIOUS_AUTOMATION' : 'LIKELY_NORMAL_BROWSER';
+        const verdictClass = detectedWeight >= 50 ? 'automated' : detectedWeight >= 25 ? 'suspicious' : 'normal';
+
+        // === RENDER ===
+        const tierLabels = {
+            1: { label: 'Tier 1', title: 'Definitive Markers — Unique to Copilot Browser Tool' },
+            2: { label: 'Tier 2', title: 'Strong Supporting Signals' },
+            3: { label: 'Tier 3', title: 'Medium / Weak Supporting Signals' },
+        };
+
+        let html = '';
+
+        // Verdict box
+        html += `<div class="verdict-box ${verdictClass}">
+            <div class="verdict-label">Detection Verdict</div>
+            <div class="verdict-text">${verdict}</div>
+            <div class="score-bar"><div class="score-fill" style="width:${pct}%"></div></div>
+            <div class="score-label">${detectedWeight} / ${totalWeight} points (${pct}%) — ${signals.filter(s => s.detected).length} of ${signals.length} signals triggered</div>
+        </div>`;
+
+        // Tier groups
+        for (const tier of [1, 2, 3]) {
+            const tierSignals = signals.filter(s => s.tier === tier);
+            const tierDetected = tierSignals.filter(s => s.detected).length;
+            html += `<div class="tier tier-${tier}">
+                <div class="tier-header">
+                    <span class="tier-badge">${tierLabels[tier].label}</span>
+                    <span class="tier-title">${tierLabels[tier].title}</span>
+                    <span style="margin-left:auto;font-size:0.8rem;color:#8b949e;">${tierDetected}/${tierSignals.length} detected</span>
+                </div>`;
+
+            for (const s of tierSignals) {
+                const cardClass = s.detected ? 'detected' : 'not-detected-card';
+                const icon = s.detected ? '🚨' : '✅';
+                const detailsClass = s.detected ? '' : 'not-detected';
+                html += `<div class="signal-card ${cardClass}">
+                    <div class="signal-icon">${icon}</div>
+                    <div class="signal-content">
+                        <div class="signal-name">${s.name}</div>
+                        <div class="signal-note">${s.note}</div>
+                        <div class="signal-details ${detailsClass}">${s.details}</div>
+                    </div>
+                    <div class="signal-weight">w:${s.weight}</div>
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('results').innerHTML = html;
+    })();
+    </script>
+</body>
+</html>

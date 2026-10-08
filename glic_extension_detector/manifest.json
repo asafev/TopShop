@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "GLIC Target Detector",
+  "version": "0.1.0",
+  "description": "Detects Chrome GLIC targets using chrome.debugger target enumeration.",
+  "permissions": ["debugger"],
+  "action": {
+    "default_title": "GLIC Target Detector",
+    "default_popup": "popup.html"
+  }
+}

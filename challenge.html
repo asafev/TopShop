@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .challenge-container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 450px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .shield-icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 20px;
+            fill: #667eea;
+        }
+
+        h1 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .checkbox-container {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            transition: border-color 0.3s;
+        }
+
+        .checkbox-container:hover {
+            border-color: #667eea;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .checkbox-label input[type="checkbox"] {
+            width: 24px;
+            height: 24px;
+            margin-right: 12px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+
+        .checkbox-label span {
+            font-size: 16px;
+            color: #333;
+        }
+
+        .loader {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .blocked {
+            text-align: center;
+            color: #d32f2f;
+        }
+
+        .blocked h2 {
+            margin-bottom: 15px;
+        }
+
+        .success {
+            text-align: center;
+            color: #388e3c;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .debug-info {
+            margin-top: 10px;
+            font-size: 11px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="challenge-container" id="container">
+        <div class="loader" id="loader">
+            <div class="spinner"></div>
+            <p>Preparing challenge...</p>
+        </div>
+    </div>
+
+    <script>
+        // Behavioral Analysis Engine - Cloudflare-style approach
+        const BehaviorAnalyzer = {
+            mouseMovements: [],
+            clickEvents: [],
+            startTime: Date.now(),
+            checkboxHovered: false,
+            checkboxPosition: null,
+            pageInteractions: 0,
+            mouseEnterTime: null,
+
+            // Track all mouse movements with high precision
+            trackMouse() {
+                document.addEventListener('mousemove', (e) => {
+                    this.mouseMovements.push({
+                        x: e.clientX,
+                        y: e.clientY,
+                        t: Date.now(),
+                        timestamp: performance.now()
+                    });
+                    
+                    // Keep only last 100 movements for performance
+                    if (this.mouseMovements.length > 100) {
+                        this.mouseMovements.shift();
+                    }
+                });
+
+                // Track any click events on the page
+                document.addEventListener('click', (e) => {
+                    this.clickEvents.push({
+                        x: e.clientX,
+                        y: e.clientY,
+                        t: Date.now(),
+                        target: e.target.tagName
+                    });
+                    this.pageInteractions++;
+                }, true);
+
+                // Track other interactions
+                document.addEventListener('keydown', () => {
+                    this.pageInteractions++;
+                });
+
+                document.addEventListener('touchstart', () => {
+                    this.pageInteractions++;
+                });
+            },
+
+            // Analyze if mouse movement is human-like
+            analyzeMouseBehavior() {
+                const movements = this.mouseMovements;
+                
+                if (movements.length < 10) {
+                    return {
+                        score: 0,
+                        human: false,
+                        reason: 'Insufficient mouse movement data',
+                        details: { movementCount: movements.length }
+                    };
+                }
+
+                // Calculate various entropy metrics
+                const velocities = [];
+                const accelerations = [];
+                const angles = [];
+                
+                for (let i = 1; i < movements.length; i++) {
+                    const curr = movements[i];
+                    const prev = movements[i - 1];
+                    const dt = (curr.timestamp - prev.timestamp) / 1000; // seconds
+                    
+                    if (dt === 0) continue;
+                    
+                    const dx = curr.x - prev.x;
+                    const dy = curr.y - prev.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const velocity = distance / dt;
+                    
+                    velocities.push(velocity);
+                    
+                    if (i > 1) {
+                        const prevVelocity = velocities[velocities.length - 2];
+                        accelerations.push(Math.abs(velocity - prevVelocity) / dt);
+                        
+                        const prevPrev = movements[i - 2];
+                        const angle = Math.atan2(dy, dx) - Math.atan2(prev.y - prevPrev.y, prev.x - prevPrev.x);
+                        angles.push(Math.abs(angle));
+                    }
+                }
+
+                // Human movement characteristics
+                const avgVelocity = velocities.reduce((a, b) => a + b, 0) / velocities.length;
+                const velocityVariance = velocities.reduce((sum, v) => sum + Math.pow(v - avgVelocity, 2), 0) / velocities.length;
+                const velocityStdDev = Math.sqrt(velocityVariance);
+                
+                const avgAcceleration = accelerations.length > 0 ? accelerations.reduce((a, b) => a + b, 0) / accelerations.length : 0;
+                const angleVariance = angles.length > 0 ? angles.reduce((sum, a) => sum + a, 0) / angles.length : 0;
+
+                // Scoring system (0-100)
+                let score = 0;
+                const details = {};
+
+                // 1. Movement count (20 points)
+                if (movements.length >= 30) score += 20;
+                else if (movements.length >= 15) score += 10;
+                else if (movements.length >= 10) score += 5;
+                details.movementCount = movements.length;
+
+                // 2. Velocity variance - humans don't move at constant speed (25 points)
+                if (velocityStdDev > 500) score += 25;
+                else if (velocityStdDev > 200) score += 15;
+                else if (velocityStdDev > 50) score += 5;
+                details.velocityStdDev = velocityStdDev.toFixed(2);
+
+                // 3. Acceleration variance - humans have variable acceleration (25 points)
+                if (avgAcceleration > 1000) score += 25;
+                else if (avgAcceleration > 500) score += 15;
+                else if (avgAcceleration > 100) score += 5;
+                details.avgAcceleration = avgAcceleration.toFixed(2);
+
+                // 4. Angle changes - humans make curves, not straight lines (20 points)
+                if (angleVariance > 0.5) score += 20;
+                else if (angleVariance > 0.2) score += 10;
+                else if (angleVariance > 0.05) score += 5;
+                details.angleVariance = angleVariance.toFixed(3);
+
+                // 5. Natural trajectory toward checkbox (10 points)
+                if (this.checkboxPosition && movements.length > 5) {
+                    const lastMovements = movements.slice(-10);
+                    const movingToward = lastMovements.filter((m, i) => {
+                        if (i === 0) return false;
+                        const prev = lastMovements[i - 1];
+                        const currDist = Math.sqrt(Math.pow(m.x - this.checkboxPosition.x, 2) + Math.pow(m.y - this.checkboxPosition.y, 2));
+                        const prevDist = Math.sqrt(Math.pow(prev.x - this.checkboxPosition.x, 2) + Math.pow(prev.y - this.checkboxPosition.y, 2));
+                        return currDist < prevDist;
+                    }).length;
+                    
+                    if (movingToward >= 5) score += 10;
+                    else if (movingToward >= 3) score += 5;
+                    details.trajectoryToCheckbox = movingToward;
+                }
+
+                return {
+                    score,
+                    human: score >= 65,
+                    reason: score >= 65 ? 'Human-like mouse behavior' : 'Suspicious mouse pattern',
+                    details
+                };
+            },
+
+            // Analyze checkbox click event
+            analyzeCheckboxClick(clickEvent) {
+                const analysis = {
+                    score: 0,
+                    checks: {},
+                    human: false
+                };
+
+                // 1. Time from page load (must be reasonable)
+                const timeToClick = Date.now() - this.startTime;
+                analysis.checks.timing = timeToClick > 500 && timeToClick < 60000;
+                if (analysis.checks.timing) analysis.score += 20;
+
+                // 2. Checkbox was hovered before click
+                analysis.checks.hovered = this.checkboxHovered;
+                if (analysis.checks.hovered) analysis.score += 20;
+
+                // 3. Hover duration (humans pause before clicking)
+                if (this.mouseEnterTime) {
+                    const hoverDuration = Date.now() - this.mouseEnterTime;
+                    analysis.checks.hoverDuration = hoverDuration > 100 && hoverDuration < 10000;
+                    if (analysis.checks.hoverDuration) analysis.score += 15;
+                    analysis.details = { hoverDuration };
+                }
+
+                // 4. Mouse movement analysis
+                const mouseBehavior = this.analyzeMouseBehavior();
+                analysis.checks.mouseMovement = mouseBehavior.human;
+                if (mouseBehavior.human) analysis.score += 30;
+                analysis.mouseBehavior = mouseBehavior;
+
+                // 5. Click was at checkbox position (not programmatic)
+                if (this.checkboxPosition && clickEvent) {
+                    const clickDistance = Math.sqrt(
+                        Math.pow(clickEvent.clientX - this.checkboxPosition.x, 2) + 
+                        Math.pow(clickEvent.clientY - this.checkboxPosition.y, 2)
+                    );
+                    analysis.checks.clickPosition = clickDistance < 50;
+                    if (analysis.checks.clickPosition) analysis.score += 15;
+                    analysis.clickDistance = clickDistance;
+                }
+
+                // Final verdict
+                analysis.human = analysis.score >= 70;
+                analysis.reason = analysis.human ? 'Human interaction verified' : 'Automated behavior detected';
+
+                return analysis;
+            },
+
+            // Generate tamper-proof token
+            generateVerificationToken(analysis) {
+                const timestamp = Date.now();
+                const data = {
+                    t: timestamp,
+                    s: analysis.score,
+                    v: '1.0',
+                    r: Math.random().toString(36).substring(7)
+                };
+                
+                // Simple hash for tamper detection
+                const payload = JSON.stringify(data);
+                const hash = this.simpleHash(payload + timestamp);
+                
+                return btoa(JSON.stringify({ ...data, h: hash }));
+            },
+
+            // Simple hash function (not cryptographic, but enough for client-side)
+            simpleHash(str) {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash;
+                }
+                return hash.toString(36);
+            },
+
+            // Verify token hasn't been tampered with
+            verifyToken(token) {
+                try {
+                    const data = JSON.parse(atob(token));
+                    const { h, t, s, v, r } = data;
+                    
+                    // Check expiry (1 hour)
+                    if (Date.now() - t > 3600000) return false;
+                    
+                    // Verify hash
+                    const payload = JSON.stringify({ t, s, v, r });
+                    const expectedHash = this.simpleHash(payload + t);
+                    
+                    return h === expectedHash && s >= 70;
+                } catch (e) {
+                    return false;
+                }
+            }
+        };
+
+        // UI Controller
+        const UI = {
+            showChallenge() {
+                document.getElementById('container').innerHTML = `
+                    <div class="header">
+                        <svg class="shield-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+                        </svg>
+                        <h1> Check</h1>
+                        
+                    </div>
+                    <div class="checkbox-container" id="checkboxContainer">
+                        <label class="checkbox-label" id="checkboxLabel">
+                            <input type="checkbox" id="humanCheckbox">
+                            <span>proceed to products</span>
+                        </label>
+                    </div>
+                    <div class="footer">
+                        <p>Protected by TopShop</p>
+                        <p class="debug-info">Analyzing behavior...</p>
+                    </div>
+                `;
+
+                const checkbox = document.getElementById('humanCheckbox');
+                const label = document.getElementById('checkboxLabel');
+                const container = document.getElementById('checkboxContainer');
+
+                // Get checkbox position
+                setTimeout(() => {
+                    const rect = container.getBoundingClientRect();
+                    BehaviorAnalyzer.checkboxPosition = {
+                        x: rect.left + rect.width / 2,
+                        y: rect.top + rect.height / 2
+                    };
+                }, 100);
+
+                // Track hover
+                label.addEventListener('mouseenter', () => {
+                    BehaviorAnalyzer.checkboxHovered = true;
+                    BehaviorAnalyzer.mouseEnterTime = Date.now();
+                });
+
+                // Handle checkbox change with click event capture
+                let lastClickEvent = null;
+                checkbox.addEventListener('click', (e) => {
+                    lastClickEvent = {
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                        isTrusted: e.isTrusted
+                    };
+                }, true);
+
+                checkbox.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        // Must have a trusted click event
+                        if (!lastClickEvent || !lastClickEvent.isTrusted) {
+                            this.showBlocked({ reason: 'Click event not trusted (CDP detected)' });
+                            e.target.checked = false;
+                            return;
+                        }
+                        this.handleVerification(lastClickEvent);
+                    }
+                });
+
+                // Reset start time when challenge is shown
+                BehaviorAnalyzer.startTime = Date.now();
+            },
+
+            handleVerification(clickEvent) {
+                const analysis = BehaviorAnalyzer.analyzeCheckboxClick(clickEvent);
+                
+                console.log('Verification Analysis:', analysis);
+                
+                if (analysis.human) {
+                    const token = BehaviorAnalyzer.generateVerificationToken(analysis);
+                    this.showSuccess(token);
+                } else {
+                    this.showBlocked(analysis);
+                }
+            },
+
+            showSuccess(token) {
+                sessionStorage.setItem('botChallenge_token', token);
+                
+                document.getElementById('container').innerHTML = `
+                    <div class="success">
+                        <svg style="width:80px;height:80px;margin:0 auto 20px;display:block" viewBox="0 0 24 24" fill="#388e3c">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                        </svg>
+                        <h2>Verification Complete!</h2>
+                        <p>Redirecting...</p>
+                    </div>
+                `;
+
+                setTimeout(() => {
+                    // Check if there's a return URL stored
+                    const returnUrl = sessionStorage.getItem('botChallenge_returnUrl');
+                    if (returnUrl) {
+                        sessionStorage.removeItem('botChallenge_returnUrl');
+                        window.location.href = returnUrl;
+                    } else {
+                        window.location.href = 'index.html';
+                    }
+                }, 1500);
+            },
+
+            showBlocked(analysis) {
+                document.getElementById('container').innerHTML = `
+                    <div class="blocked">
+                        <svg style="width:80px;height:80px;margin:0 auto 20px;display:block" viewBox="0 0 24 24" fill="#d32f2f">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                        </svg>
+                        <h2>Verification Failed</h2>
+                        <p>We couldn't verify you're human.</p>
+                        <p style="margin-top:10px;font-size:14px">Please try again with natural mouse movements.</p>
+                        <button onclick="location.reload()" style="margin-top:20px;padding:10px 20px;background:#667eea;color:white;border:none;border-radius:5px;cursor:pointer;font-size:16px;">
+                            Try Again
+                        </button>
+                        <div class="debug-info">
+                            Score: ${analysis.score}/100 (Required: 70)
+                        </div>
+                    </div>
+                `;
+            }
+        };
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', () => {
+            // Check if already verified with valid token
+            const token = sessionStorage.getItem('botChallenge_token');
+            
+            if (token && BehaviorAnalyzer.verifyToken(token)) {
+                console.log('✅ Already verified - redirecting...');
+                // Redirect to return URL or default
+                const returnUrl = sessionStorage.getItem('botChallenge_returnUrl');
+                if (returnUrl) {
+                    sessionStorage.removeItem('botChallenge_returnUrl');
+                    window.location.href = returnUrl;
+                } else {
+                    window.location.href = 'index.html';
+                }
+                return;
+            }
+
+            console.log('🛡️ Starting bot challenge...');
+            
+            // Start tracking
+            BehaviorAnalyzer.trackMouse();
+
+            // Show challenge after brief delay
+            setTimeout(() => {
+                UI.showChallenge();
+            }, 800);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent Scroll Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        /* Fixed Header with Progress Indicator */
+        .scroll-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .scroll-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .scroll-instructions {
+            background: #e3f2fd;
+            padding: 15px 20px;
+            border-radius: 8px;
+            border-left: 4px solid #2196f3;
+            margin-bottom: 20px;
+        }
+
+        .scroll-instructions h3 {
+            color: #1976d2;
+            margin-bottom: 8px;
+        }
+
+        .scroll-instructions p {
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            width: 300px;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #4caf50, #2196f3);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            margin-left: 15px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        /* Position Indicator */
+        .position-indicator {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            min-width: 200px;
+            z-index: 1000;
+        }
+
+        .current-section {
+            font-weight: 600;
+            color: #2196f3;
+            margin-bottom: 10px;
+        }
+
+        .section-progress {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .section-item {
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .section-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+            background: #e0e0e0;
+            transition: background 0.3s ease;
+        }
+
+        .section-dot.visited {
+            background: #4caf50;
+        }
+
+        .section-dot.current {
+            background: #2196f3;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Main Content */
+        .scroll-content {
+            margin-top: 120px;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+            padding: 0 20px;
+        }
+
+        /* Section Styles */
+        .content-section {
+            margin-bottom: 60px;
+            padding: 40px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            position: relative;
+            min-height: 600px;
+        }
+
+        .section-header {
+            position: sticky;
+            top: 100px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            margin: -40px -40px 40px -40px;
+            border-radius: 16px 16px 0 0;
+            font-size: 28px;
+            font-weight: 600;
+            text-align: center;
+            z-index: 10;
+        }
+
+        .section-number {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            line-height: 40px;
+            text-align: center;
+            margin-right: 15px;
+        }
+
+        /* Text Section */
+        .text-content {
+            columns: 2;
+            column-gap: 40px;
+            text-align: justify;
+        }
+
+        .text-content p {
+            margin-bottom: 20px;
+            font-size: 16px;
+            line-height: 1.8;
+            color: #444;
+        }
+
+        .text-content h4 {
+            color: #2196f3;
+            margin: 30px 0 15px 0;
+            break-after: avoid;
+        }
+
+        /* Image Section */
+        .image-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .image-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        .image-placeholder {
+            height: 200px;
+            background: linear-gradient(45deg, #e3f2fd, #bbdefb);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1976d2;
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        .image-caption {
+            padding: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        /* List Section */
+        .list-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }
+
+        .list-column h4 {
+            color: #2196f3;
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+
+        .feature-list {
+            list-style: none;
+        }
+
+        .feature-list li {
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: center;
+        }
+
+        .feature-list li:before {
+            content: '✓';
+            background: #4caf50;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        /* Table Section */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        .data-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .data-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        /* Interactive Elements */
+        .interactive-section {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            text-align: center;
+        }
+
+        .cta-button {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            margin: 10px;
+        }
+
+        .cta-button:hover {
+            transform: translateY(-2px);
+        }
+
+        /* Completion Section */
+        .completion-section {
+            background: linear-gradient(135deg, #4caf50, #45a049);
+            color: white;
+            text-align: center;
+            margin-bottom: 100px;
+        }
+
+        .completion-message {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        .return-button {
+            background: white;
+            color: #4caf50;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: transform 0.2s ease;
+        }
+
+        .return-button:hover {
+            transform: translateY(-2px);
+        }
+
+        /* Metrics Display (for debugging) */
+        .metrics-debug {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            max-width: 300px;
+            z-index: 1000;
+            display: none;
+        }
+
+        .metrics-debug.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Fixed Header with Progress -->
+    <div class="scroll-header">
+        <div class="header-content">
+            <div class="scroll-title">AI Agent Scroll Test</div>
+            <div style="display: flex; align-items: center;">
+                <div class="progress-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                <div class="progress-text" id="progress-text">0%</div>
+            </div>
+        </div>
+        
+        <div class="scroll-instructions">
+            <h3>🤖 Instructions for AI Agents</h3>
+            <p><strong>Task:</strong> Scroll through this entire page from top to bottom</p>
+            <p><strong>Goal:</strong> Visit all 6 sections and reach the completion area at the bottom</p>
+            <p><strong>Behavior:</strong> Scroll naturally with pauses to "read" content in each section</p>
+        </div>
+    </div>
+
+    <!-- Position Indicator -->
+    <div class="position-indicator">
+        <div class="current-section" id="current-section">Section 1: Introduction</div>
+        <div class="section-progress" id="section-progress">
+            <div class="section-item">
+                <div class="section-dot current" data-section="1"></div>
+                <span>Introduction</span>
+            </div>
+            <div class="section-item">
+                <div class="section-dot" data-section="2"></div>
+                <span>Text Content</span>
+            </div>
+            <div class="section-item">
+                <div class="section-dot" data-section="3"></div>
+                <span>Visual Gallery</span>
+            </div>
+            <div class="section-item">
+                <div class="section-dot" data-section="4"></div>
+                <span>Feature Lists</span>
+            </div>
+            <div class="section-item">
+                <div class="section-dot" data-section="5"></div>
+                <span>Data Tables</span>
+            </div>
+            <div class="section-item">
+                <div class="section-dot" data-section="6"></div>
+                <span>Interactive</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Scrollable Content -->
+    <div class="scroll-content">
+        <!-- Section 1: Introduction -->
+        <div class="content-section" data-section="1">
+            <div class="section-header">
+                <span class="section-number">1</span>Introduction & Overview
+            </div>
+            <h3>Welcome to the AI Agent Scroll Test</h3>
+            <p>This page is designed to test how AI agents handle scrolling behavior across different types of content. As you scroll through this page, we're collecting detailed metrics about your scrolling patterns, speed, and interaction with various content types.</p>
+            
+            <h4>What We're Testing</h4>
+            <p>Our behavioral analysis system tracks multiple aspects of scrolling behavior including speed, smoothness, direction changes, and time spent viewing different sections. This helps us understand how AI agents navigate and consume information compared to human users.</p>
+            
+            <h4>Content Structure</h4>
+            <p>This page contains six distinct sections, each with different content types: text, images, lists, tables, and interactive elements. Each section is designed to encourage different scrolling behaviors and viewing patterns.</p>
+            
+            <div style="height: 200px; background: linear-gradient(to bottom, rgba(102, 126, 234, 0.1), transparent); border-radius: 8px; margin: 30px 0; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #667eea;">
+                Scroll down to continue to Section 2 →
+            </div>
+        </div>
+
+        <!-- Section 2: Text Content -->
+        <div class="content-section" data-section="2">
+            <div class="section-header">
+                <span class="section-number">2</span>Rich Text Content
+            </div>
+            <div class="text-content">
+                <h4>The Evolution of AI Behavior Analysis</h4>
+                <p>Artificial Intelligence behavior analysis has become increasingly sophisticated in recent years. Modern systems can detect subtle patterns in user interaction that were previously impossible to identify. This evolution has opened new possibilities for understanding how different types of agents - both human and artificial - interact with digital interfaces.</p>
+
+                <p>The field of behavioral biometrics focuses on the unique patterns that characterize individual users. These patterns include typing rhythms, mouse movement trajectories, scrolling cadence, and click patterns. Each user develops their own distinctive "behavioral signature" that can be as unique as a fingerprint.</p>
+
+                <h4>Machine Learning in Behavioral Detection</h4>
+                <p>Machine learning algorithms excel at finding patterns in large datasets of behavioral metrics. By analyzing thousands of interaction sessions, these systems can identify subtle differences between human and automated behavior. Features such as movement smoothness, timing consistency, and error patterns provide valuable signals for classification.</p>
+
+                <p>Deep learning models have proven particularly effective at processing sequential behavioral data. Recurrent neural networks and transformer architectures can capture temporal dependencies in user actions, enabling detection of sophisticated automation attempts that might fool simpler rule-based systems.</p>
+
+                <h4>Privacy and Ethical Considerations</h4>
+                <p>While behavioral analysis provides powerful security and user experience benefits, it also raises important privacy questions. Users should be informed about what behavioral data is being collected and how it's used. Transparent data practices and user consent are essential for maintaining trust in these systems.</p>
+
+                <p>The balance between security and privacy requires careful consideration. Systems should collect only the minimum behavioral data necessary for their intended purpose, and this data should be protected with appropriate security measures.</p>
+
+                <h4>Future Directions</h4>
+                <p>The future of behavioral analysis likely includes more sophisticated real-time detection systems, improved privacy-preserving techniques, and better integration with user experience design. As AI agents become more sophisticated, the arms race between detection and evasion will continue to drive innovation in this field.</p>
+            </div>
+        </div>
+
+        <!-- Section 3: Visual Gallery -->
+        <div class="content-section" data-section="3">
+            <div class="section-header">
+                <span class="section-number">3</span>Visual Content Gallery
+            </div>
+            <h3>Interactive Visual Elements</h3>
+            <p>This section contains various visual elements that might influence scrolling behavior. AI agents often interact differently with images and visual content compared to text.</p>
+            
+            <div class="image-gallery">
+                <div class="image-card">
+                    <div class="image-placeholder">📊 Behavioral Analytics</div>
+                    <div class="image-caption">Real-time analysis of user interaction patterns and behavioral metrics.</div>
+                </div>
+                <div class="image-card">
+                    <div class="image-placeholder">🤖 AI Detection</div>
+                    <div class="image-caption">Machine learning models trained to distinguish between human and automated behavior.</div>
+                </div>
+                <div class="image-card">
+                    <div class="image-placeholder">🔒 Security Systems</div>
+                    <div class="image-caption">Advanced security measures that adapt to detected behavioral patterns.</div>
+                </div>
+                <div class="image-card">
+                    <div class="image-placeholder">📈 Performance Metrics</div>
+                    <div class="image-caption">Comprehensive dashboards showing system performance and detection accuracy.</div>
+                </div>
+                <div class="image-card">
+                    <div class="image-placeholder">🎯 User Experience</div>
+                    <div class="image-caption">Balancing security with seamless user experience and minimal friction.</div>
+                </div>
+                <div class="image-card">
+                    <div class="image-placeholder">🌐 Global Scale</div>
+                    <div class="image-caption">Systems designed to handle millions of users across different platforms and devices.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 4: Feature Lists -->
+        <div class="content-section" data-section="4">
+            <div class="section-header">
+                <span class="section-number">4</span>Feature Lists & Benefits
+            </div>
+            <div class="list-container">
+                <div class="list-column">
+                    <h4>Detection Capabilities</h4>
+                    <ul class="feature-list">
+                        <li>Real-time behavioral analysis</li>
+                        <li>Mouse movement pattern recognition</li>
+                        <li>Keystroke timing analysis</li>
+                        <li>Scroll behavior profiling</li>
+                        <li>Click pattern detection</li>
+                        <li>Multi-device consistency checking</li>
+                        <li>Automation signature identification</li>
+                        <li>Human vs AI classification</li>
+                        <li>Anomaly detection algorithms</li>
+                        <li>Cross-session pattern matching</li>
+                    </ul>
+                </div>
+                <div class="list-column">
+                    <h4>System Features</h4>
+                    <ul class="feature-list">
+                        <li>High-performance data processing</li>
+                        <li>Scalable cloud infrastructure</li>
+                        <li>Privacy-preserving analytics</li>
+                        <li>Real-time decision making</li>
+                        <li>Comprehensive reporting dashboard</li>
+                        <li>API integration support</li>
+                        <li>Custom rule configuration</li>
+                        <li>Machine learning model updates</li>
+                        <li>Multi-platform compatibility</li>
+                        <li>24/7 monitoring and alerts</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 5: Data Tables -->
+        <div class="content-section" data-section="5">
+            <div class="section-header">
+                <span class="section-number">5</span>Performance Data Tables
+            </div>
+            <h3>Behavioral Metrics Overview</h3>
+            <p>The following tables show typical performance metrics for different types of behavioral analysis systems.</p>
+            
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Metric Type</th>
+                        <th>Human Baseline</th>
+                        <th>AI Agent Range</th>
+                        <th>Detection Accuracy</th>
+                        <th>False Positive Rate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Mouse Velocity</td>
+                        <td>150-400 px/s</td>
+                        <td>800-2000 px/s</td>
+                        <td>94.2%</td>
+                        <td>2.1%</td>
+                    </tr>
+                    <tr>
+                        <td>Click Intervals</td>
+                        <td>200-800 ms</td>
+                        <td>50-150 ms</td>
+                        <td>96.7%</td>
+                        <td>1.8%</td>
+                    </tr>
+                    <tr>
+                        <td>Scroll Smoothness</td>
+                        <td>Variable</td>
+                        <td>Consistent</td>
+                        <td>89.3%</td>
+                        <td>4.2%</td>
+                    </tr>
+                    <tr>
+                        <td>Movement Jitter</td>
+                        <td>High</td>
+                        <td>Low</td>
+                        <td>91.8%</td>
+                        <td>3.7%</td>
+                    </tr>
+                    <tr>
+                        <td>Keystroke Timing</td>
+                        <td>80-300 ms</td>
+                        <td>10-50 ms</td>
+                        <td>97.1%</td>
+                        <td>1.5%</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h4 style="margin-top: 40px;">System Performance Metrics</h4>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>System Component</th>
+                        <th>Processing Time</th>
+                        <th>Accuracy</th>
+                        <th>Throughput</th>
+                        <th>Uptime</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Data Collection</td>
+                        <td>&lt;1 ms</td>
+                        <td>99.9%</td>
+                        <td>10M events/sec</td>
+                        <td>99.99%</td>
+                    </tr>
+                    <tr>
+                        <td>Feature Extraction</td>
+                        <td>5-10 ms</td>
+                        <td>99.7%</td>
+                        <td>1M sessions/sec</td>
+                        <td>99.95%</td>
+                    </tr>
+                    <tr>
+                        <td>ML Classification</td>
+                        <td>15-25 ms</td>
+                        <td>94.2%</td>
+                        <td>500K sessions/sec</td>
+                        <td>99.9%</td>
+                    </tr>
+                    <tr>
+                        <td>Decision Engine</td>
+                        <td>2-5 ms</td>
+                        <td>98.1%</td>
+                        <td>2M decisions/sec</td>
+                        <td>99.99%</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Section 6: Interactive Elements -->
+        <div class="content-section interactive-section" data-section="6">
+            <div class="section-header">
+                <span class="section-number">6</span>Interactive Elements
+            </div>
+            <h3>Test Interactions</h3>
+            <p>This section contains various interactive elements that AI agents might interact with during testing.</p>
+            
+            <div style="margin: 40px 0;">
+                <button class="cta-button" onclick="handleButtonClick('primary')">Primary Action</button>
+                <button class="cta-button" onclick="handleButtonClick('secondary')">Secondary Action</button>
+                <button class="cta-button" onclick="handleButtonClick('tertiary')">Tertiary Action</button>
+            </div>
+
+            <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 12px; margin: 40px 0;">
+                <h4>Interaction Tracking</h4>
+                <p>Any interactions with buttons, links, or other elements in this section are tracked as part of the behavioral analysis. This helps distinguish between agents that simply scroll through content versus those that actively engage with interactive elements.</p>
+            </div>
+
+            <div style="margin: 40px 0;">
+                <input type="text" placeholder="Test input field" style="padding: 10px; border: none; border-radius: 4px; margin: 10px; width: 200px;">
+                <select style="padding: 10px; border: none; border-radius: 4px; margin: 10px;">
+                    <option>Option 1</option>
+                    <option>Option 2</option>
+                    <option>Option 3</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Completion Section -->
+        <div class="content-section completion-section">
+            <div class="section-header" style="background: linear-gradient(135deg, #4caf50, #45a049);">
+                <span class="section-number">✓</span>Scroll Test Complete
+            </div>
+            <div class="completion-message">
+                🎉 Congratulations! You've successfully scrolled through all sections.
+            </div>
+            <p>The scroll test is now complete. Your behavioral metrics have been collected and will be analyzed.</p>
+            <a href="javascript:window.close();" class="return-button" id="complete-button">Complete Test</a>
+        </div>
+    </div>
+
+    <!-- Metrics Debug Panel -->
+    <div class="metrics-debug" id="metrics-debug">
+        <div><strong>Scroll Metrics (Debug)</strong></div>
+        <div>Distance: <span id="debug-distance">0</span>px</div>
+        <div>Speed: <span id="debug-speed">0</span>px/s</div>
+        <div>Direction: <span id="debug-direction">-</span></div>
+        <div>Section: <span id="debug-section">1</span></div>
+        <div>Progress: <span id="debug-progress">0</span>%</div>
+    </div>
+
+    <script>
+        // Scroll Metrics Collection System
+        class ScrollMetricsCollector {
+            constructor() {
+                this.metrics = {
+                    totalDistance: 0,           // Total pixels scrolled
+                    scrollSpeed: 0,             // Current speed in px/s
+                    avgScrollSpeed: 0,          // Average speed
+                    directionChanges: 0,        // Number of direction changes
+                    timeScrolling: 0,           // Time actively scrolling
+                    timePaused: 0,              // Time paused/not scrolling
+                    sectionsViewed: new Set(),  // Sections that have been visited
+                    scrollSmoothness: [],       // Array of speed variations for smoothness calc
+                    startPosition: 0,           // Initial scroll position
+                    endPosition: 0,             // Final scroll position
+                    scrollEvents: [],           // Detailed event log
+                    currentSection: 1,          // Currently viewed section
+                    sectionViewTimes: {}        // Time spent viewing each section
+                };
+                
+                this.lastScrollY = window.scrollY;
+                this.lastScrollTime = performance.now();
+                this.lastDirection = 0; // 1 = down, -1 = up
+                this.isScrolling = false;
+                this.scrollTimeout = null;
+                this.startTime = performance.now();
+                this.currentSectionStartTime = this.startTime;
+
+                this.init();
+            }
+
+            init() {
+                // Set initial position
+                this.metrics.startPosition = window.scrollY;
+                
+                // Add scroll event listener
+                window.addEventListener('scroll', this.handleScroll.bind(this), { passive: true });
+                
+                // Update UI every 100ms
+                setInterval(() => this.updateUI(), 100);
+                
+                // Enable debug panel (can be toggled)
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'D' && e.ctrlKey) {
+                        const debug = document.getElementById('metrics-debug');
+                        debug.classList.toggle('show');
+                    }
+                });
+
+                console.log('📊 Scroll metrics collection initialized');
+            }
+
+            handleScroll() {
+                const now = performance.now();
+                const currentY = window.scrollY;
+                const deltaY = currentY - this.lastScrollY;
+                const deltaTime = now - this.lastScrollTime;
+
+                // Skip if no movement or time
+                if (deltaTime === 0) return;
+
+                // Calculate speed (pixels per second)
+                const speed = Math.abs(deltaY) / (deltaTime / 1000);
+                this.metrics.scrollSpeed = speed;
+
+                // Track total distance
+                this.metrics.totalDistance += Math.abs(deltaY);
+
+                // Track direction changes
+                const currentDirection = deltaY > 0 ? 1 : -1;
+                if (this.lastDirection !== 0 && currentDirection !== this.lastDirection) {
+                    this.metrics.directionChanges++;
+                }
+                this.lastDirection = currentDirection;
+
+                // Track smoothness (speed variations)
+                this.metrics.scrollSmoothness.push(speed);
+                if (this.metrics.scrollSmoothness.length > 100) {
+                    this.metrics.scrollSmoothness.shift(); // Keep last 100 readings
+                }
+
+                // Log detailed event
+                this.metrics.scrollEvents.push({
+                    timestamp: now,
+                    position: currentY,
+                    deltaY: deltaY,
+                    speed: speed,
+                    direction: currentDirection
+                });
+
+                // Update scroll state
+                this.isScrolling = true;
+                clearTimeout(this.scrollTimeout);
+                this.scrollTimeout = setTimeout(() => {
+                    this.isScrolling = false;
+                }, 150); // Consider stopped after 150ms of no scrolling
+
+                // Update section tracking
+                this.updateCurrentSection(currentY);
+
+                // Update last values
+                this.lastScrollY = currentY;
+                this.lastScrollTime = now;
+            }
+
+            updateCurrentSection(scrollY) {
+                const sections = document.querySelectorAll('.content-section');
+                let currentSection = 1;
+
+                sections.forEach((section, index) => {
+                    const rect = section.getBoundingClientRect();
+                    const sectionTop = scrollY + rect.top;
+                    const sectionBottom = sectionTop + rect.height;
+                    
+                    // Check if section is in viewport (with some tolerance)
+                    if (scrollY >= sectionTop - 200 && scrollY < sectionBottom - 200) {
+                        currentSection = index + 1;
+                    }
+                });
+
+                // Track section change
+                if (currentSection !== this.metrics.currentSection) {
+                    const now = performance.now();
+                    
+                    // Record time spent in previous section
+                    if (this.metrics.currentSection > 0) {
+                        const timeInSection = now - this.currentSectionStartTime;
+                        this.metrics.sectionViewTimes[this.metrics.currentSection] = 
+                            (this.metrics.sectionViewTimes[this.metrics.currentSection] || 0) + timeInSection;
+                    }
+
+                    this.metrics.currentSection = currentSection;
+                    this.metrics.sectionsViewed.add(currentSection);
+                    this.currentSectionStartTime = now;
+
+                    console.log(`📍 Entered section ${currentSection}`);
+                }
+            }
+
+            calculateAverageSpeed() {
+                if (this.metrics.scrollEvents.length < 2) return 0;
+                
+                const totalTime = (performance.now() - this.startTime) / 1000;
+                return this.metrics.totalDistance / totalTime;
+            }
+
+            calculateScrollSmoothness() {
+                if (this.metrics.scrollSmoothness.length < 10) return 1;
+                
+                // Calculate coefficient of variation (std dev / mean)
+                const speeds = this.metrics.scrollSmoothness;
+                const mean = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+                const variance = speeds.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / speeds.length;
+                const stdDev = Math.sqrt(variance);
+                
+                // Return smoothness score (lower coefficient of variation = smoother)
+                const coeffVar = mean > 0 ? stdDev / mean : 0;
+                return Math.max(0, 1 - coeffVar); // Convert to 0-1 scale where 1 = smooth
+            }
+
+            getMetricsSnapshot() {
+                const now = performance.now();
+                this.metrics.endPosition = window.scrollY;
+                this.metrics.avgScrollSpeed = this.calculateAverageSpeed();
+                
+                // Calculate time spent scrolling vs paused
+                const totalTime = (now - this.startTime) / 1000;
+                const scrollingTime = this.metrics.scrollEvents.length * 0.016; // Approximate
+                this.metrics.timeScrolling = scrollingTime;
+                this.metrics.timePaused = totalTime - scrollingTime;
+
+                return {
+                    ...this.metrics,
+                    scrollSmoothness: this.calculateScrollSmoothness(),
+                    totalSections: 6,
+                    sectionsViewedCount: this.metrics.sectionsViewed.size,
+                    completionPercentage: (this.metrics.sectionsViewed.size / 6) * 100
+                };
+            }
+
+            updateUI() {
+                // Update progress bar
+                const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+                const progress = maxScroll > 0 ? (window.scrollY / maxScroll) * 100 : 0;
+                
+                document.getElementById('progress-bar').style.width = `${progress}%`;
+                document.getElementById('progress-text').textContent = `${Math.round(progress)}%`;
+
+                // Update current section indicator
+                const currentSectionName = [
+                    'Introduction', 'Text Content', 'Visual Gallery', 
+                    'Feature Lists', 'Data Tables', 'Interactive'
+                ][this.metrics.currentSection - 1] || 'Introduction';
+                
+                document.getElementById('current-section').textContent = 
+                    `Section ${this.metrics.currentSection}: ${currentSectionName}`;
+
+                // Update section dots
+                document.querySelectorAll('.section-dot').forEach((dot, index) => {
+                    dot.classList.remove('current', 'visited');
+                    if (index + 1 === this.metrics.currentSection) {
+                        dot.classList.add('current');
+                    } else if (this.metrics.sectionsViewed.has(index + 1)) {
+                        dot.classList.add('visited');
+                    }
+                });
+
+                // Update debug panel
+                if (document.getElementById('metrics-debug').classList.contains('show')) {
+                    document.getElementById('debug-distance').textContent = Math.round(this.metrics.totalDistance);
+                    document.getElementById('debug-speed').textContent = Math.round(this.metrics.scrollSpeed);
+                    document.getElementById('debug-direction').textContent = 
+                        this.lastDirection === 1 ? 'Down' : this.lastDirection === -1 ? 'Up' : '-';
+                    document.getElementById('debug-section').textContent = this.metrics.currentSection;
+                    document.getElementById('debug-progress').textContent = Math.round(progress);
+                }
+            }
+        }
+
+        // Button click handler for interactive elements
+        function handleButtonClick(type) {
+            console.log(`🖱️ Button clicked: ${type}`);
+            // This could be tracked as part of the behavioral metrics
+            if (window.scrollCollector) {
+                window.scrollCollector.metrics.scrollEvents.push({
+                    timestamp: performance.now(),
+                    type: 'button_click',
+                    buttonType: type,
+                    position: window.scrollY
+                });
+            }
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.scrollCollector = new ScrollMetricsCollector();
+            
+            // Handle completion button
+            document.getElementById('complete-button').addEventListener('click', () => {
+                const finalMetrics = window.scrollCollector.getMetricsSnapshot();
+                console.log('📊 Final Scroll Metrics:', finalMetrics);
+                
+                // Send metrics back to parent window if opened in popup
+                if (window.opener && window.opener.LAB) {
+                    window.opener.LAB.handleScrollTestComplete(finalMetrics);
+                }
+                
+                // Send metrics to parent window if in iframe
+                if (window.parent !== window) {
+                    window.parent.postMessage({
+                        type: 'scroll-test-complete',
+                        metrics: finalMetrics
+                    }, '*');
+                } else {
+                    // Only close if it's a popup window, not an iframe
+                    window.close();
+                }
+            });
+        });
+
+        // Export for external access
+        window.getScrollMetrics = () => {
+            return window.scrollCollector ? window.scrollCollector.getMetricsSnapshot() : null;
+        };
+    </script>
+</body>
+</html>

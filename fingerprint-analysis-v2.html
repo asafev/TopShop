@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fingerprint Research | Enterprise Analysis Dashboard</title>
+    
+    <!-- Preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Enterprise Design System v2.0 -->
+    <link rel="stylesheet" href="fingerprint-ui/styles/research-design-system-v2.css">
+    
+    <!-- Favicon - Clean geometric -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233B528B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12'/><path d='M6 12C6 8.68629 8.68629 6 12 6C15.3137 6 18 8.68629 18 12V16'/><path d='M9 12C9 10.3431 10.3431 9 12 9C13.6569 9 15 10.3431 15 12V18'/><path d='M12 12V21'/></svg>">
+    
+    <style>
+        /* Initial loading state */
+        .rx-init-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: #FAFAFA;
+            font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            gap: 1.25rem;
+        }
+        
+        .rx-init-loading__spinner {
+            width: 32px;
+            height: 32px;
+            border: 2px solid #E4E4E7;
+            border-top-color: #3B528B;
+            border-radius: 50%;
+            animation: rx-init-spin 0.7s linear infinite;
+        }
+        
+        @keyframes rx-init-spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .rx-init-loading__text {
+            font-size: 0.875rem;
+            color: #71717A;
+            letter-spacing: -0.01em;
+        }
+        
+        .rx-init-loading__progress {
+            width: 180px;
+            height: 2px;
+            background: #E4E4E7;
+            border-radius: 1px;
+            overflow: hidden;
+        }
+        
+        .rx-init-loading__progress-bar {
+            height: 100%;
+            background: #3B528B;
+            width: 0%;
+            transition: width 0.25s ease-out;
+        }
+        
+        .rx-init-error {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: #FAFAFA;
+            font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            padding: 2rem;
+            text-align: center;
+        }
+        
+        .rx-init-error__icon {
+            width: 40px;
+            height: 40px;
+            color: #B54548;
+            margin-bottom: 1rem;
+        }
+        
+        .rx-init-error__title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #18181B;
+            margin-bottom: 0.5rem;
+        }
+        
+        .rx-init-error__message {
+            font-size: 0.875rem;
+            color: #71717A;
+            max-width: 360px;
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
+        }
+        
+        .rx-init-error__btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: #3B528B;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s ease-out;
+        }
+        
+        .rx-init-error__btn:hover {
+            background: #2E4270;
+        }
+        
+        /* Subtle entrance animation */
+        @keyframes rx-fade-in {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .rx-app {
+            animation: rx-fade-in 0.4s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <!-- Application Root -->
+    <div id="rx-root">
+        <div class="rx-init-loading">
+            <div class="rx-init-loading__spinner"></div>
+            <div class="rx-init-loading__text">Initializing analysis...</div>
+            <div class="rx-init-loading__progress">
+                <div class="rx-init-loading__progress-bar" id="init-progress"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script type="module">
+        // ============================================================
+        // MODULE IMPORTS
+        // ============================================================
+        let BrowserFingerprintAnalyzer;
+        let createResearchWorkspace;
+        let AgentDetectionOverlay, createAgentDetectionOverlay;
+        
+        const progressBar = document.getElementById('init-progress');
+        const loadingText = document.querySelector('.rx-init-loading__text');
+        
+        function updateProgress(percent, message) {
+            if (progressBar) progressBar.style.width = `${percent}%`;
+            if (loadingText && message) loadingText.textContent = message;
+        }
+        
+        // Load modules with progress tracking
+        try {
+            updateProgress(10, 'Loading fingerprint analyzer...');
+            const fpModule = await import('./browserFingerprint.js');
+            BrowserFingerprintAnalyzer = fpModule.BrowserFingerprintAnalyzer;
+            updateProgress(30, 'Loading UI components...');
+        } catch (e) {
+            console.error('Failed to load browserFingerprint.js:', e);
+        }
+        
+        try {
+            // Use the new v2 workspace
+            const workspaceModule = await import('./fingerprint-ui/components/ResearchWorkspaceV2.js');
+            createResearchWorkspace = workspaceModule.createResearchWorkspace;
+            updateProgress(50, 'Loading agent detection...');
+        } catch (e) {
+            console.error('Failed to load ResearchWorkspaceV2.js:', e);
+            // Fallback to original
+            try {
+                const fallbackModule = await import('./fingerprint-ui/components/ResearchWorkspace.js');
+                createResearchWorkspace = fallbackModule.createResearchWorkspace;
+            } catch (e2) {
+                console.error('Failed to load fallback workspace:', e2);
+            }
+        }
+        
+        // Import Agent Detection Overlay
+        try {
+            const overlayModule = await import('./fingerprint-ui/components/AgentDetectionOverlay.js');
+            AgentDetectionOverlay = overlayModule.AgentDetectionOverlay;
+            createAgentDetectionOverlay = overlayModule.createAgentDetectionOverlay;
+        } catch (e) {
+            console.error('Failed to load AgentDetectionOverlay.js:', e);
+        }
+        
+        updateProgress(60, 'Preparing analysis...');
+        
+        // ============================================================
+        // GLOBAL STATE
+        // ============================================================
+        let fingerprintData = null;
+        let workspaceController = null;
+        let agentOverlay = null;
+        
+        // Initialize Agent Detection Overlay
+        if (createAgentDetectionOverlay) {
+            agentOverlay = createAgentDetectionOverlay({
+                autoDismissMs: 0,
+                showDetails: true,
+                onDismiss: (agents) => {
+                    console.log('Agent detection dismissed. Detected agents:', agents);
+                }
+            });
+        }
+        
+        // Listen for agent detection events
+        window.addEventListener('agentDetected', async (event) => {
+            const detection = event.detail || {};
+            const { name, detectionMethod, indicators = [], primarySignal } = detection;
+            console.log(`Agent detected: ${name} (${detectionMethod})`);
+        });
+        
+        // ============================================================
+        // ERROR DISPLAY
+        // ============================================================
+        function showError(error) {
+            const appContainer = document.getElementById('rx-root');
+            appContainer.innerHTML = `
+                <div class="rx-init-error">
+                    <svg class="rx-init-error__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <circle cx="12" cy="15.5" r="0.5" fill="currentColor"></circle>
+                    </svg>
+                    <h1 class="rx-init-error__title">Analysis Error</h1>
+                    <p class="rx-init-error__message">${error.message || 'An unexpected error occurred during fingerprint analysis.'}</p>
+                    <button class="rx-init-error__btn" onclick="location.reload()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 2v6h-6"></path>
+                            <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+                            <path d="M3 22v-6h6"></path>
+                            <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+                        </svg>
+                        Retry Analysis
+                    </button>
+                </div>
+            `;
+        }
+        
+        // ============================================================
+        // INITIALIZATION
+        // ============================================================
+        async function initializeAnalysis() {
+            const appContainer = document.getElementById('rx-root');
+            
+            try {
+                // Validate required modules
+                if (!BrowserFingerprintAnalyzer) {
+                    throw new Error('BrowserFingerprintAnalyzer module failed to load');
+                }
+                
+                if (!createResearchWorkspace) {
+                    throw new Error('ResearchWorkspace module failed to load');
+                }
+                
+                updateProgress(70, 'Running fingerprint analysis...');
+                
+                // Progress callback for analysis
+                const handleProgress = (progress) => {
+                    const scaledProgress = 70 + (progress.percentage * 0.25);
+                    updateProgress(scaledProgress, progress.message || 'Analyzing...');
+                };
+                
+                // Handler for known agents updates
+                const handleKnownAgentsUpdate = (updateData) => {
+                    console.log('Known agents update:', updateData);
+                    
+                    if (fingerprintData) {
+                        fingerprintData.knownAgentsDetection = {
+                            results: updateData.results,
+                            history: updateData.history,
+                            isPeriodicRunning: true,
+                            intervalMs: 60000
+                        };
+                    }
+                    
+                    // Show overlay for detected agents
+                    if (updateData.results && agentOverlay) {
+                        for (const result of updateData.results) {
+                            if (result.detected) {
+                                agentOverlay.addDetection(result);
+                            }
+                        }
+                    }
+                    
+                    if (updateData.newAgentsDetected?.length > 0) {
+                        console.warn(`NEW AGENT(S) DETECTED: ${updateData.newAgentsDetected.join(', ')}`);
+                    }
+                };
+                
+                // Create analyzer
+                const analyzer = new BrowserFingerprintAnalyzer({
+                    detectorTimeout: 3000,
+                    onProgress: handleProgress,
+                    enablePeriodicAgentDetection: true,
+                    agentDetectionInterval: 60000,
+                    onKnownAgentsUpdate: handleKnownAgentsUpdate
+                });
+                
+                window._fingerprintAnalyzer = analyzer;
+                
+                // Run analysis
+                await analyzer.analyzeFingerprint();
+                fingerprintData = analyzer.getAnalysisResults();
+                
+                console.log('Fingerprint analysis complete:', fingerprintData);
+                
+                updateProgress(95, 'Rendering workspace...');
+                
+                // Small delay for visual feedback
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                updateProgress(100, 'Complete');
+                
+                // Clear and render workspace
+                appContainer.innerHTML = '';
+                
+                workspaceController = createResearchWorkspace(appContainer, fingerprintData, {
+                    baselinePath: './fp_base/browser-fingerprint-chrome-trivial.json'
+                });
+                
+            } catch (error) {
+                console.error('Error during fingerprint analysis:', error);
+                showError(error);
+            }
+        }
+        
+        // ============================================================
+        // GLOBAL EXPORT
+        // ============================================================
+        window.exportFingerprintData = async function(format) {
+            if (!fingerprintData) {
+                console.warn('No fingerprint data available');
+                return;
+            }
+            
+            // 1. Download locally
+            const blob = new Blob([JSON.stringify(fingerprintData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `fingerprint-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            // 2. Also store on server (if server is running)
+            try {
+                const response = await fetch('/api/fingerprint', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(fingerprintData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    console.log(`✓ Fingerprint stored on server: ${result.filename}`);
+                } else {
+                    console.warn('Server storage failed:', result.error);
+                }
+            } catch (err) {
+                // Server might not be running - this is okay, local download still works
+                console.log('Server not available for storage (local download succeeded):', err.message);
+            }
+        };
+        
+        // ============================================================
+        // START APPLICATION
+        // ============================================================
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeAnalysis);
+        } else {
+            initializeAnalysis();
+        }
+    </script>
+</body>
+</html>

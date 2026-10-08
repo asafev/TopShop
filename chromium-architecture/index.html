@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chromium Architecture Deep Dive — Phase 1</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <style>
+    body { display: flex; flex-direction: column; align-items: center; padding: 2rem; }
+    .hero { text-align: center; max-width: 800px; margin: 2rem auto 3rem; }
+    .hero h1 { font-size: 2.8rem; margin-bottom: 0.3em; background: linear-gradient(135deg, var(--browser-process), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero .subtitle { color: var(--text-secondary); font-size: 1.15rem; margin-bottom: 1.5rem; }
+    .phase-tag { display: inline-block; background: var(--accent-glow); color: var(--accent); padding: 0.3em 1em; border-radius: 20px; font-size: 0.85rem; font-weight: 600; margin-bottom: 1rem; }
+
+    /* Onion hub visualization */
+    .onion-hub { position: relative; width: 520px; height: 520px; margin: 0 auto 3rem; }
+    .onion-hub .ring {
+      position: absolute; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all 0.3s ease; text-decoration: none;
+    }
+    .onion-hub .ring:hover { transform: scale(1.04); box-shadow: 0 0 40px rgba(0,0,0,0.5); }
+    .onion-hub .ring .ring-text { font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; text-align: center; line-height: 1.3; pointer-events: none; }
+
+    .ring-6 { width: 520px; height: 520px; top: 0; left: 0; background: rgba(230,126,34,0.1); border: 2px solid var(--site-isolation); }
+    .ring-6 .ring-text { position: absolute; top: 18px; color: var(--site-isolation); }
+    .ring-5 { width: 430px; height: 430px; top: 45px; left: 45px; background: rgba(155,89,182,0.1); border: 2px solid var(--mojo-ipc); }
+    .ring-5 .ring-text { position: absolute; top: 18px; color: var(--mojo-ipc); }
+    .ring-4 { width: 340px; height: 340px; top: 90px; left: 90px; background: rgba(243,156,18,0.1); border: 2px solid var(--utility-process); }
+    .ring-4 .ring-text { position: absolute; top: 15px; color: var(--utility-process); }
+    .ring-3 { width: 260px; height: 260px; top: 130px; left: 130px; background: rgba(46,204,113,0.1); border: 2px solid var(--gpu-process); }
+    .ring-3 .ring-text { position: absolute; top: 14px; color: var(--gpu-process); }
+    .ring-2 { width: 185px; height: 185px; top: 167px; left: 167px; background: rgba(231,76,60,0.12); border: 2px solid var(--renderer-process); }
+    .ring-2 .ring-text { position: absolute; top: 12px; color: var(--renderer-process); font-size: 0.72rem; }
+    .ring-1 { width: 110px; height: 110px; top: 205px; left: 205px; background: rgba(74,144,217,0.15); border: 2px solid var(--browser-process); }
+    .ring-1 .ring-text { color: var(--browser-process); font-size: 0.68rem; }
+
+    /* Module cards grid */
+    .modules-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.2rem; max-width: 1100px; width: 100%; }
+    .module-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; transition: all 0.2s ease; text-decoration: none; color: inherit; display: block; }
+    .module-card:hover { border-color: var(--border-active); transform: translateY(-3px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); text-decoration: none; }
+    .module-card .mc-header { display: flex; align-items: center; gap: 0.8em; margin-bottom: 0.8em; }
+    .module-card .mc-num { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9rem; color: #fff; flex-shrink: 0; }
+    .module-card .mc-title { font-size: 1.05rem; font-weight: 600; }
+    .module-card .mc-desc { font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; }
+    .module-card .mc-tags { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.8em; }
+    .module-card .mc-tag { font-size: 0.7rem; padding: 0.15em 0.6em; border-radius: 10px; background: var(--bg-tertiary); color: var(--text-secondary); }
+
+    .section-title { font-size: 1.4rem; color: var(--text-secondary); text-align: center; margin: 2rem 0 1.5rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 400; }
+
+    .prereqs { max-width: 800px; margin: 0 auto 3rem; }
+    .prereqs ul { list-style: none; }
+    .prereqs li { padding: 0.5em 0; display: flex; gap: 0.7em; align-items: flex-start; font-size: 0.92rem; }
+    .prereqs li::before { content: '→'; color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+    .resources-section { max-width: 800px; margin: 2rem auto 0; }
+  </style>
+</head>
+<body>
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="phase-tag">Phase 1 — Chromium Architecture Foundations</div>
+    <h1>Chromium Architecture Deep Dive</h1>
+    <p class="subtitle">
+      Master the multi-process architecture that powers Chrome — from browser process to site isolation.
+      Each layer of the onion takes you deeper.
+    </p>
+    <div class="progress-bar"><div class="progress-fill" style="width: 0%"></div></div>
+    <p style="font-size:0.78rem; color:var(--text-muted);">Keyboard: press 1-6 to jump to a module, ← → to navigate</p>
+  </div>
+
+  <!-- Onion Navigation -->
+  <div class="onion-hub">
+    <a href="modules/06-site-isolation/index.html" class="ring ring-6" title="Module 6: Site Isolation">
+      <span class="ring-text">6 · Site Isolation</span>
+    </a>
+    <a href="modules/05-mojo-ipc/index.html" class="ring ring-5" title="Module 5: Mojo IPC">
+      <span class="ring-text">5 · Mojo IPC</span>
+    </a>
+    <a href="modules/04-gpu-utility/index.html" class="ring ring-4" title="Module 4: GPU & Utility">
+      <span class="ring-text">4 · GPU &amp; Utility</span>
+    </a>
+    <a href="modules/03-renderer-process/index.html" class="ring ring-3" title="Module 3: Renderer Process">
+      <span class="ring-text">3 · Renderer</span>
+    </a>
+    <a href="modules/02-browser-process/index.html" class="ring ring-2" title="Module 2: Browser Process">
+      <span class="ring-text">2 · Browser<br>Process</span>
+    </a>
+    <a href="modules/01-overview/index.html" class="ring ring-1" title="Module 1: Multi-Process Overview">
+      <span class="ring-text">1 · Core</span>
+    </a>
+  </div>
+
+  <div class="section-title">Modules</div>
+
+  <!-- Module Cards -->
+  <div class="modules-grid">
+
+    <a class="module-card" href="modules/01-overview/index.html">
+      <div class="mc-header">
+        <div class="mc-num" style="background:var(--browser-process)">1</div>
+        <div class="mc-title">Multi-Process Architecture Overview</div>
+      </div>
+      <div class="mc-desc">Why Chromium uses multiple processes. The big picture: browser, renderer, GPU, utility. How they communicate and why isolation matters.</div>
+      <div class="mc-tags"><span class="mc-tag">architecture</span><span class="mc-tag">processes</span><span class="mc-tag">security model</span></div>
+    </a>
+
+    <a class="module-card" href="modules/02-browser-process/index.html">
+      <div class="mc-header">
+        <div class="mc-num" style="background:var(--browser-process)">2</div>
+        <div class="mc-title">The Browser Process</div>
+      </div>
+      <div class="mc-desc">The privileged "kernel" of Chrome. UI thread, IO thread, network, storage, RenderProcessHost, child process management and security policy.</div>
+      <div class="mc-tags"><span class="mc-tag">browser process</span><span class="mc-tag">RenderProcessHost</span><span class="mc-tag">security policy</span></div>
+    </a>
+
+    <a class="module-card" href="modules/03-renderer-process/index.html">
+      <div class="mc-header">
+        <div class="mc-num" style="background:var(--renderer-process)">3</div>
+        <div class="mc-title">The Renderer Process</div>
+      </div>
+      <div class="mc-desc">Where your JavaScript runs. Blink rendering engine, V8, RenderFrame, the sandbox, and how web content is painted to pixels.</div>
+      <div class="mc-tags"><span class="mc-tag">blink</span><span class="mc-tag">V8</span><span class="mc-tag">sandbox</span><span class="mc-tag">RenderFrame</span></div>
+    </a>
+
+    <a class="module-card" href="modules/04-gpu-utility/index.html">
+      <div class="mc-header">
+        <div class="mc-num" style="background:var(--gpu-process)">4</div>
+        <div class="mc-title">GPU & Utility Processes</div>
+      </div>
+      <div class="mc-desc">Hardware-accelerated compositing, the command buffer, GL/Vulkan proxying. Utility processes for codecs, network service, and sandboxed tasks.</div>
+      <div class="mc-tags"><span class="mc-tag">GPU process</span><span class="mc-tag">compositor</span><span class="mc-tag">utility</span><span class="mc-tag">network service</span></div>
+    </a>
+
+    <a class="module-card" href="modules/05-mojo-ipc/index.html">
+      <div class="mc-header">
+        <div class="mc-num" style="background:var(--mojo-ipc)">5</div>
+        <div class="mc-title">Mojo IPC System</div>
+      </div>
+      <div class="mc-desc">Chromium's inter-process communication framework. Message pipes, mojom IDL, bindings in C++/JS/Java. How processes talk to each other.</div>
+      <div class="mc-tags"><span class="mc-tag">mojo</span><span class="mc-tag">message pipes</span><span class="mc-tag">mojom</span><span class="mc-tag">IPC</span></div>
+    </a>
+
+    <a class="module-card" href="modules/06-site-isolation/index.html">
+      <div class="mc-header">
+        <div class="mc-num" style="background:var(--site-isolation)">6</div>
+        <div class="mc-title">Site Isolation</div>
+      </div>
+      <div class="mc-desc">One site per process. SiteInstance, ProcessLock, OOPIF, CORB/ORB. How Chrome defends against Spectre and compromised renderers.</div>
+      <div class="mc-tags"><span class="mc-tag">site isolation</span><span class="mc-tag">SiteInstance</span><span class="mc-tag">OOPIF</span><span class="mc-tag">Spectre</span></div>
+    </a>
+
+    <a class="module-card" href="modules/cdp-deep-dive/index.html" style="border-color:#00BCD4;background:rgba(0,188,212,0.03);">
+      <div class="mc-header">
+        <div class="mc-num" style="background:#00BCD4;color:#000">⚡</div>
+        <div class="mc-title">CDP Deep Dive — Chrome DevTools Protocol</div>
+      </div>
+      <div class="mc-desc">Complete deep dive into CDP architecture, Runtime/Debugger domains, V8 Inspector internals, detection vectors, 7 interactive labs, lab setup guide, and Playwright's CDP chain.</div>
+      <div class="mc-tags"><span class="mc-tag">CDP</span><span class="mc-tag">detection</span><span class="mc-tag">V8 Inspector</span><span class="mc-tag">Proxy trap</span><span class="mc-tag">7 labs</span></div>
+    </a>
+
+  </div>
+
+  <!-- Prerequisites -->
+  <div class="prereqs">
+    <div class="section-title">Before You Start</div>
+    <div class="info-box tip">
+      <span class="info-icon">💡</span>
+      <div>
+        <strong>DO NOT start with Playwright/Puppeteer APIs.</strong> Start here. Deeply understand the architecture first.
+        You need to know <em>why</em> things work, not just <em>how</em> to call them.
+      </div>
+    </div>
+    <ul>
+      <li>Open <code>chrome://version</code> to see your Chrome's exact build info and process details</li>
+      <li>Open <code>chrome://process-internals</code> to see live SiteInstance and process mapping</li>
+      <li>Open Chrome Task Manager (Shift+Esc) to observe real process architecture</li>
+      <li>Bookmark <a href="https://source.chromium.org/chromium" target="_blank">Chromium Code Search</a> — you'll use it constantly</li>
+      <li>Bookmark <a href="https://www.chromium.org/developers/design-documents/" target="_blank">Chromium Design Documents</a></li>
+    </ul>
+  </div>
+
+  <!-- Key Resources -->
+  <div class="resources-section">
+    <div class="section-title">Primary Sources</div>
+    <ul class="resource-list">
+      <li>
+        <span class="resource-type doc">DOC</span>
+        <a href="https://www.chromium.org/developers/design-documents/multi-process-architecture/" target="_blank">Multi-Process Architecture — chromium.org</a>
+      </li>
+      <li>
+        <span class="resource-type doc">DOC</span>
+        <a href="https://chromium.googlesource.com/chromium/src/+/main/docs/process_model_and_site_isolation.md" target="_blank">Process Model & Site Isolation — chromium docs</a>
+      </li>
+      <li>
+        <span class="resource-type doc">DOC</span>
+        <a href="https://chromium.googlesource.com/chromium/src/+/HEAD/mojo/README.md" target="_blank">Mojo IPC Framework — README</a>
+      </li>
+      <li>
+        <span class="resource-type doc">DOC</span>
+        <a href="https://chromium.googlesource.com/chromium/src/+/HEAD/docs/design/sandbox.md" target="_blank">Chromium Sandbox Design</a>
+      </li>
+      <li>
+        <span class="resource-type doc">DOC</span>
+        <a href="https://www.chromium.org/developers/design-documents/gpu-accelerated-compositing-in-chrome/" target="_blank">GPU Accelerated Compositing in Chrome</a>
+      </li>
+      <li>
+        <span class="resource-type doc">DOC</span>
+        <a href="https://www.chromium.org/developers/design-documents/displaying-a-web-page-in-chrome/" target="_blank">How Chromium Displays Web Pages</a>
+      </li>
+      <li>
+        <span class="resource-type video">VIDEO</span>
+        <a href="https://youtu.be/2Ds_RIACLbk" target="_blank">Chrome's Process Model and Site Isolation (16 min)</a>
+      </li>
+      <li>
+        <span class="resource-type paper">PAPER</span>
+        <a href="https://www.usenix.org/conference/usenixsecurity19/presentation/reis" target="_blank">Site Isolation: Process Separation for Web Sites — USENIX 2019</a>
+      </li>
+      <li>
+        <span class="resource-type code">CODE</span>
+        <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/" target="_blank">content/ — Core multi-process infrastructure</a>
+      </li>
+    </ul>
+  </div>
+
+  <script src="js/core.js"></script>
+  <script>
+    // Hub-specific: keyboard shortcuts to modules
+    document.addEventListener('keydown', e => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const map = {
+        '1': 'modules/01-overview/index.html',
+        '2': 'modules/02-browser-process/index.html',
+        '3': 'modules/03-renderer-process/index.html',
+        '4': 'modules/04-gpu-utility/index.html',
+        '5': 'modules/05-mojo-ipc/index.html',
+        '6': 'modules/06-site-isolation/index.html',
+      };
+      if (map[e.key]) window.location.href = map[e.key];
+    });
+  </script>
+
+</body>
+</html>

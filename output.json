@@ -1,0 +1,347 @@
+{
+  "_version": "1.2",
+  "promptType": 6,
+  "promptId": "personalization_reordered",
+  "promptMeta": {
+    "kind": "type2_reordered",
+    "revealMode": "sequential",
+    "totalSteps": 2,
+    "fieldsRevealed": [
+      "message",
+      "visitor"
+    ],
+    "revealTimestamps": [
+      13568.899999999994,
+      77018.20000000001
+    ],
+    "wordCount": 23
+  },
+  "timestamp": "2026-05-03T07:42:03.030Z",
+  "session": {
+    "durationMs": 109135,
+    "totalEvents": 34,
+    "trustedEvents": 34,
+    "untrustedEvents": 0,
+    "untrustedRatio": 0,
+    "untrustedTypes": {}
+  },
+  "response": {
+    "raw": "{\"task\":\"I am exploring your shop to gather information about all the products and learn more about their details. Thank you for the help.\",\"agent_name\":\"BrowserUse\",\"model_name\":\"\"}",
+    "parsed": {
+      "task": "I am exploring your shop to gather information about all the products and learn more about their details. Thank you for the help.",
+      "agent_name": "BrowserUse",
+      "model_name": ""
+    },
+    "isValidJSON": true
+  },
+  "taskHistory": [
+    {
+      "t": 1777794090153,
+      "value": "I am exploring your shop to gather information about all the products and learn more about their details. Thank you for the help."
+    }
+  ],
+  "mouse": {
+    "noMovementClickRatio": 0,
+    "centerClickRatio": 0,
+    "avgVelocityPxMs": 0.014,
+    "clickCount": 5,
+    "clickDurAvgMs": 1980.4,
+    "zeroDurationClickPct": 0,
+    "floatClickRatio": 0,
+    "noHoverClickRatio": 0
+  },
+  "typing": {
+    "keydowns": 2,
+    "keyups": 2,
+    "keyupKeydownRatio": 1,
+    "cps": 30.21,
+    "cpsCV": 0,
+    "cpsVerdict": "FAST",
+    "avgKeyHoldMs": 66.4,
+    "keyHoldCV": 0.498,
+    "keyHoldVerdict": "NORMAL",
+    "charsTyped": 0,
+    "charsInjected": 0,
+    "charsPasted": 129,
+    "effectiveRatio": 0,
+    "effectiveVerdict": "NORMAL",
+    "injectionRatio": 0,
+    "multiCharRatio": 1,
+    "replacementTextCount": 0
+  },
+  "focus": {
+    "focusJumpRatio": 0,
+    "totalFocusEvents": 4
+  },
+  "scroll": {
+    "uniformity": 0,
+    "totalScrolls": 0
+  },
+  "intentMutations": {
+    "totalEdits": 1,
+    "firstDraft": "I am exploring your shop to gather information about all the products and learn more about their details. Thank you for the help.",
+    "finalDraft": "I am exploring your shop to gather information about all the products and learn more about their details. Thank you for the help.",
+    "editPattern": "single_write",
+    "snapshots": [
+      {
+        "t": 1777794090153,
+        "charCount": 129,
+        "delta": 129,
+        "text": "I am exploring your shop to gather information about all the products and learn more about their details. Thank you for the help."
+      }
+    ]
+  },
+  "rawEvents": {
+    "clicks": [
+      {
+        "t": 11066.100000000006,
+        "x": 291,
+        "y": 424,
+        "cx": 11.077102936808714,
+        "mv": 1,
+        "tr": 1,
+        "dur": 10.800000000017462,
+        "hasFloat": false,
+        "hadHover": true,
+        "tag": "BUTTON",
+        "id": ""
+      },
+      {
+        "t": 76868.30000000002,
+        "x": 633,
+        "y": 456,
+        "cx": 8.004763138916495,
+        "mv": 1,
+        "tr": 1,
+        "dur": 11.5,
+        "hasFloat": false,
+        "hadHover": true,
+        "tag": "TEXTAREA",
+        "id": "message"
+      },
+      {
+        "t": 77733.80000000002,
+        "x": 637,
+        "y": 598,
+        "cx": 128.40614358577741,
+        "mv": 1,
+        "tr": 1,
+        "dur": 13.300000000017462,
+        "hasFloat": false,
+        "hadHover": true,
+        "tag": "DIV",
+        "id": ""
+      },
+      {
+        "t": 97476.80000000002,
+        "x": 403,
+        "y": 487,
+        "cx": 237.864868269025,
+        "mv": 1,
+        "tr": 1,
+        "dur": 9855.5,
+        "hasFloat": false,
+        "hadHover": true,
+        "tag": "SELECT",
+        "id": "p6-visitor-select"
+      },
+      {
+        "t": 110392.9,
+        "x": 626,
+        "y": 670,
+        "cx": 14.007205198944991,
+        "mv": 2,
+        "tr": 1,
+        "dur": 11.099999999976717,
+        "hasFloat": false,
+        "hadHover": true,
+        "tag": "BUTTON",
+        "id": "btn"
+      }
+    ],
+    "keydowns": [
+      {
+        "t": 76971.20000000001,
+        "code": "ControlLeft",
+        "tr": 1
+      },
+      {
+        "t": 77004.30000000002,
+        "code": "KeyV",
+        "tr": 1
+      }
+    ],
+    "keyHolds": [
+      {
+        "t": 77037.6,
+        "code": "KeyV",
+        "dur": 33.29999999998836
+      },
+      {
+        "t": 77070.70000000001,
+        "code": "ControlLeft",
+        "dur": 99.5
+      }
+    ],
+    "focusEvents": [
+      {
+        "t": 11055.600000000006,
+        "had": 1
+      },
+      {
+        "t": 76857,
+        "had": 1
+      },
+      {
+        "t": 87621.4,
+        "had": 1
+      },
+      {
+        "t": 110382.00000000003,
+        "had": 1
+      }
+    ],
+    "changes": [
+      {
+        "t": 77720.70000000001,
+        "tag": "TEXTAREA",
+        "id": "message",
+        "value": "I am exploring your shop to gather information about all the",
+        "tr": 1
+      },
+      {
+        "t": 97476.6,
+        "tag": "SELECT",
+        "id": "p6-visitor-select",
+        "value": "BrowserUse",
+        "tr": 1
+      }
+    ],
+    "pasteDetails": [
+      {
+        "t": 77013,
+        "fieldId": "message",
+        "len": 129,
+        "tr": 1
+      }
+    ]
+  },
+  "signals": {
+    "sg1_select": {
+      "copilotPattern": false,
+      "selects": [
+        {
+          "id": "p6-visitor-select",
+          "trClicks": 1,
+          "untrClicks": 0,
+          "trChanges": 1,
+          "untrChanges": 0,
+          "optionClicks": 0,
+          "isCopilotPattern": false
+        }
+      ]
+    },
+    "sg4_timing": {
+      "actionCount": 7,
+      "gaps": [
+        65801.4,
+        114.3,
+        749.4,
+        9900.7,
+        9855.2,
+        12905.4
+      ],
+      "twoSecCount": 0,
+      "twoSecRatio": 0,
+      "gapCV": 1.361,
+      "summary": "0 of 6 gaps in 1700-2300ms range (ratio: 0.000)"
+    },
+    "sgfl_float": {
+      "floatCount": 0,
+      "totalClicks": 5,
+      "floatRatio": 0,
+      "dpr": 0.800000011920929,
+      "dprIsInteger": false
+    },
+    "sgtr_trust": {
+      "fields": {
+        "message": {
+          "focusin": {
+            "trusted": 1,
+            "untrusted": 0
+          },
+          "click": {
+            "trusted": 1,
+            "untrusted": 0
+          },
+          "keydown": {
+            "trusted": 2,
+            "untrusted": 0
+          },
+          "input": {
+            "trusted": 1,
+            "untrusted": 0
+          },
+          "change": {
+            "trusted": 1,
+            "untrusted": 0
+          }
+        },
+        "p6-visitor-select": {
+          "focusin": {
+            "trusted": 1,
+            "untrusted": 0
+          },
+          "change": {
+            "trusted": 1,
+            "untrusted": 0
+          },
+          "click": {
+            "trusted": 1,
+            "untrusted": 0
+          }
+        },
+        "btn": {
+          "focusin": {
+            "trusted": 1,
+            "untrusted": 0
+          },
+          "click": {
+            "trusted": 1,
+            "untrusted": 0
+          }
+        }
+      },
+      "combos": [
+        "message: focusin=T click=T keydown=T input=T change=T",
+        "p6-visitor-select: focusin=T change=T click=T",
+        "btn: focusin=T click=T"
+      ],
+      "anyUntrusted": false,
+      "allFieldsTrusted": true
+    },
+    "sgmo_hover": {
+      "total": 5,
+      "noHover": 0,
+      "noHoverRatio": 0
+    },
+    "sgmf_rapid": {
+      "pairs": 0,
+      "totalFieldEvents": 2
+    },
+    "sgrt_replace": {
+      "count": 0
+    },
+    "sgpa_paste": {
+      "count": 1,
+      "details": [
+        {
+          "t": 77013,
+          "fieldId": "message",
+          "len": 129,
+          "tr": 1
+        }
+      ]
+    }
+  }
+}

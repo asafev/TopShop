@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlas Browser Detector v2</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; background: #fafafa; color: #1a1a1a; min-height: 100vh; padding: 32px 20px; }
+.container { max-width: 860px; margin: 0 auto; }
+
+.header { margin-bottom: 32px; border-bottom: 1px solid #ddd; padding-bottom: 16px; }
+.header h1 { font-size: 1.3em; font-weight: 600; letter-spacing: -0.02em; color: #111; }
+.header p { font-size: 0.78em; color: #666; margin-top: 4px; line-height: 1.5; }
+
+.verdict { padding: 16px 20px; border-radius: 4px; margin-bottom: 28px; border-left: 4px solid #ccc; background: #f5f5f5; }
+.verdict.detected { border-left-color: #c0392b; background: #fdf2f2; }
+.verdict.clean { border-left-color: #27ae60; background: #f2fdf5; }
+.verdict.scanning { border-left-color: #f39c12; background: #fffdf2; }
+.verdict-status { font-size: 0.7em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; }
+.verdict-result { font-size: 1.1em; font-weight: 700; margin: 4px 0; }
+.verdict.detected .verdict-result { color: #c0392b; }
+.verdict.clean .verdict-result { color: #27ae60; }
+.verdict.scanning .verdict-result { color: #f39c12; }
+.verdict-meta { font-size: 0.75em; color: #666; }
+
+.mvp-section { margin-bottom: 28px; }
+.mvp-label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; margin-bottom: 8px; }
+.mvp-card { border: 2px solid #2c3e50; border-radius: 4px; padding: 16px 20px; background: #fff; }
+.mvp-card.hit { border-color: #c0392b; background: #fdf8f8; }
+.mvp-card.miss { border-color: #27ae60; background: #f8fdf8; }
+.mvp-title { font-size: 0.85em; font-weight: 700; color: #2c3e50; display: flex; align-items: center; gap: 8px; }
+.mvp-title .tag { font-size: 0.7em; padding: 2px 6px; border-radius: 2px; background: #2c3e50; color: #fff; font-weight: 600; letter-spacing: 0.5px; }
+.mvp-card.hit .mvp-title { color: #c0392b; }
+.mvp-card.hit .mvp-title .tag { background: #c0392b; }
+.mvp-card.miss .mvp-title { color: #27ae60; }
+.mvp-card.miss .mvp-title .tag { background: #27ae60; }
+.mvp-desc { font-size: 0.72em; color: #555; margin-top: 6px; line-height: 1.5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.mvp-detail { font-size: 0.7em; color: #444; margin-top: 10px; padding: 8px 10px; background: #f0f0f0; border-radius: 3px; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
+.mvp-card.hit .mvp-detail { background: #fceaea; }
+.mvp-card.miss .mvp-detail { background: #eafcee; }
+
+.signals-section { margin-bottom: 24px; }
+.signals-heading { font-size: 0.65em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; margin-bottom: 8px; }
+.signals-table { width: 100%; border-collapse: collapse; font-size: 0.75em; }
+.signals-table th { text-align: left; padding: 6px 10px; border-bottom: 2px solid #ddd; color: #666; font-weight: 600; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.5px; }
+.signals-table td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+.signals-table tr.hit td { background: #fdf8f8; }
+.signals-table tr.miss td { background: #fff; }
+.signals-table .col-status { width: 24px; text-align: center; font-size: 1.1em; }
+.signals-table .col-name { font-weight: 600; color: #2c3e50; white-space: nowrap; }
+.signals-table .col-weight { width: 40px; text-align: right; color: #999; font-size: 0.85em; }
+.signals-table tr.hit .col-name { color: #c0392b; }
+.signal-detail-row td { padding: 0 10px 10px 34px; border-bottom: 1px solid #eee; }
+.signal-detail-content { font-size: 0.9em; color: #555; padding: 6px 8px; background: #f7f7f7; border-radius: 3px; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
+.hit .signal-detail-content { background: #fceaea; color: #7a2020; }
+
+.methodology { margin-top: 28px; padding-top: 16px; border-top: 1px solid #ddd; }
+.methodology h2 { font-size: 0.75em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; margin-bottom: 10px; }
+.methodology p { font-size: 0.72em; color: #555; line-height: 1.6; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.methodology code { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.95em; background: #eee; padding: 1px 4px; border-radius: 2px; }
+.methodology .sig-explain { margin-top: 12px; padding: 10px; background: #fff; border: 1px solid #e0e0e0; border-radius: 3px; }
+.methodology .sig-explain h3 { font-size: 0.8em; font-weight: 700; color: #333; margin-bottom: 4px; }
+.methodology .sig-explain p { font-size: 0.7em; margin-bottom: 4px; }
+
+.footer { margin-top: 24px; font-size: 0.65em; color: #aaa; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Atlas Browser Detection v2</h1>
+        <p>Creative detection vectors for OpenAI's Atlas/ChatGPT browsing tool. Focuses on CDP artifacts, timing analysis, WebRTC IP leaks, iframe isolation, proxy fingerprinting, and unconventional side-channels.</p>
+    </div>
+
+    <div id="verdict" class="verdict scanning">
+        <div class="verdict-status">Verdict</div>
+        <div id="verdict-result" class="verdict-result">Scanning...</div>
+        <div id="verdict-meta" class="verdict-meta">Running 25 signals...</div>
+    </div>
+
+    <div class="mvp-section">
+        <div class="mvp-label">Primary Signal (MVP)</div>
+        <div id="mvp-card" class="mvp-card">
+            <div class="mvp-title"><span class="tag">MVP</span> WebRTC IP Leak: Datacenter Detection</div>
+            <div class="mvp-desc">
+                Creates an RTCPeerConnection and gathers ICE candidates to extract the local/public IP address.
+                Atlas runs in OpenAI's cloud infrastructure. If the IP belongs to a known datacenter range (Azure, AWS, GCP)
+                or resolves to an OpenAI-owned network, this is a strong signal. We also check if WebRTC is disabled entirely (another signal).
+            </div>
+            <div id="mvp-detail" class="mvp-detail">Waiting...</div>
+        </div>
+    </div>
+
+    <div class="signals-section">
+        <div class="signals-heading">Supporting Signals (24)</div>
+        <table class="signals-table">
+            <thead><tr><th class="col-status"></th><th class="col-name">Signal</th><th>Value</th><th class="col-weight">W</th></tr></thead>
+            <tbody id="signals-tbody"></tbody>
+        </table>
+    </div>
+
+    <div class="methodology">
+        <h2>Signal Explanations</h2>
+        <p>All signals run client-side. No external requests except the WebRTC candidate gathering (STUN) and the self-fetch timing test. Each signal returns raw data for manual comparison between Chrome and Atlas.</p>
+
+        <div class="sig-explain">
+            <h3>MVP: WebRTC IP Leak</h3>
+            <p>Creates <code>new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]})</code>, creates a data channel, and listens for ICE candidates. Extracts IPs from candidate strings. Datacenter IPs or disabled WebRTC both indicate automation.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>1. CDP Runtime Domain Detection</h3>
+            <p>CDP injects a binding via <code>Runtime.addBinding</code>. We enumerate <code>window</code> own properties looking for unusual callable bindings (non-standard function properties on window that aren't in a normal Chrome profile).</p>
+        </div>
+        <div class="sig-explain">
+            <h3>2. Iframe contentWindow Consistency</h3>
+            <p>Creates a same-origin iframe and compares <code>navigator.userAgent</code>, <code>navigator.plugins.length</code>, and <code>window.chrome</code> between parent and iframe. CDP-controlled browsers sometimes have inconsistencies.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>3. setTimeout Precision Timing</h3>
+            <p>Measures actual resolution of <code>setTimeout(fn, 0)</code> over 20 iterations. Normal browsers: 1-4ms. Automated browsers running under load or in VMs: may show different clustering patterns.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>4. performance.now() Precision</h3>
+            <p>Samples <code>performance.now()</code> 100 times in a tight loop and checks the minimum delta between consecutive calls. Chrome normally gives ~5us precision. Reduced precision indicates privacy sandbox or automation context.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>5. requestAnimationFrame Timing</h3>
+            <p>Runs 10 rAF frames and measures inter-frame timing. Normal: ~16.6ms (60fps). Automated: may be exactly 16.6ms (mocked), 0ms (instant), or highly irregular.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>6. alert/confirm/prompt Behavior</h3>
+            <p>Overrides <code>window.alert</code> with a timing wrapper, then calls it. Atlas likely auto-dismisses dialogs. We measure if the call returns instantly (< 1ms) vs blocks (normal browser waits for user).</p>
+        </div>
+        <div class="sig-explain">
+            <h3>7. history.length</h3>
+            <p>Fresh automated sessions start with <code>history.length === 1</code> (or 2 after navigation). A value of 1 on a page that should be navigated-to is suspicious.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>8. Proxy/Reflect Trap Detection</h3>
+            <p>Tests if <code>navigator</code> is wrapped in a Proxy by using <code>Object.getPrototypeOf</code>, checking <code>Symbol.toStringTag</code>, and comparing prototype chain depth.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>9. screen.width x screen.height</h3>
+            <p>Reports raw screen dimensions. Atlas likely runs in a fixed viewport. Values like 1920x1080 on Mac (where Retina is standard) are suspicious.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>10. Web Audio Fingerprint</h3>
+            <p>Creates an <code>OfflineAudioContext</code>, runs an oscillator through a compressor, and hashes the output buffer. Different environments produce different audio fingerprints.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>11. Canvas Pixel Extraction</h3>
+            <p>Draws specific text and shapes on a canvas and extracts pixel data hash. Compares with known Atlas rendering (if available). Reports raw hash for comparison.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>12. window.opener / window.parent</h3>
+            <p>Checks <code>window.opener</code>, <code>window.parent !== window</code>, and <code>window.frameElement</code>. Atlas may run pages in a controlled frame structure.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>13. document.visibilityState</h3>
+            <p>Checks if the page is <code>visible</code> or <code>hidden</code>. Automated browsers may report <code>hidden</code> or <code>prerender</code> state.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>14. navigator.languages Full Array</h3>
+            <p>Reports the full <code>navigator.languages</code> array. Automated browsers often have only <code>["en-US"]</code> vs real users who have regional preferences.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>15. Timezone vs IP Location</h3>
+            <p>Gets <code>Intl.DateTimeFormat().resolvedOptions().timeZone</code>. If Atlas runs from US datacenters, timezone should be US-based. A mismatch between timezone and what we expect from an OpenAI server is informational.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>16. Error.captureStackTrace</h3>
+            <p>Tests <code>Error.captureStackTrace</code> and <code>Error.stackTraceLimit</code>. CDP-injected scripts may alter these. Also checks if Error stack formatting matches V8 standard.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>17. Blob URL / createObjectURL</h3>
+            <p>Creates a Blob URL worker and checks if it can communicate back. Some sandboxed automation contexts restrict Blob URL creation or Worker spawning.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>18. SharedArrayBuffer Availability</h3>
+            <p>Tests if <code>SharedArrayBuffer</code> is available. Requires cross-origin isolation headers (COOP/COEP). Atlas may or may not have these headers.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>19. Installed Fonts via Canvas</h3>
+            <p>Measures text width for strings rendered in 50 common Mac fonts. Atlas may have a stripped-down font set compared to a real Mac with user-installed fonts.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>20. navigator.hardwareConcurrency</h3>
+            <p>Reports CPU core count. Cloud VMs often have specific core counts (2, 4, 8). Unusual values or very high counts may indicate datacenter hardware.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>21. navigator.deviceMemory</h3>
+            <p>Reports device memory in GB. Cloud VMs may report unusual values. Normal Macs: 8, 16, 32, 64.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>22. Self-Fetch Response Timing</h3>
+            <p>Fetches the current page URL and measures response time. If running locally, it should be < 50ms. If Atlas proxies through OpenAI infrastructure, latency will be higher.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>23. Mouse/Keyboard Event Listener Test</h3>
+            <p>Registers event listeners and reports if any synthetic events fire within 2 seconds. Atlas's AI cannot produce real mouse/keyboard events with proper <code>isTrusted</code> flag.</p>
+        </div>
+        <div class="sig-explain">
+            <h3>24. window Property Enumeration</h3>
+            <p>Counts own properties on <code>window</code> and looks for non-standard ones. CDP and automation inject properties like <code>cdc_</code>, custom bindings, or OpenAI-specific globals.</p>
+        </div>
+    </div>
+
+    <div class="footer">atlas-detector v2.0 | signals: 25 | approach: unconventional side-channels</div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    // ─── Helper ───
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    // ─── MVP: WebRTC IP Leak ───
+    function detectWebRTCIP() {
+        return new Promise(function(resolve) {
+            var hit = false;
+            var detail = '';
+            try {
+                var RTC = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+                if (!RTC) {
+                    hit = true;
+                    detail = 'DETECTED: RTCPeerConnection not available (restricted environment)';
+                    resolve({ hit: hit, detail: detail });
+                    return;
+                }
+                var pc = new RTC({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+                var ips = [];
+                var timeout = setTimeout(function() {
+                    pc.close();
+                    if (ips.length === 0) {
+                        hit = true;
+                        detail = 'DETECTED: No ICE candidates gathered (WebRTC blocked or datacenter NAT)';
+                    } else {
+                        // Check for datacenter IPs
+                        var dcPatterns = [/^10\./, /^172\.(1[6-9]|2[0-9]|3[01])\./, /^192\.168\./, /^100\.(6[4-9]|[7-9][0-9]|1[0-2][0-7])\./];
+                        var allPrivate = ips.every(function(ip) { return dcPatterns.some(function(p) { return p.test(ip); }); });
+                        detail = 'IPs found: ' + ips.join(', ');
+                        if (allPrivate) {
+                            detail += '\nAll IPs are private/datacenter ranges';
+                        }
+                    }
+                    resolve({ hit: hit, detail: detail });
+                }, 3000);
+
+                pc.onicecandidate = function(e) {
+                    if (!e.candidate) return;
+                    var parts = e.candidate.candidate.split(' ');
+                    var ip = parts[4];
+                    if (ip && ips.indexOf(ip) === -1 && ip.indexOf('.') !== -1) {
+                        ips.push(ip);
+                    }
+                };
+                pc.createDataChannel('');
+                pc.createOffer().then(function(offer) { return pc.setLocalDescription(offer); }).catch(function() {});
+            } catch (e) {
+                hit = true;
+                detail = 'DETECTED: WebRTC error: ' + e.message;
+                resolve({ hit: hit, detail: detail });
+            }
+        });
+    }
+
+    // ─── Signal 1: CDP Runtime Bindings ───
+    function detectCDPBindings() {
+        var hit = false;
+        var detail = '';
+        try {
+            var dominated = Object.getOwnPropertyNames(window);
+            var suspicious = dominated.filter(function(p) {
+                // Look for CDP-injected patterns
+                if (p.indexOf('cdc_') === 0) return true;
+                if (p.indexOf('__') === 0 && p.indexOf('__proto__') === -1 && p.indexOf('__defineGetter__') === -1) {
+                    // Check if it's a function (CDP binding)
+                    try { if (typeof window[p] === 'function' && window[p].toString().indexOf('[native code]') === -1) return true; } catch(e) {}
+                }
+                return false;
+            });
+            // Also check for CDP-specific variable patterns
+            var cdcProps = dominated.filter(function(p) { return /^cdc_|^__cdc|^__webdriver|^__selenium|^__fxdriver|^__nightmare|^_Selenium|^calledSelenium|^_phantom|^__lastWatirAlert|^__lastWatirConfirm|^__lastWatirPrompt|^webdriver/.test(p); });
+            if (cdcProps.length > 0) {
+                hit = true;
+                detail = 'DETECTED: CDP/automation properties: ' + cdcProps.join(', ');
+            } else if (suspicious.length > 3) {
+                detail = 'Suspicious props (' + suspicious.length + '): ' + suspicious.slice(0, 10).join(', ');
+            } else {
+                detail = 'Total window props: ' + dominated.length + '. No CDP patterns found.';
+            }
+        } catch (e) { detail = 'Error: ' + e.message; }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 2: Iframe Consistency ───
+    function detectIframeConsistency() {
+        return new Promise(function(resolve) {
+            var hit = false;
+            var detail = '';
+            try {
+                var iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.srcdoc = '<html><body></body></html>';
+                document.body.appendChild(iframe);
+                setTimeout(function() {
+                    try {
+                        var iWin = iframe.contentWindow;
+                        var parentUA = navigator.userAgent;
+                        var iframeUA = iWin.navigator.userAgent;
+                        var parentPlugins = navigator.plugins.length;
+                        var iframePlugins = iWin.navigator.plugins.length;
+                        var parentChrome = typeof window.chrome;
+                        var iframeChrome = typeof iWin.chrome;
+                        var mismatches = [];
+                        if (parentUA !== iframeUA) mismatches.push('UA mismatch');
+                        if (parentPlugins !== iframePlugins) mismatches.push('plugins count: parent=' + parentPlugins + ' iframe=' + iframePlugins);
+                        if (parentChrome !== iframeChrome) mismatches.push('chrome object: parent=' + parentChrome + ' iframe=' + iframeChrome);
+                        // Check if iframe navigator is a Proxy
+                        var iNavStr = Object.prototype.toString.call(iWin.navigator);
+                        if (iNavStr !== '[object Navigator]') mismatches.push('iframe navigator toString: ' + iNavStr);
+                        if (mismatches.length > 0) {
+                            hit = true;
+                            detail = 'INCONSISTENT: ' + mismatches.join('; ');
+                        } else {
+                            detail = 'Consistent: UA, plugins(' + parentPlugins + '), chrome(' + parentChrome + ')';
+                        }
+                    } catch (e) { detail = 'Cross-origin error: ' + e.message; }
+                    document.body.removeChild(iframe);
+                    resolve({ hit: hit, detail: detail });
+                }, 200);
+            } catch (e) { detail = 'Error: ' + e.message; resolve({ hit: hit, detail: detail }); }
+        });
+    }
+
+    // ─── Signal 3: setTimeout Precision ───
+    function detectSetTimeoutPrecision() {
+        return new Promise(function(resolve) {
+            var timings = [];
+            var count = 0;
+            var total = 20;
+            function measure() {
+                var start = performance.now();
+                setTimeout(function() {
+                    timings.push(performance.now() - start);
+                    count++;
+                    if (count < total) measure();
+                    else finish();
+                }, 0);
+            }
+            function finish() {
+                var avg = timings.reduce(function(a, b) { return a + b; }, 0) / timings.length;
+                var min = Math.min.apply(null, timings);
+                var max = Math.max.apply(null, timings);
+                var stddev = Math.sqrt(timings.reduce(function(a, t) { return a + (t - avg) * (t - avg); }, 0) / timings.length);
+                var hit = false;
+                var detail = 'avg=' + avg.toFixed(2) + 'ms min=' + min.toFixed(2) + ' max=' + max.toFixed(2) + ' stddev=' + stddev.toFixed(2);
+                // Extremely consistent timing (< 0.1 stddev) or very fast (< 1ms avg) suggests mocked timers
+                if (avg < 0.5 || stddev < 0.05) {
+                    hit = true;
+                    detail = 'SUSPICIOUS: ' + detail + ' (too precise/fast for real browser)';
+                }
+                detail += '\nraw: [' + timings.map(function(t) { return t.toFixed(1); }).join(',') + ']';
+                resolve({ hit: hit, detail: detail });
+            }
+            measure();
+        });
+    }
+
+    // ─── Signal 4: performance.now() Precision ───
+    function detectPerfNowPrecision() {
+        var hit = false;
+        var detail = '';
+        var samples = [];
+        var prev = performance.now();
+        for (var i = 0; i < 100; i++) {
+            var now = performance.now();
+            if (now !== prev) {
+                samples.push(now - prev);
+                prev = now;
+            }
+        }
+        if (samples.length === 0) {
+            hit = true;
+            detail = 'DETECTED: performance.now() never changed in 100 iterations (frozen timer)';
+        } else {
+            var minDelta = Math.min.apply(null, samples);
+            var maxDelta = Math.max.apply(null, samples);
+            // If precision is rounded to 100us (0.1ms), it's privacy-restricted
+            var allRounded = samples.every(function(s) { return Math.abs(s - Math.round(s * 10) / 10) < 0.001; });
+            detail = 'min delta=' + (minDelta * 1000).toFixed(1) + 'us, max=' + (maxDelta * 1000).toFixed(1) + 'us, samples=' + samples.length;
+            if (minDelta >= 0.1) {
+                detail += '\nReduced precision (>=100us): possible cross-origin isolation or automation';
+            }
+            detail += '\nfirst 10 deltas(us): [' + samples.slice(0, 10).map(function(s) { return (s * 1000).toFixed(0); }).join(',') + ']';
+        }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 5: requestAnimationFrame Timing ───
+    function detectRAFTiming() {
+        return new Promise(function(resolve) {
+            var deltas = [];
+            var prev = null;
+            var count = 0;
+            function frame(ts) {
+                if (prev !== null) deltas.push(ts - prev);
+                prev = ts;
+                count++;
+                if (count < 12) requestAnimationFrame(frame);
+                else {
+                    var avg = deltas.reduce(function(a, b) { return a + b; }, 0) / deltas.length;
+                    var stddev = Math.sqrt(deltas.reduce(function(a, d) { return a + (d - avg) * (d - avg); }, 0) / deltas.length);
+                    var hit = false;
+                    var detail = 'avg=' + avg.toFixed(2) + 'ms stddev=' + stddev.toFixed(2) + 'ms frames=' + deltas.length;
+                    // Mocked rAF: all deltas exactly the same, or avg = 0
+                    if (avg < 1 || stddev < 0.01) {
+                        hit = true;
+                        detail = 'SUSPICIOUS: ' + detail + ' (mocked or instant rAF)';
+                    }
+                    detail += '\ndeltas: [' + deltas.map(function(d) { return d.toFixed(1); }).join(',') + ']';
+                    resolve({ hit: hit, detail: detail });
+                }
+            }
+            requestAnimationFrame(frame);
+        });
+    }
+
+    // ─── Signal 6: alert() Behavior (non-blocking check) ───
+    function detectAlertBehavior() {
+        var hit = false;
+        var detail = '';
+        // We can't actually call alert() as it blocks. Instead, test confirm behavior via overriding
+        try {
+            // Check if window.alert is native
+            var alertStr = window.alert.toString();
+            var confirmStr = window.confirm.toString();
+            var promptStr = window.prompt.toString();
+            var alertNative = alertStr.indexOf('[native code]') !== -1;
+            var confirmNative = confirmStr.indexOf('[native code]') !== -1;
+            var promptNative = promptStr.indexOf('[native code]') !== -1;
+            if (!alertNative || !confirmNative || !promptNative) {
+                hit = true;
+                detail = 'DETECTED: Dialog functions overridden\nalert native=' + alertNative + ', confirm native=' + confirmNative + ', prompt native=' + promptNative;
+                if (!alertNative) detail += '\nalert.toString(): ' + alertStr.substring(0, 150);
+            } else {
+                detail = 'All dialog functions native (alert, confirm, prompt)';
+            }
+        } catch (e) { detail = 'Error: ' + e.message; }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 7: history.length ───
+    function detectHistoryLength() {
+        var hit = false;
+        var detail = '';
+        var len = history.length;
+        if (len <= 1) {
+            hit = true;
+            detail = 'SUSPICIOUS: history.length = ' + len + ' (fresh automated session)';
+        } else {
+            detail = 'history.length = ' + len;
+        }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 8: Proxy/Reflect Detection ───
+    function detectProxyWrapping() {
+        var hit = false;
+        var detail = '';
+        try {
+            var checks = [];
+            // Test 1: Symbol.toStringTag on navigator
+            var navTag = navigator[Symbol.toStringTag];
+            checks.push('navigator[Symbol.toStringTag]=' + String(navTag));
+            // Test 2: typeof navigator trap detection
+            var protoDepth = 0;
+            var obj = navigator;
+            while (obj && protoDepth < 10) { obj = Object.getPrototypeOf(obj); protoDepth++; }
+            checks.push('navigator proto depth=' + protoDepth);
+            // Test 3: Check if property access triggers any unusual behavior
+            var desc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'userAgent');
+            checks.push('UA descriptor: get=' + (desc && desc.get ? 'yes' : 'no') + ' configurable=' + (desc ? desc.configurable : '?'));
+            // Test 4: Reflect.ownKeys check
+            var navKeys = Reflect.ownKeys(navigator);
+            checks.push('navigator ownKeys count=' + navKeys.length);
+            // If navigator prototype depth is unusual
+            if (protoDepth > 5 || protoDepth < 2) {
+                hit = true;
+                detail = 'SUSPICIOUS: unusual prototype chain depth\n' + checks.join('\n');
+            } else {
+                detail = checks.join('\n');
+            }
+        } catch (e) { detail = 'Error: ' + e.message; }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 9: screen dimensions ───
+    function detectScreenDimensions() {
+        var hit = false;
+        var detail = '';
+        var sw = screen.width, sh = screen.height;
+        var saw = screen.availWidth, sah = screen.availHeight;
+        var dpr = window.devicePixelRatio;
+        detail = 'screen: ' + sw + 'x' + sh + ' avail: ' + saw + 'x' + sah + ' dpr=' + dpr;
+        // Mac Retina: typically 1440x900 (logical) or similar with DPR=2
+        // Headless often: 800x600 or 1920x1080 with DPR=1
+        if (sw === 0 || sh === 0) {
+            hit = true;
+            detail = 'DETECTED: screen dimensions are 0 (headless)';
+        } else if (sw === 800 && sh === 600) {
+            hit = true;
+            detail = 'SUSPICIOUS: 800x600 default headless size. ' + detail;
+        }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 10: Web Audio Fingerprint ───
+    function detectWebAudio() {
+        return new Promise(function(resolve) {
+            var hit = false;
+            var detail = '';
+            try {
+                var AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+                if (!AC) { resolve({ hit: true, detail: 'DETECTED: OfflineAudioContext not available' }); return; }
+                var ctx = new AC(1, 5000, 44100);
+                var osc = ctx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.value = 10000;
+                var comp = ctx.createDynamicsCompressor();
+                comp.threshold.value = -50;
+                comp.knee.value = 40;
+                comp.ratio.value = 12;
+                comp.attack.value = 0;
+                comp.release.value = 0.25;
+                osc.connect(comp);
+                comp.connect(ctx.destination);
+                osc.start(0);
+                ctx.startRendering().then(function(buffer) {
+                    var data = buffer.getChannelData(0);
+                    // Simple hash of audio data
+                    var hash = 0;
+                    for (var i = 4500; i < 5000; i++) {
+                        hash = ((hash << 5) - hash) + Math.round(data[i] * 1000000);
+                        hash = hash & hash;
+                    }
+                    detail = 'Audio hash: ' + hash + '\nSample[4500..4505]: ' + Array.from(data.slice(4500, 4506)).map(function(v) { return v.toFixed(6); }).join(', ');
+                    resolve({ hit: hit, detail: detail });
+                }).catch(function(e) {
+                    resolve({ hit: true, detail: 'DETECTED: AudioContext rendering failed: ' + e.message });
+                });
+            } catch (e) { resolve({ hit: false, detail: 'Error: ' + e.message }); }
+        });
+    }
+
+    // ─── Signal 11: Canvas Hash ───
+    function detectCanvasHash() {
+        var hit = false;
+        var detail = '';
+        try {
+            var canvas = document.createElement('canvas');
+            canvas.width = 280; canvas.height = 60;
+            var ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#f0f0f0'; ctx.fillRect(0, 0, 280, 60);
+            ctx.fillStyle = '#333'; ctx.font = '18px Arial';
+            ctx.fillText('Atlas Detection Test 2024!', 10, 30);
+            ctx.strokeStyle = 'rgba(100,50,200,0.7)'; ctx.beginPath();
+            ctx.arc(200, 30, 20, 0, Math.PI * 2); ctx.stroke();
+            ctx.fillStyle = 'rgba(255, 100, 0, 0.5)'; ctx.fillRect(150, 10, 50, 40);
+            var dataURL = canvas.toDataURL();
+            // Simple hash
+            var hash = 0;
+            for (var i = 0; i < dataURL.length; i++) {
+                hash = ((hash << 5) - hash) + dataURL.charCodeAt(i);
+                hash = hash & hash;
+            }
+            detail = 'Canvas hash: ' + hash + '\nData URL length: ' + dataURL.length;
+        } catch (e) { detail = 'Error: ' + e.message; }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 12: window.opener / parent ───
+    function detectWindowHierarchy() {
+        var hit = false;
+        var detail = '';
+        var hasOpener = window.opener !== null;
+        var isFramed = window.parent !== window;
+        var hasFrameElement = window.frameElement !== null;
+        var windowName = window.name || '';
+        detail = 'opener=' + hasOpener + ', framed=' + isFramed + ', frameElement=' + hasFrameElement + ', window.name="' + windowName + '"';
+        if (isFramed || hasFrameElement) {
+            hit = true;
+            detail = 'DETECTED: Page is framed (may be Atlas container)\n' + detail;
+        }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 13: Visibility State ───
+    function detectVisibility() {
+        var hit = false;
+        var detail = '';
+        var state = document.visibilityState;
+        var hidden = document.hidden;
+        detail = 'visibilityState="' + state + '", hidden=' + hidden;
+        if (state === 'hidden' || state === 'prerender' || hidden === true) {
+            hit = true;
+            detail = 'SUSPICIOUS: ' + detail + ' (page not visible - automated context)';
+        }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 14: navigator.languages ───
+    function detectLanguages() {
+        var hit = false;
+        var detail = '';
+        var langs = navigator.languages || [];
+        var lang = navigator.language || '';
+        detail = 'language="' + lang + '"\nlanguages=[' + langs.join(', ') + ']';
+        if (langs.length <= 1 && lang === 'en-US') {
+            hit = true;
+            detail = 'SUSPICIOUS: Single language "en-US" (typical automation default)\n' + detail;
+        }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 15: Timezone ───
+    function detectTimezone() {
+        var hit = false;
+        var detail = '';
+        try {
+            var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            var offset = new Date().getTimezoneOffset();
+            detail = 'timezone="' + tz + '", offset=' + offset + 'min (' + (-offset / 60) + 'h)';
+            // US datacenter timezones
+            var usTimezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'UTC', 'Etc/UTC'];
+            if (usTimezones.indexOf(tz) !== -1) {
+                detail += '\n(US timezone - consistent with datacenter)';
+            }
+        } catch (e) { detail = 'Error: ' + e.message; }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 16: Error.captureStackTrace ───
+    function detectErrorStack() {
+        var hit = false;
+        var detail = '';
+        try {
+            var limit = Error.stackTraceLimit;
+            var hasCaptureStack = typeof Error.captureStackTrace === 'function';
+            // Create error and inspect format
+            var err = new Error('test');
+            var lines = (err.stack || '').split('\n');
+            detail = 'stackTraceLimit=' + limit + ', captureStackTrace=' + hasCaptureStack;
+            detail += '\nStack lines: ' + lines.length;
+            detail += '\nFirst 3 lines:\n' + lines.slice(0, 3).join('\n');
+            // Look for unusual origins in stack
+            var stackLower = (err.stack || '').toLowerCase();
+            if (stackLower.indexOf('puppeteer') !== -1 || stackLower.indexOf('playwright') !== -1 || stackLower.indexOf('cdp') !== -1) {
+                hit = true;
+                detail = 'DETECTED: automation keyword in stack\n' + detail;
+            }
+        } catch (e) { detail = 'Error: ' + e.message; }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 17: Blob Worker ───
+    function detectBlobWorker() {
+        return new Promise(function(resolve) {
+            var hit = false;
+            var detail = '';
+            try {
+                var code = 'self.postMessage({ua: self.navigator.userAgent, hw: self.navigator.hardwareConcurrency, lang: self.navigator.languages});';
+                var blob = new Blob([code], { type: 'application/javascript' });
+                var url = URL.createObjectURL(blob);
+                var worker = new Worker(url);
+                var timeout = setTimeout(function() {
+                    worker.terminate();
+                    hit = true;
+                    detail = 'DETECTED: Worker did not respond within 2s (blocked)';
+                    resolve({ hit: hit, detail: detail });
+                }, 2000);
+                worker.onmessage = function(e) {
+                    clearTimeout(timeout);
+                    worker.terminate();
+                    URL.revokeObjectURL(url);
+                    var d = e.data;
+                    detail = 'Worker UA: ' + (d.ua || '?') + '\nWorker cores: ' + (d.hw || '?') + '\nWorker langs: [' + (d.lang || []).join(',') + ']';
+                    // Compare worker UA with main
+                    if (d.ua && d.ua !== navigator.userAgent) {
+                        hit = true;
+                        detail = 'MISMATCH: Worker UA differs from main thread\n' + detail + '\nMain UA: ' + navigator.userAgent;
+                    }
+                    resolve({ hit: hit, detail: detail });
+                };
+                worker.onerror = function(e) {
+                    clearTimeout(timeout);
+                    hit = true;
+                    detail = 'DETECTED: Worker creation failed: ' + (e.message || 'unknown error');
+                    resolve({ hit: hit, detail: detail });
+                };
+            } catch (e) {
+                hit = true;
+                detail = 'DETECTED: Blob Worker not supported: ' + e.message;
+                resolve({ hit: hit, detail: detail });
+            }
+        });
+    }
+
+    // ─── Signal 18: SharedArrayBuffer ───
+    function detectSharedArrayBuffer() {
+        var hit = false;
+        var detail = '';
+        var hasSAB = typeof SharedArrayBuffer !== 'undefined';
+        var crossOriginIsolated = window.crossOriginIsolated || false;
+        detail = 'SharedArrayBuffer=' + hasSAB + ', crossOriginIsolated=' + crossOriginIsolated;
+        if (!hasSAB) {
+            detail += '\n(Not available - page lacks COOP/COEP headers or is sandboxed)';
+        }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 19: Installed Fonts ───
+    function detectFonts() {
+        var hit = false;
+        var detail = '';
+        try {
+            var testFonts = ['Helvetica Neue', 'SF Pro Display', 'SF Pro Text', 'Menlo', 'Monaco',
+                'Avenir', 'Futura', 'Gill Sans', 'Optima', 'Palatino', 'Didot', 'American Typewriter',
+                'Baskerville', 'Copperplate', 'Papyrus', 'Impact', 'Comic Sans MS', 'Georgia',
+                'Trebuchet MS', 'Verdana', 'Courier New', 'Times New Roman', 'Arial', 'Helvetica',
+                'Lucida Grande', 'Geneva', 'Tahoma', 'Segoe UI', 'Roboto', 'Noto Sans'];
+            var canvas = document.createElement('canvas');
+            var ctx = canvas.getContext('2d');
+            var baseline = 'mmmmmmmmmmlli';
+            ctx.font = '72px monospace';
+            var baseWidth = ctx.measureText(baseline).width;
+            var detected = [];
+            var notDetected = [];
+            for (var i = 0; i < testFonts.length; i++) {
+                ctx.font = '72px "' + testFonts[i] + '", monospace';
+                var w = ctx.measureText(baseline).width;
+                if (w !== baseWidth) detected.push(testFonts[i]);
+                else notDetected.push(testFonts[i]);
+            }
+            detail = 'Detected ' + detected.length + '/' + testFonts.length + ' fonts';
+            detail += '\nPresent: ' + detected.join(', ');
+            detail += '\nMissing: ' + notDetected.join(', ');
+            // Very few fonts = stripped environment
+            if (detected.length < 5) {
+                hit = true;
+                detail = 'SUSPICIOUS: Only ' + detected.length + ' fonts detected (stripped environment)\n' + detail;
+            }
+        } catch (e) { detail = 'Error: ' + e.message; }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 20: hardwareConcurrency ───
+    function detectHWConcurrency() {
+        var hit = false;
+        var detail = '';
+        var cores = navigator.hardwareConcurrency || 0;
+        detail = 'hardwareConcurrency = ' + cores;
+        if (cores === 2) {
+            detail += '\n(Common in VMs/containers - but also some real machines)';
+        } else if (cores === 0) {
+            hit = true;
+            detail = 'DETECTED: hardwareConcurrency = 0 (unavailable)';
+        }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 21: deviceMemory ───
+    function detectDeviceMemory() {
+        var hit = false;
+        var detail = '';
+        var mem = navigator.deviceMemory;
+        if (mem === undefined) {
+            detail = 'deviceMemory API not available (Safari or restricted)';
+        } else {
+            detail = 'deviceMemory = ' + mem + ' GB';
+            if (mem <= 2) {
+                hit = true;
+                detail = 'SUSPICIOUS: deviceMemory = ' + mem + ' GB (low - possible VM)';
+            }
+        }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Signal 22: Self-Fetch Timing ───
+    function detectSelfFetchTiming() {
+        return new Promise(function(resolve) {
+            var hit = false;
+            var detail = '';
+            try {
+                var start = performance.now();
+                fetch(window.location.href, { method: 'HEAD', cache: 'no-cache' })
+                    .then(function(res) {
+                        var elapsed = performance.now() - start;
+                        detail = 'Self-fetch time: ' + elapsed.toFixed(1) + 'ms, status=' + res.status;
+                        if (elapsed > 500) {
+                            hit = true;
+                            detail = 'SUSPICIOUS: High latency (' + elapsed.toFixed(0) + 'ms) - possible proxy/remote browser\n' + detail;
+                        }
+                        resolve({ hit: hit, detail: detail });
+                    })
+                    .catch(function(e) {
+                        detail = 'Fetch failed: ' + e.message + ' (CORS or network issue)';
+                        resolve({ hit: hit, detail: detail });
+                    });
+            } catch (e) { resolve({ hit: false, detail: 'Error: ' + e.message }); }
+        });
+    }
+
+    // ─── Signal 23: Synthetic Event Detection ───
+    function detectSyntheticEvents() {
+        return new Promise(function(resolve) {
+            var hit = false;
+            var detail = '';
+            var events = [];
+            function handler(e) {
+                events.push({ type: e.type, trusted: e.isTrusted, ts: performance.now() });
+            }
+            document.addEventListener('mousemove', handler);
+            document.addEventListener('keydown', handler);
+            document.addEventListener('pointerdown', handler);
+            // Wait 1.5s and check if any events fired
+            setTimeout(function() {
+                document.removeEventListener('mousemove', handler);
+                document.removeEventListener('keydown', handler);
+                document.removeEventListener('pointerdown', handler);
+                if (events.length === 0) {
+                    detail = 'No mouse/keyboard events in 1.5s (expected for automated browser)';
+                    // Not a hit by itself - user might just not be moving
+                } else {
+                    var untrusted = events.filter(function(e) { return !e.trusted; });
+                    if (untrusted.length > 0) {
+                        hit = true;
+                        detail = 'DETECTED: ' + untrusted.length + ' untrusted (synthetic) events!\n' + JSON.stringify(untrusted.slice(0, 3));
+                    } else {
+                        detail = events.length + ' trusted events captured (real user interaction)';
+                    }
+                }
+                resolve({ hit: hit, detail: detail });
+            }, 1500);
+        });
+    }
+
+    // ─── Signal 24: Window Property Count & Anomalies ───
+    function detectWindowProps() {
+        var hit = false;
+        var detail = '';
+        try {
+            var allProps = Object.getOwnPropertyNames(window);
+            var count = allProps.length;
+            // Look for suspicious patterns
+            var oaiProps = allProps.filter(function(p) {
+                var lower = p.toLowerCase();
+                return lower.indexOf('oai') !== -1 || lower.indexOf('openai') !== -1 ||
+                       lower.indexOf('chatgpt') !== -1 || lower.indexOf('atlas') !== -1 ||
+                       lower.indexOf('__puppeteer') !== -1 || lower.indexOf('__playwright') !== -1;
+            });
+            // Look for numbered/random bindings (CDP pattern)
+            var randomBindings = allProps.filter(function(p) { return /^[a-f0-9]{32,}$/i.test(p); });
+            detail = 'Total window properties: ' + count;
+            if (oaiProps.length > 0) {
+                hit = true;
+                detail += '\nDETECTED OpenAI props: ' + oaiProps.join(', ');
+            }
+            if (randomBindings.length > 0) {
+                hit = true;
+                detail += '\nDETECTED random bindings: ' + randomBindings.join(', ');
+            }
+            // Report any non-standard function properties
+            var customFns = allProps.filter(function(p) {
+                try {
+                    if (typeof window[p] === 'function' && ['alert','confirm','prompt','setTimeout','setInterval','clearTimeout','clearInterval','fetch','requestAnimationFrame','cancelAnimationFrame','atob','btoa','open','close','focus','blur','print','stop','getComputedStyle','matchMedia','scroll','scrollTo','scrollBy','moveTo','moveBy','resizeTo','resizeBy','postMessage','queueMicrotask','structuredClone','reportError','getSelection','find','createImageBitmap'].indexOf(p) === -1) {
+                        var str = window[p].toString();
+                        if (str.indexOf('[native code]') === -1 && str.length < 500) return true;
+                    }
+                } catch(e) {}
+                return false;
+            });
+            if (customFns.length > 0) {
+                detail += '\nCustom functions on window: ' + customFns.slice(0, 5).join(', ');
+            }
+        } catch (e) { detail = 'Error: ' + e.message; }
+        return { hit: hit, detail: detail };
+    }
+
+    // ─── Run all signals ───
+    async function runAll() {
+        var signalDefs = [
+            { id: 'cdp-bindings', name: 'CDP Runtime Bindings', weight: 80, fn: detectCDPBindings },
+            { id: 'iframe-consistency', name: 'Iframe Consistency', weight: 70, fn: detectIframeConsistency, async: true },
+            { id: 'settimeout-precision', name: 'setTimeout Precision', weight: 55, fn: detectSetTimeoutPrecision, async: true },
+            { id: 'perfnow-precision', name: 'performance.now() Precision', weight: 45, fn: detectPerfNowPrecision },
+            { id: 'raf-timing', name: 'requestAnimationFrame Timing', weight: 50, fn: detectRAFTiming, async: true },
+            { id: 'alert-behavior', name: 'alert/confirm/prompt Override', weight: 75, fn: detectAlertBehavior },
+            { id: 'history-length', name: 'history.length', weight: 40, fn: detectHistoryLength },
+            { id: 'proxy-detection', name: 'Proxy/Reflect Wrapping', weight: 60, fn: detectProxyWrapping },
+            { id: 'screen-dims', name: 'Screen Dimensions', weight: 45, fn: detectScreenDimensions },
+            { id: 'web-audio', name: 'Web Audio Fingerprint', weight: 35, fn: detectWebAudio, async: true },
+            { id: 'canvas-hash', name: 'Canvas Hash', weight: 30, fn: detectCanvasHash },
+            { id: 'window-hierarchy', name: 'window.opener / parent', weight: 50, fn: detectWindowHierarchy },
+            { id: 'visibility', name: 'document.visibilityState', weight: 45, fn: detectVisibility },
+            { id: 'languages', name: 'navigator.languages', weight: 40, fn: detectLanguages },
+            { id: 'timezone', name: 'Timezone', weight: 30, fn: detectTimezone },
+            { id: 'error-stack', name: 'Error.captureStackTrace', weight: 55, fn: detectErrorStack },
+            { id: 'blob-worker', name: 'Blob Worker', weight: 60, fn: detectBlobWorker, async: true },
+            { id: 'sab', name: 'SharedArrayBuffer', weight: 25, fn: detectSharedArrayBuffer },
+            { id: 'fonts', name: 'Installed Fonts (30)', weight: 50, fn: detectFonts },
+            { id: 'hw-concurrency', name: 'hardwareConcurrency', weight: 30, fn: detectHWConcurrency },
+            { id: 'device-memory', name: 'deviceMemory', weight: 30, fn: detectDeviceMemory },
+            { id: 'self-fetch', name: 'Self-Fetch Timing', weight: 65, fn: detectSelfFetchTiming, async: true },
+            { id: 'synthetic-events', name: 'Mouse/Keyboard Events', weight: 35, fn: detectSyntheticEvents, async: true },
+            { id: 'window-props', name: 'Window Property Scan', weight: 70, fn: detectWindowProps }
+        ];
+
+        // Run MVP first
+        var mvp = await detectWebRTCIP();
+        var mvpCard = document.getElementById('mvp-card');
+        var mvpDetail = document.getElementById('mvp-detail');
+        mvpCard.classList.add(mvp.hit ? 'hit' : 'miss');
+        mvpDetail.textContent = mvp.detail;
+
+        // Run all signals
+        var tbody = document.getElementById('signals-tbody');
+        var totalWeight = 90; // MVP weight
+        var hitWeight = mvp.hit ? 90 : 0;
+        var hitCount = mvp.hit ? 1 : 0;
+
+        for (var i = 0; i < signalDefs.length; i++) {
+            var sig = signalDefs[i];
+            var result;
+            if (sig.async) {
+                result = await sig.fn();
+            } else {
+                result = sig.fn();
+            }
+
+            totalWeight += sig.weight;
+            if (result.hit) { hitWeight += sig.weight; hitCount++; }
+
+            var tr = document.createElement('tr');
+            tr.className = result.hit ? 'hit' : 'miss';
+            var shortDetail = result.detail.split('\n')[0];
+            if (shortDetail.length > 90) shortDetail = shortDetail.substring(0, 87) + '...';
+            tr.innerHTML = '<td class="col-status">' + (result.hit ? 'X' : '-') + '</td>' +
+                '<td class="col-name">' + esc(sig.name) + '</td>' +
+                '<td>' + esc(shortDetail) + '</td>' +
+                '<td class="col-weight">' + sig.weight + '</td>';
+            tbody.appendChild(tr);
+
+            // Detail row (always show for informational value)
+            if (result.detail.length > 60) {
+                var detailTr = document.createElement('tr');
+                detailTr.className = 'signal-detail-row ' + (result.hit ? 'hit' : 'miss');
+                detailTr.innerHTML = '<td colspan="4"><div class="signal-detail-content">' + esc(result.detail) + '</div></td>';
+                tbody.appendChild(detailTr);
+            }
+        }
+
+        // Calculate verdict
+        var score = Math.round((hitWeight / totalWeight) * 100);
+        var verdictEl = document.getElementById('verdict');
+        var resultEl = document.getElementById('verdict-result');
+        var metaEl = document.getElementById('verdict-meta');
+        verdictEl.classList.remove('scanning');
+
+        if (score >= 40 || hitCount >= 5) {
+            verdictEl.classList.add('detected');
+            resultEl.textContent = 'Likely Automated Browser (Atlas?)';
+            metaEl.textContent = 'Score: ' + score + '% | Hits: ' + hitCount + '/25 | Weighted: ' + hitWeight + '/' + totalWeight;
+        } else {
+            verdictEl.classList.add('clean');
+            resultEl.textContent = 'Likely Normal Browser';
+            metaEl.textContent = 'Score: ' + score + '% | Hits: ' + hitCount + '/25 | Weighted: ' + hitWeight + '/' + totalWeight;
+        }
+    }
+
+    // Start
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() { setTimeout(runAll, 200); });
+    } else {
+        setTimeout(runAll, 200);
+    }
+})();
+</script>
+</body>
+</html>

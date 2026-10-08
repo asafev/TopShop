@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browser Data</title>
+    <link rel="icon" href="favicon.ico">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f4f6fb;
+            color: #1f2937;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 24px 16px;
+        }
+        .container { width: 100%; max-width: 1100px; }
+        #status {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 18px 22px;
+            margin-bottom: 16px;
+        }
+        #status h1 { font-size: 20px; margin-bottom: 6px; }
+        #status p { font-size: 14px; color: #4b5563; }
+        .bar { height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin: 12px 0 4px; }
+        .bar > div { height: 100%; width: 0; background: #4f46e5; transition: width .15s linear; }
+        .actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+        .actions button {
+            padding: 8px 16px; border: 0; border-radius: 6px; background: #4f46e5; color: #fff;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+        }
+        .actions button:disabled { background: #c7c9d1; cursor: not-allowed; }
+        #json-output {
+            background: #111827; color: #e5e7eb; border-radius: 10px; padding: 18px;
+            font-family: Consolas, Monaco, 'Courier New', monospace; font-size: 12.5px; line-height: 1.55;
+            white-space: pre-wrap; word-break: break-word; max-height: 70vh; overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="status">
+            <h1>Browser data</h1>
+            <p id="status-text">Collecting…</p>
+            <div class="bar"><div id="bar"></div></div>
+            <div class="actions">
+                <button id="btn-copy" type="button" disabled>Copy JSON</button>
+                <button id="btn-download" type="button" disabled>Download JSON</button>
+            </div>
+        </div>
+        <pre id="json-output" data-state="collecting">{}</pre>
+    </div>
+
+    <script type="module">
+        import { collectEnv } from './detectors/envCollect.js';
+
+        const SCHEMA = 'browser-data/2';
+        const t0 = performance.now();
+        const out = { schema: SCHEMA, collectedAt: new Date().toISOString(), state: 'collecting', ms: {}, device: null, page: null };
+        const $ = (id) => document.getElementById(id);
+
+        function render(state, text, pct) {
+            out.state = state;
+            $('json-output').textContent = JSON.stringify(out, null, 2);
+            $('json-output').dataset.state = state;
+            $('status-text').textContent = text;
+            if (pct !== undefined) $('bar').style.width = pct + '%';
+            $('btn-copy').disabled = !out.device;
+            $('btn-download').disabled = !out.device;
+            if (state === 'complete') document.title = 'Browser Data (complete)';
+        }
+
+        // Raw values only: a metric's value, never its description or rating. Rated or derived fields are
+        // left out, and long data: URLs are reduced to a short hash so the file stays small and comparable.
+        const SKIP_CATEGORIES = /^(automation|knownAgentsDetection|behavioralIndicators|behavioralTelemetry|stringSignatureAutomation|functionIntegrity|collectionTiming)$/;
+        const SKIP_KEYS = [/Lie[sd]?(?![a-z])/, /IsFake|Fake(?![a-z])/, /Detected/, /Confidence/, /Score/, /Anomal/, /[Ss]uspicious/, /Risk/,
+            /^(automationLibraries|automationArtifacts|windowAutomationKeys|navigatorAutomationKeys|stackAnomalies)$/,
+            /[Pp]hantom|^fake|[Ss]elenium|^cdp|[Aa]utomation|^_/,
+            // Derived ratings and comparisons; the raw values they are computed from stay in the record.
+            /^(networkProfile|overallAssessment|locale(Intl)?EntropyIsTrusty|canvas2dGetImageDataPatched|canvas2dGeometryEnhancedNoiseInjection)$/,
+            /^(platformLikely|platformIsCrossPlatform|categoryProfile|audioPatternMatch|speechVoiceLangMismatch)$|^workerMatch/,
+            /Match$|Mismatch|MissingFields$|Coheren|^stackSizeConsistency$/];
+        function hash(str) {
+            let h = 0x811c9dc5;
+            for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+            return ('0000000' + h.toString(16)).slice(-8);
+        }
+        function rawValue(v) {
+            if (typeof v === 'string' && v.length > 256 && v.startsWith('data:')) return 'h:' + hash(v);
+            return v;
+        }
+        function toRaw(metrics) {
+            const res = {};
+            for (const [cat, entries] of Object.entries(metrics || {})) {
+                if (SKIP_CATEGORIES.test(cat) || !entries || typeof entries !== 'object') continue;
+                const o = {};
+                for (const [key, m] of Object.entries(entries)) {
+                    if (SKIP_KEYS.some((re) => re.test(key))) continue;
+                    const v = (m && typeof m === 'object' && 'value' in m) ? m.value : m;
+                    o[key] = rawValue(v === 'Not available' ? null : v);
+                }
+                if (Object.keys(o).length) res[cat] = o;
+            }
+            return res;
+        }
+
+        function download() {
+            const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'browser-data-' + Date.now() + '.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+        $('btn-download').addEventListener('click', download);
+        $('btn-copy').addEventListener('click', () => {
+            try { navigator.clipboard.writeText(JSON.stringify(out, null, 2)); $('status-text').textContent = 'Copied.'; }
+            catch (e) { $('status-text').textContent = 'Copy is not available here; use Download.'; }
+        });
+
+        async function run() {
+            render('collecting', 'Collecting…', 5);
+            // Stage 1: fast device record (about a second). The JSON is usable from here on.
+            const d0 = performance.now();
+            out.device = await collectEnv({ timeoutMs: 2500 });
+            out.ms.device = Math.round(performance.now() - d0);
+            render('partial', 'Basic data ready. Collecting more…', 25);
+
+            // Stage 2: the extended page record. Slower; it updates the JSON when it finishes.
+            const p0 = performance.now();
+            try {
+                const { BrowserFingerprintAnalyzer } = await import('./browserFingerprint.js');
+                const analyzer = new BrowserFingerprintAnalyzer({
+                    knownAgents: false,
+                    enablePeriodicAgentDetection: false,
+                    detectorTimeout: 3000,
+                    onProgress: (p) => {
+                        const pct = Math.max(25, Math.min(99, 25 + Math.round((p.percentage || 0) * 0.74)));
+                        $('bar').style.width = pct + '%';
+                    },
+                });
+                await analyzer.analyzeFingerprint();
+                out.page = toRaw(analyzer.getAnalysisResults().metrics);
+            } catch (e) {
+                out.page = { error: String(e && e.message || e) };
+            }
+            out.ms.page = Math.round(performance.now() - p0);
+            out.ms.total = Math.round(performance.now() - t0);
+            render('complete', 'Done. Copy or download the JSON.', 100);
+        }
+
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+        else run();
+    </script>
+</body>
+</html>

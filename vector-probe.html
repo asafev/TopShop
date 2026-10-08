@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html><head><title>Vector Probe</title></head>
+<body>
+<h2>Detection Vector Probe</h2>
+<pre id="results">Running tests...</pre>
+<script>
+(async () => {
+    const r = {};
+    
+    // 1. WebRTC ICE Candidates
+    try {
+        const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+        const cands = [];
+        pc.onicecandidate = e => { if(e.candidate) cands.push(e.candidate.candidate); };
+        pc.createDataChannel('t');
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await new Promise(res => setTimeout(res, 4000));
+        pc.close();
+        r.webrtc = {count: cands.length, samples: cands.slice(0,3)};
+    } catch(e) { r.webrtc = {error: e.message}; }
+    
+    // 2. SharedWorker
+    try { 
+        const sw = new SharedWorker('data:text/javascript,self.onconnect=function(){}');
+        r.sharedWorker = {available: true, hasPort: !!sw.port};
+    } catch(e) { r.sharedWorker = {available: false, error: e.name + ': ' + e.message}; }
+    
+    // 3. ServiceWorker
+    r.serviceWorker = {inNavigator: 'serviceWorker' in navigator};
+    try {
+        if('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            r.serviceWorker.registrations = regs.length;
+        }
+    } catch(e) { r.serviceWorker.error = e.message; }
+    
+    // 4. Credential Management / WebAuthn
+    r.credentials = {
+        inNavigator: 'credentials' in navigator,
+        PublicKeyCredential: typeof PublicKeyCredential !== 'undefined'
+    };
+    try {
+        if(typeof PublicKeyCredential !== 'undefined') {
+            if(PublicKeyCredential.isConditionalMediationAvailable)
+                r.credentials.conditionalMediation = await PublicKeyCredential.isConditionalMediationAvailable();
+            if(PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable)
+                r.credentials.platformAuth = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        }
+    } catch(e) { r.credentials.error = e.message; }
+    
+    // 5. Performance resource entries
+    r.perfResources = performance.getEntriesByType('resource').length;
+    
+    // 6. navigator.connection (Network Information API)
+    const conn = navigator.connection || navigator.mozConnection;
+    r.connection = conn ? {type:conn.type, effectiveType:conn.effectiveType, downlink:conn.downlink, rtt:conn.rtt, saveData:conn.saveData} : 'NOT_AVAILABLE';
+    
+    // 7. Screen
+    r.screen = {isExtended: screen.isExtended, colorDepth: screen.colorDepth, pixelDepth: screen.pixelDepth, orientation: screen.orientation?.type};
+    
+    // 8. Bluetooth API
+    r.bluetooth = {available: 'bluetooth' in navigator};
+    
+    // 9. USB API
+    r.usb = {available: 'usb' in navigator};
+    
+    // 10. Serial API
+    r.serial = {available: 'serial' in navigator};
+    
+    // 11. HID API
+    r.hid = {available: 'hid' in navigator};
+    
+    // 12. Window management
+    r.windowManagement = {getScreenDetails: typeof window.getScreenDetails === 'function'};
+    
+    // 13. Payment Request
+    try {
+        const pr = new PaymentRequest([{supportedMethods:'basic-card'}], {total:{label:'t',amount:{currency:'USD',value:'1'}}});
+        r.paymentRequest = {constructable: true};
+    } catch(e) { r.paymentRequest = {constructable: false, error: e.message}; }
+    
+    // 14. Idle Detection
+    r.idleDetection = {available: 'IdleDetector' in window};
+    
+    // 15. BarcodeDetector
+    r.barcodeDetector = {available: 'BarcodeDetector' in window};
+    
+    // 16. EyeDropper
+    r.eyeDropper = {available: 'EyeDropper' in window};
+    
+    // 17. File System Access
+    r.fileSystemAccess = {showOpenFilePicker: typeof window.showOpenFilePicker === 'function', showSaveFilePicker: typeof window.showSaveFilePicker === 'function'};
+    
+    // 18. Presentation API
+    r.presentation = {available: 'presentation' in navigator};
+    
+    // 19. Wake Lock
+    r.wakeLock = {available: 'wakeLock' in navigator};
+    
+    // 20. Storage estimate
+    try {
+        const est = await navigator.storage.estimate();
+        r.storage = {quota: est.quota, usage: est.usage};
+    } catch(e) { r.storage = {error: e.message}; }
+    
+    document.getElementById('results').textContent = JSON.stringify(r, null, 2);
+})();
+</script>
+</body></html>

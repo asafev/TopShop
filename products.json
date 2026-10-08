@@ -1,0 +1,52 @@
+{
+  "products": [
+    {
+      "id": 1,
+      "name": "Premium Wireless Headphones",
+      "price": 299.99,
+      "description": "High-fidelity audio with active noise cancellation",
+      "image": "🎧",
+      "stock": 45
+    },
+    {
+      "id": 2,
+      "name": "Smart Fitness Watch",
+      "price": 199.99,
+      "description": "Track your health with advanced biometric sensors",
+      "image": "⌚",
+      "stock": 120
+    },
+    {
+      "id": 3,
+      "name": "Portable Power Bank 20000mAh",
+      "price": 49.99,
+      "description": "Fast charging for all your devices on the go",
+      "image": "🔋",
+      "stock": 200
+    },
+    {
+      "id": 4,
+      "name": "4K Webcam Pro",
+      "price": 149.99,
+      "description": "Crystal clear video for professional streaming",
+      "image": "📹",
+      "stock": 67
+    },
+    {
+      "id": 5,
+      "name": "Mechanical Gaming Keyboard",
+      "price": 159.99,
+      "description": "RGB backlit with tactile switches",
+      "image": "⌨️",
+      "stock": 88
+    },
+    {
+      "id": 6,
+      "name": "Ergonomic Mouse",
+      "price": 79.99,
+      "description": "Wireless precision for all-day comfort",
+      "image": "🖱️",
+      "stock": 150
+    }
+  ]
+}

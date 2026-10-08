@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Module 5: Mojo IPC System</title>
+  <link rel="stylesheet" href="../../styles/main.css">
+</head>
+<body data-module="mod-05">
+<div class="page-wrapper">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h2>Phase 1</h2>
+      <span class="phase-badge">Chromium Architecture</span>
+      <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="../../index.html">← Hub</a></li>
+      <li><a href="../01-overview/index.html" data-module="mod-01"><span class="module-number browser">1</span> Multi-Process Overview</a></li>
+      <li><a href="../02-browser-process/index.html" data-module="mod-02"><span class="module-number browser">2</span> Browser Process</a></li>
+      <li><a href="../03-renderer-process/index.html" data-module="mod-03"><span class="module-number renderer">3</span> Renderer Process</a></li>
+      <li><a href="../04-gpu-utility/index.html" data-module="mod-04"><span class="module-number gpu">4</span> GPU &amp; Utility</a></li>
+      <li><a href="index.html" class="active" data-module="mod-05"><span class="module-number mojo">5</span> Mojo IPC</a></li>
+      <li><a href="../06-site-isolation/index.html" data-module="mod-06"><span class="module-number isolation">6</span> Site Isolation</a></li>
+    </ul>
+  </nav>
+
+  <!-- Main -->
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../../index.html">Hub</a><span class="sep">/</span><span>Module 5</span>
+    </div>
+
+    <h1>Module 5 — Mojo IPC System</h1>
+    <p>Mojo is Chromium's inter-process communication framework — the nervous system connecting every process. Understanding Mojo explains how JavaScript API calls actually reach the browser kernel and why automation tools leave detectable traces in the IPC layer.</p>
+
+    <!-- Depth Selector -->
+    <div class="depth-selector">
+      <button class="depth-btn active" data-depth="0">🧅 Layer 0 — Analogy</button>
+      <button class="depth-btn" data-depth="1">📘 Layer 1 — Concept</button>
+      <button class="depth-btn" data-depth="2">🏗️ Layer 2 — Architecture</button>
+      <button class="depth-btn" data-depth="3">💻 Layer 3 — Source Code</button>
+      <button class="depth-btn" data-depth="4">🔍 Layer 4 — Detection Angle</button>
+    </div>
+
+    <!-- ===================== LAYER 0: ANALOGY ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>The Postal System Analogy</h2>
+      <div class="card">
+        <p><strong>Mojo is Chrome's postal system.</strong></p>
+        <p>Every process has a mailbox. When a renderer wants a cookie, it writes a letter (message) and sends it through a pipe to the browser process's mailbox. The browser reads it, processes the request, and sends a reply back.</p>
+        <p>There's a strict format for letters (<strong>mojom IDL</strong>) so both sides know exactly what to expect. Pipes are cheap — you can create millions of them.</p>
+      </div>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Renderer Process (Sender) -->
+          <rect x="40" y="60" width="220" height="180" rx="12" fill="#2a1a1a" stroke="#E74C3C" stroke-width="2"/>
+          <text x="150" y="90" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="13">RENDERER PROCESS</text>
+          <text x="150" y="110" text-anchor="middle" fill="#8b949e" font-size="10">(Your tab)</text>
+
+          <!-- Letter/Message -->
+          <rect x="80" y="130" width="140" height="50" rx="6" fill="rgba(155,89,182,0.15)" stroke="#9B59B6" stroke-width="1.5"/>
+          <text x="150" y="152" text-anchor="middle" fill="#9B59B6" font-size="10" font-weight="600">📨 "GetAllCookies"</text>
+          <text x="150" y="168" text-anchor="middle" fill="#8b949e" font-size="9">mojom-formatted message</text>
+
+          <!-- Mailbox -->
+          <rect x="80" y="195" width="140" height="30" rx="4" fill="rgba(155,89,182,0.08)" stroke="#9B59B6" stroke-width="1" stroke-dasharray="3"/>
+          <text x="150" y="214" text-anchor="middle" fill="#9B59B6" font-size="9">📬 Outgoing Mailbox</text>
+
+          <!-- Pipe (animated) -->
+          <line x1="260" y1="160" x2="540" y2="160" stroke="#9B59B6" stroke-width="3" stroke-dasharray="8 4">
+            <animate attributeName="stroke-dashoffset" from="0" to="-24" dur="1.5s" repeatCount="indefinite"/>
+          </line>
+          <text x="400" y="145" text-anchor="middle" fill="#9B59B6" font-weight="700" font-size="12">MESSAGE PIPE</text>
+          <text x="400" y="180" text-anchor="middle" fill="#8b949e" font-size="10">Bidirectional • Asynchronous • Type-safe</text>
+
+          <!-- Arrow -->
+          <polygon points="530,155 540,160 530,165" fill="#9B59B6"/>
+
+          <!-- Browser Process (Receiver) -->
+          <rect x="540" y="60" width="220" height="180" rx="12" fill="#111827" stroke="#4A90D9" stroke-width="2"/>
+          <text x="650" y="90" text-anchor="middle" fill="#4A90D9" font-weight="700" font-size="13">BROWSER PROCESS</text>
+          <text x="650" y="110" text-anchor="middle" fill="#8b949e" font-size="10">(Privileged)</text>
+
+          <!-- Incoming Mailbox -->
+          <rect x="580" y="130" width="140" height="30" rx="4" fill="rgba(155,89,182,0.08)" stroke="#9B59B6" stroke-width="1" stroke-dasharray="3"/>
+          <text x="650" y="149" text-anchor="middle" fill="#9B59B6" font-size="9">📬 Incoming Mailbox</text>
+
+          <!-- Processing -->
+          <rect x="580" y="175" width="140" height="50" rx="6" fill="rgba(74,144,217,0.15)" stroke="#4A90D9" stroke-width="1.5"/>
+          <text x="650" y="197" text-anchor="middle" fill="#4A90D9" font-size="10" font-weight="600">CookieManager</text>
+          <text x="650" y="213" text-anchor="middle" fill="#8b949e" font-size="9">Processes request → replies</text>
+
+          <!-- Reply arrow -->
+          <line x1="540" y1="210" x2="260" y2="210" stroke="#2ECC71" stroke-width="2" stroke-dasharray="6 3">
+            <animate attributeName="stroke-dashoffset" from="0" to="18" dur="1.5s" repeatCount="indefinite"/>
+          </line>
+          <polygon points="270,205 260,210 270,215" fill="#2ECC71"/>
+          <text x="400" y="230" text-anchor="middle" fill="#2ECC71" font-size="10">📩 Reply: [cookie1, cookie2, …]</text>
+
+          <!-- Bottom insight -->
+          <rect x="150" y="270" width="500" height="35" rx="8" fill="rgba(155,89,182,0.08)" stroke="#9B59B6" stroke-width="1"/>
+          <text x="400" y="292" text-anchor="middle" fill="#9B59B6" font-size="11" font-weight="600">Every JS API that needs privileged access sends a "letter" through Mojo — creating observable latency</text>
+        </svg>
+      </div>
+
+      <div class="info-box tip">
+        <span class="info-icon">💡</span>
+        <div><strong>Key insight:</strong> When you call <code>document.cookie</code> in JavaScript, it doesn't just read memory. It sends a Mojo message to the browser process, waits for a response, and returns the result. This IPC round-trip is measurable and forms the basis of timing-based detection.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 1: CONCEPT ===================== -->
+    <section class="onion-layer" data-depth="1">
+      <h2>Mojo Fundamentals</h2>
+
+      <p>Mojo replaced Chrome's older "legacy IPC" system (which used <code>IPC::Message</code> with manual serialization). It was introduced around 2015 and is now the only IPC mechanism in Chromium.</p>
+
+      <h3>Core Primitives</h3>
+      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:1rem; margin:1.5rem 0;">
+        <div class="card">
+          <h4 style="color:var(--mojo-ipc)">🔗 Message Pipes</h4>
+          <p style="font-size:0.88rem">Bidirectional channels between two endpoints. Each end can send and receive messages. The fundamental building block.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:var(--mojo-ipc)">📊 Data Pipes</h4>
+          <p style="font-size:0.88rem">Streaming bulk data transfer (like reading a large file). Producer/consumer pattern with backpressure support.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:var(--mojo-ipc)">🧠 Shared Buffers</h4>
+          <p style="font-size:0.88rem">Shared memory regions mapped into multiple processes. Used for large, frequently-accessed data (like compositor frames).</p>
+        </div>
+      </div>
+
+      <h3>The Interface Pattern: Remote &amp; Receiver</h3>
+      <div class="card">
+        <p>Mojo uses a <strong>client-server</strong> pattern for structured communication:</p>
+        <ul>
+          <li><strong>Remote&lt;T&gt;</strong> — The client side. Sends requests, receives callbacks.</li>
+          <li><strong>Receiver&lt;T&gt;</strong> — The server side. Receives requests, sends responses.</li>
+          <li><strong>mojom IDL</strong> — Interface Definition Language. You define interfaces in <code>.mojom</code> files, and code generation creates C++/JS/Java bindings automatically.</li>
+        </ul>
+        <p>Messages flow <strong>Remote → Receiver</strong>. The connection is asynchronous — fire-and-forget with optional reply callbacks.</p>
+      </div>
+
+      <h3>Key Properties</h3>
+      <ul>
+        <li><strong>Associated interfaces</strong> — Multiple interfaces sharing one pipe (preserves message ordering between them)</li>
+        <li><strong>Asynchronous by default</strong> — Send and forget, with optional reply callbacks</li>
+        <li><strong>Synchronous calls exist</strong> — But are discouraged (block the calling thread, risk deadlocks)</li>
+        <li><strong>Location-transparent</strong> — Same API whether the other end is in-process, cross-process, or even cross-machine (theoretically)</li>
+        <li><strong>Ubiquitous</strong> — Every IPC in Chrome goes through Mojo: navigation, resource loading, compositor commands, DevTools protocol, permissions queries, etc.</li>
+      </ul>
+
+      <h3>Old IPC vs Mojo</h3>
+      <table>
+        <thead><tr><th>Feature</th><th>Legacy IPC</th><th>Mojo</th></tr></thead>
+        <tbody>
+          <tr><td>Serialization</td><td>Manual <code>IPC::Message</code> macros</td><td>Auto-generated from mojom</td></tr>
+          <tr><td>Type safety</td><td>Weak (manual casting)</td><td>Strong (generated types)</td></tr>
+          <tr><td>Performance</td><td>~3× slower</td><td>Baseline</td></tr>
+          <tr><td>Context switches</td><td>~3× more</td><td>Baseline</td></tr>
+          <tr><td>Cross-language</td><td>C++ only</td><td>C++, JavaScript, Java</td></tr>
+          <tr><td>In-process support</td><td>Not supported</td><td>Identical API</td></tr>
+        </tbody>
+      </table>
+
+      <div class="info-box detection">
+        <span class="info-icon">🔬</span>
+        <div><strong>Detection relevance:</strong> Because Mojo is asynchronous and crosses process boundaries, any operation that uses Mojo has inherent latency. Operations that are purely renderer-local (DOM manipulation, math) are orders of magnitude faster. This timing differential is the foundation for IPC-based detection probes.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 2: ARCHITECTURE ===================== -->
+    <section class="onion-layer" data-depth="2">
+      <h2>Mojo Architecture Deep Dive</h2>
+
+      <h3>Layered Architecture</h3>
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 480" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Title -->
+          <text x="400" y="25" text-anchor="middle" fill="#c9d1d9" font-weight="700" font-size="14">Mojo IPC Stack — Request Flow (GetAllCookies)</text>
+
+          <!-- Process A (Renderer) -->
+          <rect x="40" y="45" width="320" height="380" rx="12" fill="#1a1a2a" stroke="#E74C3C" stroke-width="1.5" stroke-dasharray="4"/>
+          <text x="200" y="70" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="12">PROCESS A (Renderer)</text>
+
+          <!-- Layers in Process A -->
+          <rect x="70" y="85" width="260" height="45" rx="6" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="200" y="108" text-anchor="middle" fill="#E74C3C" font-size="11" font-weight="600">Application Layer</text>
+          <text x="200" y="122" text-anchor="middle" fill="#8b949e" font-size="9">cookie_manager->GetAllCookies(callback)</text>
+
+          <text x="200" y="145" text-anchor="middle" fill="#9B59B6" font-size="9">↓ Remote&lt;CookieManager&gt;</text>
+
+          <rect x="70" y="155" width="260" height="45" rx="6" fill="rgba(155,89,182,0.1)" stroke="#9B59B6" stroke-width="1"/>
+          <text x="200" y="178" text-anchor="middle" fill="#9B59B6" font-size="11" font-weight="600">Bindings API Layer</text>
+          <text x="200" y="192" text-anchor="middle" fill="#8b949e" font-size="9">Serialize args → mojom message format</text>
+
+          <text x="200" y="215" text-anchor="middle" fill="#9B59B6" font-size="9">↓</text>
+
+          <rect x="70" y="225" width="260" height="45" rx="6" fill="rgba(155,89,182,0.15)" stroke="#9B59B6" stroke-width="1"/>
+          <text x="200" y="248" text-anchor="middle" fill="#9B59B6" font-size="11" font-weight="600">System API Layer</text>
+          <text x="200" y="262" text-anchor="middle" fill="#8b949e" font-size="9">MojoWriteMessage(pipe_handle, data)</text>
+
+          <text x="200" y="285" text-anchor="middle" fill="#9B59B6" font-size="9">↓</text>
+
+          <rect x="70" y="295" width="260" height="45" rx="6" fill="rgba(155,89,182,0.2)" stroke="#9B59B6" stroke-width="1.5"/>
+          <text x="200" y="318" text-anchor="middle" fill="#9B59B6" font-size="11" font-weight="600">Mojo Core</text>
+          <text x="200" y="332" text-anchor="middle" fill="#8b949e" font-size="9">Node + Port routing</text>
+
+          <text x="200" y="360" text-anchor="middle" fill="#9B59B6" font-size="9">↓</text>
+
+          <rect x="70" y="370" width="260" height="40" rx="6" fill="rgba(155,89,182,0.08)" stroke="#666" stroke-width="1"/>
+          <text x="200" y="395" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="600">OS IPC (named pipes / Unix sockets)</text>
+
+          <!-- Pipe crossing boundary -->
+          <line x1="330" y1="390" x2="440" y2="390" stroke="#9B59B6" stroke-width="3" stroke-dasharray="6 3">
+            <animate attributeName="stroke-dashoffset" from="0" to="-18" dur="1s" repeatCount="indefinite"/>
+          </line>
+          <polygon points="435,385 445,390 435,395" fill="#9B59B6"/>
+
+          <!-- Process boundary -->
+          <line x1="390" y1="45" x2="390" y2="425" stroke="#9B59B6" stroke-width="1" stroke-dasharray="2" opacity="0.4"/>
+          <text x="390" y="445" text-anchor="middle" fill="#9B59B6" font-size="9" opacity="0.7">⚡ PROCESS BOUNDARY ⚡</text>
+
+          <!-- Process B (Browser) -->
+          <rect x="440" y="45" width="320" height="380" rx="12" fill="#111827" stroke="#4A90D9" stroke-width="1.5" stroke-dasharray="4"/>
+          <text x="600" y="70" text-anchor="middle" fill="#4A90D9" font-weight="700" font-size="12">PROCESS B (Browser)</text>
+
+          <!-- Layers in Process B (reverse order visually) -->
+          <rect x="470" y="370" width="260" height="40" rx="6" fill="rgba(155,89,182,0.08)" stroke="#666" stroke-width="1"/>
+          <text x="600" y="395" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="600">OS IPC (named pipes / Unix sockets)</text>
+
+          <text x="600" y="360" text-anchor="middle" fill="#9B59B6" font-size="9">↑</text>
+
+          <rect x="470" y="295" width="260" height="45" rx="6" fill="rgba(155,89,182,0.2)" stroke="#9B59B6" stroke-width="1.5"/>
+          <text x="600" y="318" text-anchor="middle" fill="#9B59B6" font-size="11" font-weight="600">Mojo Core</text>
+          <text x="600" y="332" text-anchor="middle" fill="#8b949e" font-size="9">Dispatch to correct Receiver</text>
+
+          <text x="600" y="285" text-anchor="middle" fill="#9B59B6" font-size="9">↑</text>
+
+          <rect x="470" y="225" width="260" height="45" rx="6" fill="rgba(155,89,182,0.15)" stroke="#9B59B6" stroke-width="1"/>
+          <text x="600" y="248" text-anchor="middle" fill="#9B59B6" font-size="11" font-weight="600">System API Layer</text>
+          <text x="600" y="262" text-anchor="middle" fill="#8b949e" font-size="9">MojoReadMessage → deserialize</text>
+
+          <text x="600" y="215" text-anchor="middle" fill="#9B59B6" font-size="9">↑</text>
+
+          <rect x="470" y="155" width="260" height="45" rx="6" fill="rgba(155,89,182,0.1)" stroke="#9B59B6" stroke-width="1"/>
+          <text x="600" y="178" text-anchor="middle" fill="#9B59B6" font-size="11" font-weight="600">Bindings API Layer</text>
+          <text x="600" y="192" text-anchor="middle" fill="#8b949e" font-size="9">Receiver&lt;CookieManager&gt; dispatches</text>
+
+          <text x="600" y="145" text-anchor="middle" fill="#9B59B6" font-size="9">↑</text>
+
+          <rect x="470" y="85" width="260" height="45" rx="6" fill="rgba(74,144,217,0.1)" stroke="#4A90D9" stroke-width="1"/>
+          <text x="600" y="108" text-anchor="middle" fill="#4A90D9" font-size="11" font-weight="600">Application Layer</text>
+          <text x="600" y="122" text-anchor="middle" fill="#8b949e" font-size="9">CookieManagerImpl::GetAllCookies()</text>
+
+          <!-- Reply arrow at bottom -->
+          <line x1="440" y1="410" x2="335" y2="410" stroke="#2ECC71" stroke-width="2" stroke-dasharray="4 2">
+            <animate attributeName="stroke-dashoffset" from="0" to="12" dur="1s" repeatCount="indefinite"/>
+          </line>
+          <polygon points="340,407 330,410 340,413" fill="#2ECC71"/>
+          <text x="390" y="470" text-anchor="middle" fill="#2ECC71" font-size="9">← Reply: array&lt;CanonicalCookie&gt;</text>
+        </svg>
+      </div>
+
+      <h3>mojom Interface Definition</h3>
+      <div class="card">
+        <p>Interfaces are defined in <code>.mojom</code> files. The build system generates C++, JavaScript, and Java bindings automatically:</p>
+        <pre><code>// services/network/public/mojom/cookie_manager.mojom
+interface CookieManager {
+  GetAllCookies() => (array&lt;CanonicalCookie&gt; cookies);
+  SetCanonicalCookie(CanonicalCookie cookie) => (bool success);
+  DeleteCookies(CookieDeletionFilter filter) => (uint32 num_deleted);
+};</code></pre>
+      </div>
+
+      <h3>Usage in C++ (Browser Process)</h3>
+      <div class="card">
+        <pre><code>// Browser process: bind the remote
+mojo::Remote&lt;network::mojom::CookieManager&gt; cookie_manager;
+network_context-&gt;GetCookieManager(
+    cookie_manager.BindNewPipeAndPassReceiver());
+
+// Use it — async by default
+cookie_manager-&gt;GetAllCookies(
+    base::BindOnce([](const std::vector&lt;net::CanonicalCookie&gt;&amp; cookies) {
+      // Handle cookies here
+    }));</code></pre>
+      </div>
+
+      <h3>Creating Message Pipes</h3>
+      <div class="card">
+        <pre><code>// Creating a message pipe
+mojo::MessagePipe pipe;
+// pipe.handle0 and pipe.handle1 are the two endpoints
+// Send handle1 to another process, keep handle0 locally
+
+// In practice, BindNewPipeAndPassReceiver() does this for you:
+// 1. Creates a new pipe
+// 2. Binds one end to the Remote
+// 3. Returns the other end (PendingReceiver) to send to the server</code></pre>
+      </div>
+
+      <div class="info-box tip">
+        <span class="info-icon">⚡</span>
+        <div><strong>Performance:</strong> Mojo messages are zero-copy when possible. For shared buffers, no data is copied across processes at all — both sides map the same physical memory pages.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 3: SOURCE CODE ===================== -->
+    <section class="onion-layer" data-depth="3">
+      <h2>Source Code Walkthrough</h2>
+
+      <h3>Key Source Files</h3>
+      <table>
+        <thead><tr><th>File</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>mojo/public/cpp/bindings/remote.h</code></td><td>Remote&lt;T&gt; template — client endpoint</td></tr>
+          <tr><td><code>mojo/public/cpp/bindings/receiver.h</code></td><td>Receiver&lt;T&gt; template — server endpoint</td></tr>
+          <tr><td><code>mojo/public/tools/bindings/README.md</code></td><td>mojom IDL documentation</td></tr>
+          <tr><td><code>mojo/public/cpp/system/message_pipe.h</code></td><td>Low-level message pipe primitives</td></tr>
+          <tr><td><code>mojo/core/</code></td><td>Core implementation (process bootstrapping, node broker)</td></tr>
+          <tr><td><code>mojo/public/js/</code></td><td>JavaScript bindings for Mojo (used by WebUI)</td></tr>
+          <tr><td><code>third_party/blink/renderer/core/mojo/</code></td><td>Blink's Mojo integration layer</td></tr>
+          <tr><td><code>content/browser/renderer_host/render_process_host_impl.cc</code></td><td>Where browser sets up Mojo channels to renderers</td></tr>
+        </tbody>
+      </table>
+
+      <h3>JavaScript Bindings in Blink</h3>
+      <div class="card">
+        <p>Mojo has JavaScript bindings for internal Chrome pages (WebUI). This is how <code>chrome://settings</code> and other privileged pages communicate with the browser process:</p>
+        <pre><code>// In Blink (renderer), JS can create Mojo interfaces
+// This is how internal Chrome pages (WebUI) communicate
+// NOT available to normal web pages (security boundary!)
+const {CookieManager} = await import('chrome://resources/mojo/...');
+
+// Create a remote to the browser-side CookieManager
+const remote = CookieManager.getRemote();
+const {cookies} = await remote.getAllCookies();
+console.log(cookies);</code></pre>
+      </div>
+
+      <div class="info-box warning">
+        <span class="info-icon">⚠️</span>
+        <div><strong>Security boundary:</strong> Normal web pages CANNOT use Mojo directly. Only privileged <code>chrome://</code> pages and extensions can. The renderer sandbox enforces this. But understanding Mojo explains HOW JavaScript APIs work under the hood — every <code>fetch()</code>, <code>document.cookie</code>, and <code>navigator.*</code> access is ultimately a Mojo call.</div>
+      </div>
+
+      <h3>How the Renderer Bootstraps Mojo</h3>
+      <div class="card">
+        <p>When a new renderer process is spawned, the browser sends it a Mojo invitation:</p>
+        <pre><code>// content/browser/renderer_host/render_process_host_impl.cc
+void RenderProcessHostImpl::Init() {
+  // Create the channel mojo invitation
+  mojo::OutgoingInvitation invitation;
+
+  // Get the primordial pipe to the child process
+  mojo::ScopedMessagePipeHandle pipe =
+      invitation.AttachMessagePipe(kChildProcessPipeName);
+
+  // Launch the child process with the invitation
+  child_process_launcher_ = std::make_unique&lt;ChildProcessLauncher&gt;(
+      ...);
+
+  // The child accepts the invitation and gets access to
+  // the pipe, from which all other interfaces are bootstrapped
+}</code></pre>
+        <p style="font-size:0.88rem;color:var(--text-secondary)">From this single bootstrap pipe, the renderer requests all other interfaces (network, storage, GPU, etc.) via the browser process acting as a broker.</p>
+      </div>
+
+      <h3>How <code>document.cookie</code> Uses Mojo</h3>
+      <div class="card">
+        <pre><code>// third_party/blink/renderer/core/dom/document.cc
+String Document::cookie(ExceptionState& exception_state) {
+  // This eventually calls through to:
+  // network::mojom::RestrictedCookieManager::GetCookiesString()
+  // which is a Mojo IPC to the browser/network process!
+
+  // Simplified flow:
+  // 1. Document::cookie() called from JS
+  // 2. Blink looks up RestrictedCookieManager remote
+  // 3. Sends sync Mojo message (yes, cookie is synchronous!)
+  // 4. Browser process reads cookie jar
+  // 5. Reply comes back through pipe
+  // 6. String returned to JS
+}</code></pre>
+        <p style="font-size:0.88rem;color:var(--text-secondary)">This is why <code>document.cookie</code> is measurably slower than local DOM operations — it crosses a process boundary every single time.</p>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 4: DETECTION ANGLE ===================== -->
+    <section class="onion-layer" data-depth="4">
+      <h2>Detection Implications</h2>
+
+      <div class="card">
+        <h4 style="color:var(--mojo-ipc)">1. CDP Uses Mojo Internally</h4>
+        <p>When Playwright/Puppeteer connects via CDP (Chrome DevTools Protocol), it opens additional Mojo pipes to the renderer's V8 inspector. This changes the renderer's IPC state — more pipes, more message traffic, more background work.</p>
+        <p>The inspector Mojo interface (<code>blink::mojom::DevToolsAgent</code>) starts observing console API calls, causing serialization of console arguments that wouldn't normally happen.</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:var(--mojo-ipc)">2. Runtime.enable Creates Observable Side Effects</h4>
+        <p>When CDP sends <code>Runtime.enable</code>, the V8 inspector begins hooking into console calls. This causes <code>console.log(object)</code> to call <code>toString()</code>/<code>Symbol.toPrimitive</code> on arguments for serialization — a side effect that doesn't happen without DevTools.</p>
+        <pre><code>// The classic CDP detection:
+// When Runtime.enable is active, console serializes args
+const trap = new Proxy({}, {
+  get(target, prop) {
+    if (prop === Symbol.toPrimitive) {
+      window.__cdpActive = true; // Only fires under CDP!
+    }
+    return undefined;
+  }
+});
+console.groupEnd(trap);</code></pre>
+      </div>
+
+      <div class="card">
+        <h4 style="color:var(--mojo-ipc)">3. IPC Timing Side Channel</h4>
+        <p>IPC round-trips add latency. Operations that go through IPC (like <code>document.cookie</code> — needs browser process) have measurably different timing than purely renderer-local operations. CDP adds <strong>extra</strong> round-trips for instrumentation.</p>
+        <p>By comparing IPC-bound vs local operation timing, you can detect if extra observers (CDP, DevTools) are adding overhead to the IPC pipeline.</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:var(--mojo-ipc)">4. Message Ordering Artifacts</h4>
+        <p>Mojo preserves message order on a single pipe but not across pipes. This means certain browser behaviors have deterministic ordering that can be probed. If automation tools introduce additional pipes, ordering guarantees may subtly change.</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:var(--mojo-ipc)">5. Blink Mojo Bindings Exposure</h4>
+        <p><code>chrome://</code> pages expose Mojo to JS. Normal pages can't access Mojo directly, but automated tools sometimes accidentally expose internal bindings or leave traces of the Mojo JS module in the global scope.</p>
+      </div>
+
+      <div class="card">
+        <h4 style="color:var(--mojo-ipc)">6. postMessage and Cross-Process IPC</h4>
+        <p>When <code>postMessage</code> crosses process boundaries (site isolation), it goes through Mojo. This adds latency compared to same-process postMessage. This timing difference can reveal process isolation state — and automated browsers may handle this differently.</p>
+      </div>
+
+      <table>
+        <thead><tr><th>Detection Vector</th><th>What It Reveals</th></tr></thead>
+        <tbody>
+          <tr><td>IPC timing (cookie vs local op)</td><td>Process architecture present, automation overhead</td></tr>
+          <tr><td>Console serialization traps</td><td>CDP Runtime.enable is active → automation</td></tr>
+          <tr><td>Cross-origin postMessage timing</td><td>Site isolation state, process boundaries</td></tr>
+          <tr><td>Exposed Mojo bindings</td><td>Internal page or misconfigured automation</td></tr>
+          <tr><td>Extra pipe overhead</td><td>DevTools/CDP adding instrumentation cost</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== LAB ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>🧪 Lab: IPC Timing Probe</h2>
+
+      <div class="lab-container" id="lab-ipc-timing">
+        <div class="lab-header">
+          <span class="lab-icon">🔬</span>
+          <h4>Lab: Measure IPC vs Local Operation Timing</h4>
+        </div>
+        <div class="lab-body">
+          <div class="lab-instructions">
+            This lab demonstrates the timing difference between operations that stay in the renderer process vs those that require Mojo IPC to the browser process. Compare results between normal Chrome, DevTools-open Chrome, and Playwright-controlled Chrome.
+          </div>
+          <textarea class="lab-code-area" rows="30">// IPC Timing Probe — Demonstrate IPC vs local operation timing
+const results = {};
+
+// 1. Local operation (no IPC): Math calculation
+const t1 = performance.now();
+for (let i = 0; i < 10000; i++) Math.random();
+results.localOpUs = ((performance.now() - t1) * 1000).toFixed(1) + ' µs';
+
+// 2. IPC operation: document.cookie (goes to browser process via Mojo)
+const t2 = performance.now();
+for (let i = 0; i < 100; i++) { const c = document.cookie; }
+results.cookieAccessUs = ((performance.now() - t2) * 1000).toFixed(1) + ' µs (100 reads)';
+
+// 3. DOM operation (local to renderer, no IPC)
+const t3 = performance.now();
+const div = document.createElement('div');
+for (let i = 0; i < 100; i++) div.setAttribute('data-x', i);
+results.domOpUs = ((performance.now() - t3) * 1000).toFixed(1) + ' µs (100 ops)';
+
+// 4. localStorage (may involve IPC)
+const t4 = performance.now();
+try {
+  for (let i = 0; i < 100; i++) localStorage.getItem('test');
+  results.storageUs = ((performance.now() - t4) * 1000).toFixed(1) + ' µs (100 reads)';
+} catch(e) { results.storage = 'blocked'; }
+
+console.log('IPC vs Local Operation Timing:');
+console.log(JSON.stringify(results, null, 2));
+console.log('');
+console.log('Note: cookie/storage access involves Mojo IPC to browser process.');
+console.log('Operations crossing process boundaries are measurably slower.');
+console.log('');
+console.log('Expected pattern:');
+console.log('  Local math:   ~50-200 µs (never leaves renderer)');
+console.log('  DOM ops:      ~10-100 µs (renderer-local)');
+console.log('  Cookie reads: ~500-5000 µs (Mojo IPC to browser)');
+console.log('  Storage:      ~100-1000 µs (may use IPC)');</textarea>
+          <button class="lab-btn" onclick="Lab.run('lab-ipc-timing')">▶ Run</button>
+          <div class="lab-output"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Resources -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>📚 Resources</h2>
+      <ul class="resource-list">
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/HEAD/mojo/README.md" target="_blank">Mojo README — Main entry point</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/HEAD/docs/mojo_and_services.md" target="_blank">Mojo and Services — Architecture guide</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/HEAD/mojo/public/tools/bindings/README.md" target="_blank">mojom IDL Bindings Documentation</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/HEAD/mojo/public/cpp/bindings/README.md" target="_blank">C++ Bindings Reference</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/HEAD/mojo/public/js/README.md" target="_blank">JavaScript Bindings Reference</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:mojo/" target="_blank">Mojo Source — source.chromium.org</a></li>
+      </ul>
+    </section>
+
+    <!-- Navigation -->
+    <div class="module-nav">
+      <a href="../04-gpu-utility/index.html" class="nav-prev"><span class="nav-label">← Prev</span> Module 4: GPU &amp; Utility</a>
+      <a href="../06-site-isolation/index.html" class="nav-next">Module 6: Site Isolation <span class="nav-label">→</span></a>
+    </div>
+  </main>
+</div>
+<script src="../../js/core.js"></script>
+</body>
+</html>

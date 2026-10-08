@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Module 3: The Renderer Process</title>
+  <link rel="stylesheet" href="../../styles/main.css">
+</head>
+<body data-module="mod-03">
+<div class="page-wrapper">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h2>Phase 1</h2>
+      <span class="phase-badge">Chromium Architecture</span>
+      <div class="progress-bar"><div class="progress-fill" style="width:33%"></div></div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="../../index.html">← Hub</a></li>
+      <li><a href="../01-overview/index.html" data-module="mod-01"><span class="module-number browser">1</span> Multi-Process Overview</a></li>
+      <li><a href="../02-browser-process/index.html" data-module="mod-02"><span class="module-number browser">2</span> Browser Process</a></li>
+      <li><a href="index.html" class="active" data-module="mod-03"><span class="module-number renderer">3</span> Renderer Process</a></li>
+      <li><a href="../04-gpu-utility/index.html" data-module="mod-04"><span class="module-number gpu">4</span> GPU &amp; Utility</a></li>
+      <li><a href="../05-mojo-ipc/index.html" data-module="mod-05"><span class="module-number mojo">5</span> Mojo IPC</a></li>
+      <li><a href="../06-site-isolation/index.html" data-module="mod-06"><span class="module-number isolation">6</span> Site Isolation</a></li>
+    </ul>
+  </nav>
+
+  <!-- Main -->
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../../index.html">Hub</a><span class="sep">/</span><span>Module 3</span>
+    </div>
+
+    <h1>Module 3 — The Renderer Process (Where JavaScript Lives)</h1>
+    <p>The most security-restricted process in Chrome. It runs Blink (rendering engine) and V8 (JavaScript engine) inside a strict sandbox. Every web page you interact with executes here — but the renderer can't touch the outside world without permission from the browser process.</p>
+
+    <!-- Depth Selector -->
+    <div class="depth-selector">
+      <button class="depth-btn active" data-depth="0">🧅 Layer 0 — Analogy</button>
+      <button class="depth-btn" data-depth="1">📘 Layer 1 — Concept</button>
+      <button class="depth-btn" data-depth="2">🏗️ Layer 2 — Architecture</button>
+      <button class="depth-btn" data-depth="3">💻 Layer 3 — Source Code</button>
+      <button class="depth-btn" data-depth="4">🔍 Layer 4 — Detection Angle</button>
+    </div>
+
+    <!-- ===================== LAYER 0: ANALOGY ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>The Sealed Room Analogy</h2>
+      <div class="card">
+        <p><strong>The renderer is like a worker in a sealed room.</strong></p>
+        <p>It receives raw materials (HTML, CSS, JavaScript) through a secured mail slot and produces paintings (pixels). But the worker can <em>never leave the room</em> and can't talk to the outside world directly. Every request — for more materials, for information about the weather, for permission to play music — must go through the <strong>mail slot</strong> (Mojo IPC) to the building manager (browser process).</p>
+        <p>This "sealed room" is the <strong>sandbox</strong> — the most restricted process in Chrome. Even if malicious JavaScript takes over the worker completely, it's still trapped in the room with no access to files, network, or other rooms.</p>
+      </div>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 800 380" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- The sealed room (sandbox) -->
+          <rect x="50" y="60" width="500" height="260" rx="12" fill="#1a1111" stroke="#E74C3C" stroke-width="2.5" stroke-dasharray="8,4"/>
+          <text x="300" y="45" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="14">🔒 RENDERER PROCESS — "The Sealed Room"</text>
+          <text x="300" y="335" text-anchor="middle" fill="#E74C3C" font-size="10" opacity="0.7">No file access • No network • No GPU • No OS calls</text>
+
+          <!-- Worker (Blink + V8) -->
+          <rect x="80" y="90" width="200" height="80" rx="8" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="180" y="115" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="12">Blink (Rendering Engine)</text>
+          <text x="180" y="135" text-anchor="middle" fill="#8b949e" font-size="9">HTML Parser • CSS Engine</text>
+          <text x="180" y="152" text-anchor="middle" fill="#8b949e" font-size="9">Layout • Paint • DOM</text>
+
+          <rect x="310" y="90" width="200" height="80" rx="8" fill="rgba(231,76,60,0.1)" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="410" y="115" text-anchor="middle" fill="#E74C3C" font-weight="600" font-size="12">V8 (JavaScript Engine)</text>
+          <text x="410" y="135" text-anchor="middle" fill="#8b949e" font-size="9">JS Execution • JIT Compiler</text>
+          <text x="410" y="152" text-anchor="middle" fill="#8b949e" font-size="9">Garbage Collector • Inspector</text>
+
+          <!-- Raw materials input -->
+          <rect x="120" y="195" width="120" height="40" rx="6" fill="rgba(88,166,255,0.08)" stroke="#58a6ff" stroke-width="1"/>
+          <text x="180" y="220" text-anchor="middle" fill="#58a6ff" font-size="10">HTML + CSS + JS</text>
+          <text x="180" y="250" text-anchor="middle" fill="#8b949e" font-size="9">"Raw materials"</text>
+
+          <!-- Pixels output -->
+          <rect x="320" y="195" width="120" height="40" rx="6" fill="rgba(46,204,113,0.08)" stroke="#2ECC71" stroke-width="1"/>
+          <text x="380" y="220" text-anchor="middle" fill="#2ECC71" font-size="10">Pixels (Layers)</text>
+          <text x="380" y="250" text-anchor="middle" fill="#8b949e" font-size="9">"The painting"</text>
+
+          <!-- Arrow between them -->
+          <line x1="240" y1="215" x2="320" y2="215" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="3"/>
+          <text x="280" y="208" text-anchor="middle" fill="#58a6ff" font-size="8">pipeline</text>
+
+          <!-- Mail slot (IPC) -->
+          <rect x="560" y="130" width="30" height="100" rx="4" fill="rgba(155,89,182,0.3)" stroke="#9B59B6" stroke-width="2"/>
+          <text x="575" y="125" text-anchor="middle" fill="#9B59B6" font-size="9" font-weight="600">IPC</text>
+          <text x="575" y="250" text-anchor="middle" fill="#9B59B6" font-size="8">"Mail Slot"</text>
+
+          <!-- Browser process (outside) -->
+          <rect x="620" y="100" width="160" height="160" rx="10" fill="#0d1117" stroke="#4A90D9" stroke-width="2"/>
+          <text x="700" y="130" text-anchor="middle" fill="#4A90D9" font-weight="700" font-size="11">BROWSER PROCESS</text>
+          <text x="700" y="152" text-anchor="middle" fill="#8b949e" font-size="9">"Building Manager"</text>
+          <text x="700" y="175" text-anchor="middle" fill="#8b949e" font-size="8">• Network access ✓</text>
+          <text x="700" y="190" text-anchor="middle" fill="#8b949e" font-size="8">• File system ✓</text>
+          <text x="700" y="205" text-anchor="middle" fill="#8b949e" font-size="8">• OS APIs ✓</text>
+          <text x="700" y="220" text-anchor="middle" fill="#8b949e" font-size="8">• Permissions ✓</text>
+          <text x="700" y="235" text-anchor="middle" fill="#8b949e" font-size="8">• Cookies ✓</text>
+
+          <!-- Arrows through mail slot -->
+          <line x1="500" y1="160" x2="560" y2="160" stroke="#9B59B6" stroke-width="1.5"/>
+          <line x1="590" y1="160" x2="620" y2="160" stroke="#9B59B6" stroke-width="1.5"/>
+          <line x1="620" y1="200" x2="590" y2="200" stroke="#9B59B6" stroke-width="1.5"/>
+          <line x1="560" y1="200" x2="500" y2="200" stroke="#9B59B6" stroke-width="1.5"/>
+          <text x="530" y="155" text-anchor="middle" fill="#9B59B6" font-size="7">"fetch this URL"</text>
+          <text x="530" y="215" text-anchor="middle" fill="#9B59B6" font-size="7">"here's the data"</text>
+
+          <!-- Key insight -->
+          <rect x="100" y="350" width="600" height="25" rx="6" fill="rgba(231,76,60,0.06)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="400" y="367" text-anchor="middle" fill="#E74C3C" font-size="11" font-weight="600">Key: Even fully compromised, the renderer is still trapped. Sandbox = security boundary.</text>
+        </svg>
+      </div>
+
+      <div class="info-box tip">
+        <span class="info-icon">🧪</span>
+        <div><strong>Try it now:</strong> Open Chrome Task Manager (<code>Shift+Esc</code>). Each "Tab:" entry is a renderer process. Notice they use the most memory (they hold the entire DOM, JS heap, and paint data). Also try <code>chrome://sandbox</code> to see the sandbox restrictions applied to each renderer.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 1: CONCEPT ===================== -->
+    <section class="onion-layer" data-depth="1">
+      <h2>Renderer Process — Blink + V8 in a Sandbox</h2>
+
+      <div class="card">
+        <h4 style="color:var(--renderer-process)">🔒 Maximum Restriction — Full Sandbox</h4>
+        <p>The renderer process is the <strong>most sandboxed</strong> process in Chrome. It has no direct access to the filesystem, network, clipboard, or any OS resource. Every capability must be brokered through Mojo IPC to the browser process. This means even if an attacker achieves arbitrary code execution inside V8, they're still trapped.</p>
+      </div>
+
+      <h3>The Two Engines</h3>
+      <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:1rem; margin:1.5rem 0;">
+        <div class="card">
+          <h4 style="color:#E74C3C">🎨 Blink (Rendering Engine)</h4>
+          <p style="font-size:0.88rem">Forked from WebKit in 2013. Responsible for parsing HTML/CSS, building the DOM, calculating layout, painting pixels, and managing the document lifecycle. It implements the web platform APIs that JavaScript calls.</p>
+          <ul style="font-size:0.85rem; margin-top:0.5rem;">
+            <li><code>HTMLDocumentParser</code> — HTML → DOM tree</li>
+            <li><code>StyleResolver</code> — CSS cascade → computed styles</li>
+            <li><code>LayoutObject</code> — style → geometry (positions, sizes)</li>
+            <li><code>PaintLayer</code> — geometry → display lists</li>
+            <li><code>LocalFrame</code> — Blink's frame object</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4 style="color:#E74C3C">⚡ V8 (JavaScript Engine)</h4>
+          <p style="font-size:0.88rem">Google's high-performance JS/WASM engine. Compiles JavaScript to machine code via TurboFan JIT, manages the heap with a generational garbage collector, and provides the inspector protocol for DevTools/CDP.</p>
+          <ul style="font-size:0.85rem; margin-top:0.5rem;">
+            <li><code>Isolate</code> — one V8 instance (heap + compiler)</li>
+            <li><code>Context</code> — one JS global scope (window)</li>
+            <li><code>V8InspectorImpl</code> — CDP/DevTools connection</li>
+            <li><code>ScriptCompiler</code> — source → bytecode → machine code</li>
+            <li><code>Heap</code> — garbage-collected memory management</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>The Rendering Pipeline</h3>
+      <p>The renderer transforms raw HTML/CSS/JS into pixels through a multi-stage pipeline. Each stage has specific inputs and outputs:</p>
+      <div class="card">
+        <p style="font-family:monospace; text-align:center; font-size:0.95rem; color:#E74C3C; letter-spacing:0.5px;">
+          HTML → <strong>Parse</strong> → DOM → <strong>Style</strong> → Styled DOM → <strong>Layout</strong> → Layout Tree → <strong>Paint</strong> → Display Lists → <strong>Composite</strong> → GPU Layers
+        </p>
+      </div>
+
+      <h3>Key Objects Inside the Renderer</h3>
+      <table>
+        <thead><tr><th>Object</th><th>Scope</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>RenderProcess</code></td>
+            <td>One per renderer process</td>
+            <td>Process-level initialization, connects to browser process</td>
+          </tr>
+          <tr>
+            <td><code>RenderFrame</code></td>
+            <td>One per document/iframe</td>
+            <td>Bridge between Blink and Chromium IPC layer</td>
+          </tr>
+          <tr>
+            <td><code>LocalFrame</code></td>
+            <td>One per document (Blink-side)</td>
+            <td>Blink's frame: owns Document, DOMWindow, FrameLoader</td>
+          </tr>
+          <tr>
+            <td><code>Document</code></td>
+            <td>One per frame</td>
+            <td>The DOM tree root — what <code>document</code> in JS points to</td>
+          </tr>
+          <tr>
+            <td><code>V8 Isolate</code></td>
+            <td>One per renderer process</td>
+            <td>The JS engine instance: heap, compiler, GC</td>
+          </tr>
+          <tr>
+            <td><code>V8 Context</code></td>
+            <td>One per global scope (window)</td>
+            <td>The JavaScript global object context</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Two Threads, One Goal</h3>
+      <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:1rem; margin:1.5rem 0;">
+        <div class="card">
+          <h4 style="color:#E74C3C">🧵 Main Thread</h4>
+          <p style="font-size:0.88rem">Runs <strong>everything</strong>: Blink's parser, style engine, layout, paint, DOM manipulation, and JavaScript execution (V8). This is why long-running JS blocks rendering — they share the same thread. The main thread is the bottleneck of web performance.</p>
+        </div>
+        <div class="card">
+          <h4 style="color:#2ECC71">🧵 Compositor Thread</h4>
+          <p style="font-size:0.88rem">Runs independently of the main thread. Maintains a copy of the layer tree and can scroll, scale, and animate CSS transforms/opacity <strong>without involving the main thread</strong>. This is why CSS animations on transform/opacity are smooth even during heavy JS — they're compositor-driven.</p>
+        </div>
+      </div>
+
+      <div class="info-box detection">
+        <span class="info-icon">🔬</span>
+        <div><strong>Detection relevance:</strong> The renderer's sandbox means it must ask the browser process for everything. In Electron, the sandbox is often <em>weaker</em> or disabled entirely (<code>nodeIntegration: true</code>). This exposes APIs like <code>process</code>, <code>require</code>, and Node.js modules that real Chrome renderers never have. Additionally, the V8 Inspector (CDP connection point) creates observable side effects when Playwright/DevTools attach.</div>
+      </div>
+
+      <h3>Sandbox Restrictions</h3>
+      <p>What the renderer <strong>cannot</strong> do directly:</p>
+      <ul>
+        <li>❌ Read/write files (no filesystem access)</li>
+        <li>❌ Open network connections (must go through NetworkService via browser)</li>
+        <li>❌ Access the GPU directly (compositing goes through GPU process)</li>
+        <li>❌ Read clipboard without permission grant from browser</li>
+        <li>❌ Access other renderers' memory (process isolation)</li>
+        <li>❌ Call OS APIs (syscalls filtered by seccomp-bpf on Linux, restricted token on Windows)</li>
+        <li>❌ Access cookies directly (IPC to browser process CookieManager)</li>
+      </ul>
+    </section>
+
+    <!-- ===================== LAYER 2: ARCHITECTURE ===================== -->
+    <section class="onion-layer" data-depth="2">
+      <h2>Architectural Deep Dive</h2>
+
+      <h3>Renderer Process Internals</h3>
+      <div class="arch-diagram">
+        <svg viewBox="0 0 850 620" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">
+          <!-- Renderer Process boundary (sandbox) -->
+          <rect x="20" y="10" width="810" height="450" rx="14" fill="#0d1117" stroke="#E74C3C" stroke-width="2.5" stroke-dasharray="8,4"/>
+          <text x="425" y="35" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="14">RENDERER PROCESS (Sandboxed — No OS access)</text>
+
+          <!-- Main Thread -->
+          <rect x="40" y="50" width="520" height="200" rx="10" fill="rgba(231,76,60,0.05)" stroke="#E74C3C" stroke-width="1.5"/>
+          <text x="300" y="72" text-anchor="middle" fill="#E74C3C" font-weight="700" font-size="12">MAIN THREAD (Blink + V8)</text>
+
+          <!-- Blink components -->
+          <rect x="60" y="85" width="240" height="150" rx="6" fill="rgba(231,76,60,0.08)" stroke="#E74C3C" stroke-width="1" stroke-dasharray="3"/>
+          <text x="180" y="103" text-anchor="middle" fill="#E74C3C" font-size="10" font-weight="600">Blink Rendering Engine</text>
+
+          <rect x="75" y="112" width="95" height="22" rx="3" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="0.8"/>
+          <text x="122" y="127" text-anchor="middle" fill="#e6edf3" font-size="8">HTML Parser</text>
+          <rect x="180" y="112" width="95" height="22" rx="3" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="0.8"/>
+          <text x="227" y="127" text-anchor="middle" fill="#e6edf3" font-size="8">CSS Engine</text>
+
+          <rect x="75" y="140" width="95" height="22" rx="3" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="0.8"/>
+          <text x="122" y="155" text-anchor="middle" fill="#e6edf3" font-size="8">Layout Engine</text>
+          <rect x="180" y="140" width="95" height="22" rx="3" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="0.8"/>
+          <text x="227" y="155" text-anchor="middle" fill="#e6edf3" font-size="8">Paint System</text>
+
+          <rect x="75" y="168" width="200" height="22" rx="3" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="0.8"/>
+          <text x="175" y="183" text-anchor="middle" fill="#e6edf3" font-size="8">DOM (Document Object Model)</text>
+
+          <rect x="75" y="196" width="200" height="22" rx="3" fill="rgba(231,76,60,0.06)" stroke="#E74C3C" stroke-width="0.5"/>
+          <text x="175" y="211" text-anchor="middle" fill="#8b949e" font-size="7">LocalFrame • Document • Navigator • DOMWindow</text>
+
+          <!-- V8 components -->
+          <rect x="320" y="85" width="220" height="150" rx="6" fill="rgba(231,76,60,0.08)" stroke="#E74C3C" stroke-width="1" stroke-dasharray="3"/>
+          <text x="430" y="103" text-anchor="middle" fill="#E74C3C" font-size="10" font-weight="600">V8 JavaScript Engine</text>
+
+          <rect x="335" y="112" width="90" height="22" rx="3" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="0.8"/>
+          <text x="380" y="127" text-anchor="middle" fill="#e6edf3" font-size="8">Isolate</text>
+          <rect x="435" y="112" width="90" height="22" rx="3" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="0.8"/>
+          <text x="480" y="127" text-anchor="middle" fill="#e6edf3" font-size="8">Context(s)</text>
+
+          <rect x="335" y="140" width="90" height="22" rx="3" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="0.8"/>
+          <text x="380" y="155" text-anchor="middle" fill="#e6edf3" font-size="8">JIT (TurboFan)</text>
+          <rect x="435" y="140" width="90" height="22" rx="3" fill="rgba(231,76,60,0.12)" stroke="#E74C3C" stroke-width="0.8"/>
+          <text x="480" y="155" text-anchor="middle" fill="#e6edf3" font-size="8">GC (Orinoco)</text>
+
+          <rect x="335" y="168" width="190" height="22" rx="3" fill="rgba(243,156,18,0.12)" stroke="#F39C12" stroke-width="0.8"/>
+          <text x="430" y="183" text-anchor="middle" fill="#F39C12" font-size="8">V8 Inspector (CDP endpoint!)</text>
+
+          <rect x="335" y="196" width="190" height="22" rx="3" fill="rgba(231,76,60,0.06)" stroke="#E74C3C" stroke-width="0.5"/>
+          <text x="430" y="211" text-anchor="middle" fill="#8b949e" font-size="7">V8 Bindings → Blink DOM bridge</text>
+
+          <!-- Compositor Thread -->
+          <rect x="580" y="50" width="230" height="200" rx="10" fill="rgba(46,204,113,0.05)" stroke="#2ECC71" stroke-width="1.5"/>
+          <text x="695" y="72" text-anchor="middle" fill="#2ECC71" font-weight="700" font-size="12">COMPOSITOR THREAD</text>
+
+          <rect x="595" y="90" width="200" height="22" rx="3" fill="rgba(46,204,113,0.1)" stroke="#2ECC71" stroke-width="0.8"/>
+          <text x="695" y="105" text-anchor="middle" fill="#e6edf3" font-size="8">Layer Tree Copy</text>
+
+          <rect x="595" y="118" width="200" height="22" rx="3" fill="rgba(46,204,113,0.1)" stroke="#2ECC71" stroke-width="0.8"/>
+          <text x="695" y="133" text-anchor="middle" fill="#e6edf3" font-size="8">Tile Management</text>
+
+          <rect x="595" y="146" width="200" height="22" rx="3" fill="rgba(46,204,113,0.1)" stroke="#2ECC71" stroke-width="0.8"/>
+          <text x="695" y="161" text-anchor="middle" fill="#e6edf3" font-size="8">Raster Scheduling</text>
+
+          <rect x="595" y="174" width="200" height="22" rx="3" fill="rgba(46,204,113,0.1)" stroke="#2ECC71" stroke-width="0.8"/>
+          <text x="695" y="189" text-anchor="middle" fill="#e6edf3" font-size="8">Scroll &amp; Animation (GPU-bound)</text>
+
+          <rect x="595" y="202" width="200" height="22" rx="3" fill="rgba(46,204,113,0.1)" stroke="#2ECC71" stroke-width="0.8"/>
+          <text x="695" y="217" text-anchor="middle" fill="#e6edf3" font-size="8">Frame Submission → GPU Process</text>
+
+          <!-- Arrow main → compositor -->
+          <line x1="545" y1="150" x2="580" y2="150" stroke="#8b949e" stroke-width="1.5"/>
+          <text x="562" y="143" text-anchor="middle" fill="#8b949e" font-size="7">commit</text>
+
+          <!-- RenderFrame objects -->
+          <rect x="40" y="265" width="520" height="55" rx="6" fill="rgba(155,89,182,0.05)" stroke="#9B59B6" stroke-width="1" stroke-dasharray="3"/>
+          <text x="300" y="283" text-anchor="middle" fill="#9B59B6" font-size="10" font-weight="600">RenderFrame objects (Chromium ↔ Blink bridge)</text>
+          <rect x="60" y="293" width="140" height="20" rx="3" fill="rgba(155,89,182,0.1)" stroke="#9B59B6" stroke-width="0.8"/>
+          <text x="130" y="307" text-anchor="middle" fill="#9B59B6" font-size="8">RenderFrame: main doc</text>
+          <rect x="215" y="293" width="140" height="20" rx="3" fill="rgba(155,89,182,0.1)" stroke="#9B59B6" stroke-width="0.8"/>
+          <text x="285" y="307" text-anchor="middle" fill="#9B59B6" font-size="8">RenderFrame: iframe #1</text>
+          <rect x="370" y="293" width="140" height="20" rx="3" fill="rgba(155,89,182,0.1)" stroke="#9B59B6" stroke-width="0.8"/>
+          <text x="440" y="307" text-anchor="middle" fill="#9B59B6" font-size="8">RenderFrame: iframe #2</text>
+
+          <!-- Sandbox annotations -->
+          <rect x="580" y="270" width="230" height="50" rx="6" fill="rgba(231,76,60,0.05)" stroke="#E74C3C" stroke-width="1"/>
+          <text x="695" y="288" text-anchor="middle" fill="#E74C3C" font-size="9" font-weight="600">Sandbox Enforcement</text>
+          <text x="695" y="305" text-anchor="middle" fill="#8b949e" font-size="8">seccomp-bpf (Linux) / Restricted Token (Win)</text>
+
+          <!-- Mojo IPC connection -->
+          <rect x="40" y="340" width="770" height="30" rx="5" fill="rgba(155,89,182,0.08)" stroke="#9B59B6" stroke-width="1.5"/>
+          <text x="425" y="360" text-anchor="middle" fill="#9B59B6" font-size="10" font-weight="600">↕ Mojo IPC Pipe — Only connection to outside world ↕</text>
+
+          <!-- Rendering pipeline flow -->
+          <rect x="40" y="395" width="770" height="50" rx="8" fill="rgba(88,166,255,0.05)" stroke="#58a6ff" stroke-width="1"/>
+          <text x="425" y="412" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="600">Rendering Pipeline Flow</text>
+          <text x="425" y="432" text-anchor="middle" fill="#e6edf3" font-size="9">
+            HTML → DOM Tree → Style Resolution → Layout Tree → Paint (Display Lists) → Composite → GPU Process
+          </text>
+
+          <!-- External processes -->
+          <rect x="40" y="475" width="250" height="60" rx="8" fill="#0d1117" stroke="#4A90D9" stroke-width="1.5"/>
+          <text x="165" y="498" text-anchor="middle" fill="#4A90D9" font-weight="600" font-size="10">Browser Process</text>
+          <text x="165" y="516" text-anchor="middle" fill="#8b949e" font-size="8">RenderFrameHost ↔ RenderFrame via Mojo</text>
+          <text x="165" y="530" text-anchor="middle" fill="#8b949e" font-size="8">Navigation, cookies, permissions, network</text>
+
+          <rect x="320" y="475" width="230" height="60" rx="8" fill="#111a11" stroke="#2ECC71" stroke-width="1.5"/>
+          <text x="435" y="498" text-anchor="middle" fill="#2ECC71" font-weight="600" font-size="10">GPU Process</text>
+          <text x="435" y="516" text-anchor="middle" fill="#8b949e" font-size="8">Receives compositor layers via Mojo</text>
+          <text x="435" y="530" text-anchor="middle" fill="#8b949e" font-size="8">Rasterizes, composites, presents to screen</text>
+
+          <rect x="580" y="475" width="230" height="60" rx="8" fill="rgba(243,156,18,0.05)" stroke="#F39C12" stroke-width="1.5"/>
+          <text x="695" y="498" text-anchor="middle" fill="#F39C12" font-weight="600" font-size="10">Network Service</text>
+          <text x="695" y="516" text-anchor="middle" fill="#8b949e" font-size="8">Fetches resources on renderer's behalf</text>
+          <text x="695" y="530" text-anchor="middle" fill="#8b949e" font-size="8">(Browser-proxied, renderer never sees sockets)</text>
+
+          <!-- Arrows from IPC bar to external processes -->
+          <line x1="165" y1="370" x2="165" y2="475" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="3"/>
+          <line x1="435" y1="370" x2="435" y2="475" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="3"/>
+          <line x1="695" y1="370" x2="695" y2="475" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="3"/>
+
+          <!-- CDP annotation -->
+          <rect x="580" y="555" width="250" height="50" rx="8" fill="rgba(243,156,18,0.08)" stroke="#F39C12" stroke-width="1.5"/>
+          <text x="705" y="575" text-anchor="middle" fill="#F39C12" font-weight="600" font-size="10">⚠️ CDP / DevTools</text>
+          <text x="705" y="593" text-anchor="middle" fill="#8b949e" font-size="8">Connects to V8 Inspector → observable side effects</text>
+
+          <line x1="430" y1="190" x2="580" y2="570" stroke="#F39C12" stroke-width="1" stroke-dasharray="4" opacity="0.5"/>
+        </svg>
+      </div>
+
+      <h3>Blink Rendering Pipeline Stages</h3>
+      <table>
+        <thead><tr><th>Stage</th><th>Input</th><th>Output</th><th>Key Class</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Parse</strong></td>
+            <td>HTML bytes (from network)</td>
+            <td>DOM tree</td>
+            <td><code>HTMLDocumentParser</code></td>
+          </tr>
+          <tr>
+            <td><strong>Style</strong></td>
+            <td>DOM tree + CSS rules</td>
+            <td>Styled DOM (computed styles)</td>
+            <td><code>StyleResolver</code></td>
+          </tr>
+          <tr>
+            <td><strong>Layout</strong></td>
+            <td>Styled DOM</td>
+            <td>Layout tree (geometry: positions, sizes)</td>
+            <td><code>LayoutObject</code></td>
+          </tr>
+          <tr>
+            <td><strong>Paint</strong></td>
+            <td>Layout tree</td>
+            <td>Display lists (drawing commands)</td>
+            <td><code>PaintLayer</code></td>
+          </tr>
+          <tr>
+            <td><strong>Composite</strong></td>
+            <td>Display lists</td>
+            <td>Compositor layers (sent to GPU)</td>
+            <td><code>CompositingLayer</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>DOM Tree → Render Hierarchy</h3>
+      <div class="card">
+        <p>Blink maintains parallel tree structures that transform DOM into pixels:</p>
+        <p style="font-family:monospace; font-size:0.9rem; color:#E74C3C;">
+          DOM Tree (<code>Node</code>)<br>
+          &nbsp;&nbsp;↓ style resolution<br>
+          Layout Tree (<code>LayoutObject</code>) — one per visible DOM node<br>
+          &nbsp;&nbsp;↓ paint<br>
+          Paint Layer Tree (<code>PaintLayer</code>) — groups for stacking context<br>
+          &nbsp;&nbsp;↓ compositing<br>
+          Graphics Layer Tree (<code>GraphicsLayer</code>) — GPU-backed textures<br>
+          &nbsp;&nbsp;↓ submit to GPU process<br>
+          Compositor Layers — final pixel output
+        </p>
+      </div>
+
+      <div class="info-box tip">
+        <span class="info-icon">📐</span>
+        <div><strong>Architecture insight:</strong> The separation between main thread and compositor thread is critical for performance. CSS <code>transform</code> and <code>opacity</code> animations happen on the compositor thread without touching the main thread at all. This is why they're "cheap" — but it also means they have different timing characteristics that can be measured for detection.</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAYER 3: SOURCE CODE ===================== -->
+    <section class="onion-layer" data-depth="3">
+      <h2>Source Code Map</h2>
+
+      <p>The renderer process code lives in two main areas: <code>content/renderer/</code> (Chromium's renderer infrastructure) and <code>third_party/blink/</code> (the rendering engine itself). V8 lives in <code>v8/</code>.</p>
+
+      <h3>Key File: RenderFrameImpl</h3>
+      <p>The bridge between Blink and Chromium's IPC layer. Every document has one. It translates Blink events into Mojo messages and vice versa.</p>
+      <pre><code>// content/renderer/render_frame_impl.cc
+
+// Called when Blink wants to navigate (link click, form submit, JS)
+void RenderFrameImpl::BeginNavigation(
+    std::unique_ptr&lt;blink::WebNavigationInfo&gt; info) {
+  // Renderer CANNOT navigate on its own — must ask browser process
+  mojom::BeginNavigationParamsPtr params = 
+      mojom::BeginNavigationParams::New();
+  params-&gt;url = info-&gt;url_request.Url();
+  params-&gt;initiator_origin = info-&gt;initiator_origin;
+  
+  // Send navigation request to browser process
+  GetFrameHost()-&gt;BeginNavigation(
+      std::move(params),
+      std::move(info-&gt;url_request));
+  
+  // Browser will respond with CommitNavigation if approved
+  // or will kill this renderer if the request is invalid
+}
+
+// Called when browser process tells renderer to load a document
+void RenderFrameImpl::CommitNavigation(
+    mojom::CommonNavigationParamsPtr common_params,
+    mojom::CommitNavigationParamsPtr commit_params) {
+  // Create the document in Blink
+  frame_-&gt;LoadRequest(WebURLRequest(common_params-&gt;url));
+  
+  // Set security origin as specified by browser
+  // The renderer TRUSTS the browser's origin assignment
+  frame_-&gt;GetDocument().SetSecurityOrigin(
+      commit_params-&gt;origin);
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:content/renderer/render_frame_impl.cc" target="_blank">content/renderer/render_frame_impl.cc</a></p>
+
+      <h3>Key File: Navigator (How JS Reads navigator.*)</h3>
+      <p>The <code>navigator</code> object is implemented in Blink but many of its values come from the browser process via IPC. This is why different embedders (Chrome vs Electron) produce different values.</p>
+      <pre><code>// third_party/blink/renderer/core/frame/navigator.cc
+
+String Navigator::userAgent() const {
+  // Does NOT generate the user-agent locally!
+  // Calls through FrameLoader which received the UA from browser process
+  return GetFrame()-&gt;Loader().UserAgent();
+  // Browser process set this during CommitNavigation
+  // In Electron: different browser process → different UA string
+}
+
+String Navigator::platform() const {
+  // Also browser-process-controlled in modern Chrome
+  // Returns value set during renderer initialization
+  return GetFrame()-&gt;GetSettings()-&gt;GetNavigatorPlatform();
+}
+
+bool Navigator::webdriver() const {
+  // KEY FOR DETECTION: returns true when automation flag is set
+  // Playwright/Puppeteer set this via CDP: Runtime.enable
+  // The browser process passes --enable-automation flag
+  return RuntimeEnabledFeatures::AutomationControlledEnabled();
+}
+
+// Properties that reveal Electron vs Chrome:
+NavigatorPlugins Navigator::plugins() const {
+  // In Chrome: browser process registers PDF viewer + plugins
+  // In Electron: empty — no plugin registration
+  return plugin_data_;
+}
+
+bool Navigator::pdfViewerEnabled() const {
+  // Chrome: true (PDF viewer built in)
+  // Electron: false (no PDF viewer)
+  return GetFrame()-&gt;GetSettings()-&gt;GetPdfViewerEnabled();
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/frame/navigator.cc" target="_blank">third_party/blink/renderer/core/frame/navigator.cc</a></p>
+
+      <h3>Key File: V8 Inspector (CDP Detection Point)</h3>
+      <p>The V8 Inspector is the mechanism through which DevTools and CDP (Chrome DevTools Protocol) interact with JavaScript. When Playwright connects via CDP, the inspector causes <strong>observable side effects</strong>.</p>
+      <pre><code>// v8/src/inspector/v8-inspector-impl.cc
+
+// When Runtime.enable is called via CDP (Playwright does this!):
+void V8InspectorImpl::sessionCreated(V8InspectorSessionImpl* session) {
+  // Register the session — now the inspector is ACTIVE
+  sessions_.push_back(session);
+  
+  // Once active, the inspector intercepts:
+  // 1. console.* calls — to serialize arguments for transport
+  // 2. Promise rejections — to report to DevTools
+  // 3. Error stacks — to provide rich stack traces
+}
+
+// Console API interception — THE core detection mechanism:
+void V8InspectorImpl::consoleAPIMessage(
+    int contextGroupId,
+    v8::Isolate::MessageErrorLevel level,
+    const v8::Local&lt;v8::Value&gt;&amp; message,
+    ...) {
+  // When CDP Runtime.enable is active:
+  // V8 SERIALIZES all console.log/warn/error arguments
+  // This serialization walks object properties
+  // If the argument is a Proxy → the Proxy's traps fire!
+  // THIS is the detection vector:
+  // console.log(proxyObject) → .length getter fires → detected
+  
+  for (auto* session : sessions_) {
+    session-&gt;runtimeAgent()-&gt;messageAdded(message, ...);
+    // ^ This triggers deep serialization of 'message'
+  }
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:v8/src/inspector/" target="_blank">v8/src/inspector/</a></p>
+
+      <h3>Key File: V8 Bindings (JS ↔ Blink Bridge)</h3>
+      <p>V8 bindings are auto-generated code that connects JavaScript API calls to their C++ implementations in Blink.</p>
+      <pre><code>// third_party/blink/renderer/bindings/core/v8/
+// (auto-generated from WebIDL definitions)
+
+// Example: when JS calls document.querySelector()
+// The V8 binding translates:
+void V8Document::QuerySelectorMethodCallback(
+    const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info) {
+  // 1. Extract the 'this' object (Document*)
+  Document* document = V8Document::ToImpl(info.Holder());
+  
+  // 2. Convert JS string argument to Blink string
+  String selectors = NativeValueTraits&lt;IDLString&gt;::NativeValue(
+      info.GetIsolate(), info[0]);
+  
+  // 3. Call the actual C++ implementation
+  Element* result = document-&gt;QuerySelector(selectors);
+  
+  // 4. Wrap the C++ result back into a V8 handle
+  V8SetReturnValue(info, ToV8(result, info.Holder()));
+}
+
+// This binding pattern applies to ALL DOM APIs:
+// navigator.userAgent, window.location, element.getBoundingClientRect()
+// Each goes: JS call → V8 binding → Blink C++ → (maybe IPC) → return</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/bindings/core/v8/" target="_blank">third_party/blink/renderer/bindings/core/v8/</a></p>
+
+      <h3>Key File: Document.cc</h3>
+      <p>The root of the DOM tree — what <code>document</code> in JavaScript points to.</p>
+      <pre><code>// third_party/blink/renderer/core/dom/document.cc
+
+Document::Document(const DocumentInit&amp; init)
+    : ContainerNode(nullptr, kDocumentNode),
+      tree_scope_(*this),
+      security_origin_(init.GetSecurityOrigin()),  // From browser!
+      content_security_policy_(MakeGarbageCollected&lt;CSP&gt;()),
+      ... {
+  // The Document's security origin was determined by the
+  // browser process during navigation commit.
+  // The renderer doesn't get to choose its own origin.
+}
+
+// When JavaScript reads document.domain:
+String Document::domain() const {
+  return GetSecurityOrigin()-&gt;Domain();
+  // This origin was set by the browser process — authoritative
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/dom/document.cc" target="_blank">third_party/blink/renderer/core/dom/document.cc</a></p>
+
+      <h3>Key File: V8 Isolate</h3>
+      <pre><code>// v8/src/execution/isolate.cc
+
+// One Isolate per renderer process — the JS engine instance
+Isolate::Isolate(std::unique_ptr&lt;IsolateAllocator&gt; allocator)
+    : allocator_(std::move(allocator)),
+      heap_(this),       // Garbage-collected memory
+      builtins_(this),   // Built-in functions (Array.map, etc.)
+      compiler_dispatcher_(this),  // JIT compilation
+      ... {
+  // Each isolate has its own:
+  // - Heap (memory for JS objects)
+  // - Compiler (TurboFan JIT)
+  // - Stack guard (for recursion limits)
+  // - Inspector (for CDP/DevTools connection)
+}
+
+// The inspector connection point:
+void Isolate::SetInspector(v8_inspector::V8Inspector* inspector) {
+  inspector_ = inspector;
+  // Once set, the inspector can:
+  // - Pause execution (breakpoints)
+  // - Evaluate code (Runtime.evaluate)
+  // - Intercept console API (Runtime.enable)
+  // ALL of these create detectable side effects
+}</code></pre>
+      <p class="source-path">Source: <a href="https://source.chromium.org/chromium/chromium/src/+/main:v8/src/execution/isolate.cc" target="_blank">v8/src/execution/isolate.cc</a></p>
+
+      <h3>Key Source Locations</h3>
+      <table>
+        <thead><tr><th>Path</th><th>Purpose</th><th>Detection Relevance</th></tr></thead>
+        <tbody>
+          <tr><td><code>content/renderer/render_frame_impl.cc</code></td><td>Chromium ↔ Blink bridge</td><td>Where IPC values enter Blink</td></tr>
+          <tr><td><code>content/renderer/render_process_impl.cc</code></td><td>Process initialization</td><td>Command-line flags, sandbox setup</td></tr>
+          <tr><td><code>third_party/blink/renderer/core/frame/local_frame.cc</code></td><td>Blink's frame object</td><td>Owns document, navigator, window</td></tr>
+          <tr><td><code>third_party/blink/renderer/core/dom/document.cc</code></td><td>DOM Document</td><td>Security origin, domain, cookies</td></tr>
+          <tr><td><code>third_party/blink/renderer/core/frame/navigator.cc</code></td><td>navigator object</td><td>UA, plugins, webdriver flag</td></tr>
+          <tr><td><code>third_party/blink/renderer/bindings/core/v8/</code></td><td>JS ↔ C++ bindings</td><td>How every DOM API call works</td></tr>
+          <tr><td><code>v8/src/execution/isolate.cc</code></td><td>V8 engine instance</td><td>Inspector attachment point</td></tr>
+          <tr><td><code>v8/src/inspector/v8-inspector-impl.cc</code></td><td>CDP connection</td><td>Console serialization = Proxy trigger</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== LAYER 4: DETECTION ANGLE ===================== -->
+    <section class="onion-layer" data-depth="4">
+      <h2>Detection Angle: Renderer-Level Signals</h2>
+
+      <div class="info-box detection">
+        <span class="info-icon">🎯</span>
+        <div>The renderer process is where JavaScript actually executes. Detection focuses on two key areas: <strong>(1) sandbox differences</strong> between Chrome and Electron, and <strong>(2) V8 Inspector side effects</strong> caused by CDP connections (Playwright/DevTools).</div>
+      </div>
+
+      <h3>1. Sandbox Differences (Electron vs Chrome)</h3>
+      <div class="card">
+        <p>In real Chrome, the renderer sandbox is absolute — no Node.js, no file access, no <code>process</code> global. In Electron (especially older versions or with <code>nodeIntegration: true</code>), the sandbox is weaker:</p>
+        <pre><code>// Detection: Node.js globals that should NEVER exist in a browser
+const hasProcess = typeof process !== 'undefined';
+const hasRequire = typeof require !== 'undefined';
+const hasGlobal = typeof global !== 'undefined';
+const hasBuffer = typeof Buffer !== 'undefined';
+
+// Even with contextIsolation, some leaks through:
+const hasElectronInUA = navigator.userAgent.includes('Electron');
+
+// Modern Electron with sandbox=true still differs:
+// - window.chrome is stripped or minimal
+// - navigator.plugins is empty
+// - PDF viewer is missing
+// - Permissions are auto-resolved (never "prompt")</code></pre>
+        <p><strong>Root cause:</strong> Electron's renderer process is built on Chromium but its browser process (VS Code's main process) doesn't inject Chrome-specific APIs, plugins, or permission UI.</p>
+      </div>
+
+      <h3>2. V8 Inspector / CDP Side Effects (PRIMARY Detection Vector)</h3>
+      <div class="card">
+        <p>When Playwright connects to a page via CDP, it calls <code>Runtime.enable</code>. This makes the V8 Inspector actively serialize all <code>console.*</code> arguments. If an argument is a <strong>Proxy</strong>, the serialization triggers the Proxy's traps — creating an observable side channel.</p>
+        <pre><code>// THE Proxy-based CDP detection technique:
+let cdpDetected = false;
+
+const trap = new Proxy([], {
+  get(target, property) {
+    if (property === 'length') {
+      // This getter fires when V8 Inspector serializes
+      // the Proxy during console output processing.
+      // Normal browser: console.groupEnd ignores its argument
+      // CDP active: V8 serializes it → triggers this trap
+      cdpDetected = true;
+    }
+    return Reflect.get(target, property);
+  }
+});
+
+// console.groupEnd per spec: "If the group stack is not empty,
+// pop the last group from the stack." Arguments are IGNORED.
+// But CDP's Runtime.enable makes V8 serialize them anyway!
+console.groupEnd(trap);
+
+// After a microtask/timeout:
+// cdpDetected === true  → CDP is active (Playwright OR DevTools)
+// cdpDetected === false → No CDP observer attached</code></pre>
+        <p><strong>Why it works:</strong> The V8 Inspector calls <code>v8::Object::GetPropertyNames()</code> or reads <code>.length</code> on array-like arguments during serialization. This is a V8-internal behavior that web pages normally never trigger — but CDP requires it for sending console messages to the DevTools frontend.</p>
+      </div>
+
+      <h3>3. Blink Feature Flags</h3>
+      <div class="card">
+        <p>Different Chromium embedders enable different Blink runtime features. These show up as detectable differences:</p>
+        <pre><code>// Features that differ between Chrome and Electron:
+navigator.pdfViewerEnabled;  // Chrome: true, Electron: false
+navigator.plugins.length;    // Chrome: 5, Electron: 0
+navigator.webdriver;         // Automation: true, Normal: false
+
+// Permissions behavior:
+await navigator.permissions.query({name:'notifications'});
+// Chrome: "prompt" (user hasn't decided)
+// Electron: "granted" (auto-resolved)
+// NEVER "prompt" in Electron — no permission UI exists
+
+// Client Hints:
+navigator.userAgentData?.brands?.length;
+// Chrome: 3 (includes "Google Chrome")
+// Electron: 2 (only "Chromium" + GREASE brand)</code></pre>
+      </div>
+
+      <h3>4. <code>window</code> Object Shape</h3>
+      <div class="card">
+        <p>The global <code>window</code> object has a different shape in Electron vs Chrome renderers:</p>
+        <pre><code>// window.chrome differences:
+window.chrome;
+// Chrome: {loadTimes: ƒ, csi: ƒ, runtime: {...}, app: {...}}
+// Electron: {} or {runtime: {}} (minimal stub)
+
+Object.getOwnPropertyNames(window.chrome || {}).length;
+// Chrome: 3-5, Electron: 0-1
+
+// Electron-specific globals (if nodeIntegration leaked):
+typeof window.process;  // 'object' in Electron, 'undefined' in Chrome
+typeof window.require;  // 'function' in Electron, 'undefined' in Chrome
+
+// VS Code Simple Browser webview specifics:
+typeof acquireVsCodeApi;  // 'function' in VS Code webview</code></pre>
+      </div>
+
+      <h3>5. Stack Trace Analysis</h3>
+      <div class="card">
+        <p>When Playwright executes code via <code>page.evaluate()</code>, it runs through a UtilityScript wrapper. But code in the <strong>actual page</strong> (inline scripts) doesn't show this pattern:</p>
+        <pre><code>// Code injected by page.evaluate():
+// Stack shows: "at eval (__playwright_evaluation_script__:1:1)"
+// or "at UtilityScript.evaluate"
+
+// Code in an inline &lt;script&gt; tag:
+// Stack shows: "at file:///page.html:50:10"
+// No Playwright wrapper visible
+
+// Detection: inspect Error().stack from inline page code
+const stack = new Error().stack;
+const hasPlaywrightFrame = stack.includes('__playwright') || 
+                           stack.includes('UtilityScript');
+// If you're running as inline page JS, this should be false
+// If it's true, something is injecting code from outside
+
+// Also check for puppeteer's pptr:// protocol:
+const hasPuppeteerFrame = stack.includes('pptr://');</code></pre>
+      </div>
+
+      <h3>6. Timing Characteristics</h3>
+      <div class="card">
+        <p>The rendering pipeline creates measurable timing patterns that differ between environments:</p>
+        <pre><code>// requestAnimationFrame timing:
+// Real browser: ~16.67ms intervals (60fps)
+// Headless/automated: can be faster or irregular
+
+let frames = [];
+let start = performance.now();
+function measure(ts) {
+  frames.push(ts - start);
+  start = ts;
+  if (frames.length < 10) requestAnimationFrame(measure);
+  else {
+    const avg = frames.reduce((a,b) => a+b) / frames.length;
+    console.log('Avg frame interval:', avg.toFixed(2), 'ms');
+    // Headless Chrome: often 0-1ms (no vsync)
+    // Real display: ~16.67ms
+  }
+}
+requestAnimationFrame(measure);
+
+// Layout thrashing detection:
+// Automated tools often read layout properties repeatedly
+// which triggers synchronous layout (reflow)
+// This creates distinctive performance.measure patterns</code></pre>
+      </div>
+
+      <h3>Summary: Renderer-Level Detection Signals</h3>
+      <table>
+        <thead><tr><th>Signal</th><th>Normal Chrome</th><th>Electron/Automated</th><th>Mechanism</th></tr></thead>
+        <tbody>
+          <tr><td>Proxy trap on console.*</td><td>Not triggered</td><td>Triggered (CDP active)</td><td>V8 Inspector serialization</td></tr>
+          <tr><td><code>navigator.webdriver</code></td><td><code>false</code></td><td><code>true</code> (automation)</td><td>--enable-automation flag</td></tr>
+          <tr><td>Node.js globals</td><td>Absent</td><td>May be present</td><td>Electron nodeIntegration</td></tr>
+          <tr><td><code>window.chrome</code> shape</td><td>3+ properties</td><td>0-1 properties</td><td>ChromeRenderFrameObserver missing</td></tr>
+          <tr><td>Permissions "prompt"</td><td>Exists</td><td>Never</td><td>No permission UI in Electron</td></tr>
+          <tr><td>rAF timing</td><td>~16.67ms (vsync)</td><td>Variable/fast (headless)</td><td>No display vsync in headless</td></tr>
+          <tr><td>Stack traces</td><td>Clean page URLs</td><td>May contain __playwright/pptr</td><td>page.evaluate() wrapper</td></tr>
+          <tr><td>Error.stack depth</td><td>Matches source</td><td>Extra frames from injection</td><td>UtilityScript wrappers</td></tr>
+        </tbody>
+      </table>
+
+      <div class="info-box tip">
+        <span class="info-icon">⚠️</span>
+        <div><strong>Important nuance:</strong> The CDP Proxy detection fires for <em>both</em> Playwright and DevTools (they use the same CDP protocol). To distinguish automation from a developer with DevTools open, you need additional signals like <code>navigator.webdriver</code>, <code>window.chrome</code> shape, or behavioral analysis (timing, input patterns).</div>
+      </div>
+    </section>
+
+    <!-- ===================== LAB 1 ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>🧪 Lab: Renderer Environment Probe</h2>
+
+      <div class="lab-container" id="lab-renderer-env">
+        <div class="lab-header">
+          <span class="lab-icon">🔬</span>
+          <h4>Lab: Renderer Environment Probe</h4>
+        </div>
+        <div class="lab-body">
+          <div class="lab-instructions">
+            Probe <code>navigator</code>, <code>window</code>, and <code>document</code> properties that reveal the renderer's identity. Compare output in Chrome vs Electron vs VS Code Simple Browser.
+          </div>
+          <textarea class="lab-code-area" rows="28">// Renderer Environment Probe
+// Detects what kind of renderer process we're running in
+const r = {};
+
+// Navigator properties — populated by browser process via IPC
+r.navigatorProps = Object.getOwnPropertyNames(navigator).sort();
+r.windowChrome = window.chrome 
+  ? Object.getOwnPropertyNames(window.chrome).sort() 
+  : 'missing';
+r.hasProcess = typeof process !== 'undefined';
+r.hasRequire = typeof require !== 'undefined';
+r.documentAll = typeof document.all; // "undefined" — famous JS quirk
+r.maxTouchPoints = navigator.maxTouchPoints;
+r.ontouchstart = 'ontouchstart' in window;
+r.webdriver = navigator.webdriver;
+r.plugins = Array.from(navigator.plugins).map(p => p.name);
+r.pdfViewerEnabled = navigator.pdfViewerEnabled;
+r.languages = navigator.languages;
+r.platform = navigator.platform;
+r.hardwareConcurrency = navigator.hardwareConcurrency;
+r.deviceMemory = navigator.deviceMemory;
+r.userAgentBrands = navigator.userAgentData?.brands?.map(
+  b => `${b.brand} v${b.version}`
+) || 'N/A';
+
+// Window object shape
+r.windowChromeKeys = window.chrome 
+  ? Object.getOwnPropertyNames(window.chrome).length 
+  : 0;
+r.hasAcquireVsCodeApi = typeof acquireVsCodeApi !== 'undefined';
+
+console.log(JSON.stringify(r, null, 2));</textarea>
+          <button class="lab-btn" onclick="Lab.run('lab-renderer-env')">▶ Run</button>
+          <div class="lab-output"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== LAB 2 ===================== -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>🧪 Lab: CDP Detection (Proxy Trap)</h2>
+
+      <div class="lab-container" id="lab-cdp-detect">
+        <div class="lab-header">
+          <span class="lab-icon">🔬</span>
+          <h4>Lab: CDP Detection via Proxy Trap</h4>
+        </div>
+        <div class="lab-body">
+          <div class="lab-instructions">
+            Demonstrates the Proxy trap technique that detects CDP (Chrome DevTools Protocol) activity. When CDP's <code>Runtime.enable</code> is active (Playwright or DevTools open), V8 serializes console arguments — triggering the Proxy's getter trap.
+          </div>
+          <textarea class="lab-code-area" rows="30">// CDP Detection Lab — Proxy Trap Technique
+// Detects if Chrome DevTools Protocol is actively observing console output
+
+let cdpTriggered = false;
+let triggerCount = 0;
+
+const detector = new Proxy([], {
+  get(target, prop) {
+    if (prop === 'length') {
+      triggerCount++;
+      cdpTriggered = true;
+    }
+    return Reflect.get(target, prop);
+  }
+});
+
+// console.groupEnd spec says arguments are ignored — 
+// the spec only says "pop the group stack".
+// But with CDP Runtime.enable active, V8's inspector 
+// serializes ALL arguments to send to the DevTools frontend.
+// Serializing an array-like Proxy reads .length → trap fires!
+console.groupEnd(detector);
+
+// Small delay to let any async serialization complete
+setTimeout(() => {
+  const results = {};
+  results.proxyLengthAccessCount = triggerCount;
+  results.cdpLikelyActive = cdpTriggered;
+  results.explanation = cdpTriggered
+    ? 'CDP Runtime.enable is active — V8 Inspector serialized the Proxy argument'
+    : 'No CDP observer detected — console.groupEnd ignored the argument as per spec';
+  results.note = 'This also fires with DevTools open (same CDP mechanism)';
+  
+  console.log(JSON.stringify(results, null, 2));
+}, 100);</textarea>
+          <button class="lab-btn" onclick="Lab.runAsync('lab-cdp-detect')">▶ Run (Async)</button>
+          <div class="lab-output"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Resources -->
+    <section class="onion-layer visible" data-depth="0">
+      <h2>📚 Resources</h2>
+      <ul class="resource-list">
+        <li><span class="resource-type doc">DOC</span><a href="https://www.chromium.org/developers/design-documents/displaying-a-web-page-in-chrome/" target="_blank">Displaying a Web Page in Chrome</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://www.chromium.org/developers/design-documents/gpu-accelerated-compositing-in-chrome/" target="_blank">GPU Accelerated Compositing in Chrome</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:content/renderer/render_frame_impl.cc" target="_blank">render_frame_impl.cc — Renderer ↔ Blink bridge</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/frame/navigator.cc" target="_blank">navigator.cc — Navigator object implementation</a></li>
+        <li><span class="resource-type code">CODE</span><a href="https://source.chromium.org/chromium/chromium/src/+/main:v8/src/inspector/" target="_blank">v8/src/inspector/ — V8 Inspector (CDP endpoint)</a></li>
+        <li><span class="resource-type doc">DOC</span><a href="https://chromium.googlesource.com/chromium/src/+/HEAD/docs/design/sandbox.md" target="_blank">Chromium Sandbox Design Document</a></li>
+      </ul>
+    </section>
+
+    <!-- Navigation -->
+    <div class="module-nav">
+      <a href="../02-browser-process/index.html" class="nav-prev"><span class="nav-label">← Previous</span> Module 2: Browser Process</a>
+      <a href="../04-gpu-utility/index.html" class="nav-next">Module 4: GPU &amp; Utility <span class="nav-label">→</span></a>
+    </div>
+  </main>
+</div>
+<script src="../../js/core.js"></script>
+</body>
+</html>

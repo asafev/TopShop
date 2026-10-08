@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detection Vector Test Suite</title>
+    <style>
+        body { 
+            font-family: monospace; 
+            margin: 20px; 
+            background: #1a1a1a; 
+            color: #00ff00; 
+        }
+        .result { 
+            margin: 10px 0; 
+            padding: 10px; 
+            border: 1px solid #333; 
+            background: #2a2a2a; 
+        }
+        .vector { 
+            font-weight: bold; 
+            color: #ffff00; 
+        }
+        .success { border-left: 4px solid #00ff00; }
+        .error { border-left: 4px solid #ff0000; }
+        .warning { border-left: 4px solid #ffaa00; }
+    </style>
+</head>
+<body>
+    <h1>Detection Vector Test Suite</h1>
+    <div id="results"></div>
+    
+    <script>
+        const results = document.getElementById('results');
+        
+        function logResult(vector, data, status = 'success') {
+            const div = document.createElement('div');
+            div.className = `result ${status}`;
+            div.innerHTML = `
+                <div class="vector">${vector}</div>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+            results.appendChild(div);
+        }
+        
+        async function runTests() {
+            logResult('INFO', { message: 'Starting detection vector tests...', timestamp: new Date().toISOString() });
+            
+            // === 1. WebGL in Sandboxed iFrame ===
+            try {
+                logResult('1. WebGL in Sandboxed iFrame', { status: 'testing...' }, 'warning');
+                
+                const iframe = document.createElement('iframe');
+                iframe.sandbox = 'allow-scripts';
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
+                
+                const webglResult = await new Promise((resolve) => {
+                    const handler = (e) => {
+                        if (e.data && e.data.type === 'webgl_test') {
+                            window.removeEventListener('message', handler);
+                            resolve(e.data);
+                        }
+                    };
+                    window.addEventListener('message', handler);
+                    
+                    const iframeDoc = iframe.contentWindow.document;
+                    iframeDoc.write(`
+                        <script>
+                            try {
+                                const canvas = document.createElement('canvas');
+                                const gl = canvas.getContext('webgl');
+                                const result = {
+                                    type: 'webgl_test',
+                                    webglSupported: !!window.WebGLRenderingContext,
+                                    contextCreated: !!gl
+                                };
+                                if (gl) {
+                                    result.vendor = gl.getParameter(gl.VENDOR);
+                                    result.renderer = gl.getParameter(gl.RENDERER);
+                                    result.version = gl.getParameter(gl.VERSION);
+                                    result.extensions = gl.getSupportedExtensions().length;
+                                }
+                                parent.postMessage(result, '*');
+                            } catch(e) {
+                                parent.postMessage({
+                                    type: 'webgl_test',
+                                    error: e.message
+                                }, '*');
+                            }
+                        </script>
+                    `);
+                    iframeDoc.close();
+                    
+                    setTimeout(() => resolve({ timeout: true, message: 'iframe test timed out' }), 3000);
+                });
+                
+                document.body.removeChild(iframe);
+                logResult('1. WebGL in Sandboxed iFrame', webglResult);
+                
+            } catch(e) {
+                logResult('1. WebGL in Sandboxed iFrame', { error: e.message }, 'error');
+            }
+            
+            // === 2. ServiceWorker Registration ===
+            try {
+                logResult('2. ServiceWorker Registration', { status: 'testing...' }, 'warning');
+                
+                const swResult = {
+                    available: 'serviceWorker' in navigator,
+                    ready: navigator.serviceWorker ? !!navigator.serviceWorker.ready : false
+                };
+                
+                if (navigator.serviceWorker) {
+                    try {
+                        const registration = await navigator.serviceWorker.register(
+                            'data:text/javascript;base64,' + btoa('// Empty SW'), 
+                            { scope: './' }
+                        );
+                        swResult.registrationSuccess = true;
+                        swResult.scope = registration.scope;
+                        swResult.installing = !!registration.installing;
+                        swResult.waiting = !!registration.waiting;
+                        swResult.active = !!registration.active;
+                        
+                        // Clean up
+                        await registration.unregister();
+                    } catch(e) {
+                        swResult.registrationError = e.name + ': ' + e.message;
+                        swResult.registrationSuccess = false;
+                    }
+                }
+                
+                logResult('2. ServiceWorker Registration', swResult);
+                
+            } catch(e) {
+                logResult('2. ServiceWorker Registration', { error: e.message }, 'error');
+            }
+            
+            // === 3. SharedWorker Availability ===
+            try {
+                logResult('3. SharedWorker Availability', { status: 'testing...' }, 'warning');
+                
+                const sharedWorkerResult = {
+                    constructorExists: typeof SharedWorker !== 'undefined',
+                    isFunction: typeof SharedWorker === 'function'
+                };
+                
+                if (typeof SharedWorker !== 'undefined') {
+                    try {
+                        const worker = new SharedWorker(
+                            'data:text/javascript;base64,' + btoa('// Empty shared worker')
+                        );
+                        sharedWorkerResult.constructionSuccess = true;
+                        sharedWorkerResult.hasPort = !!worker.port;
+                        sharedWorkerResult.portType = typeof worker.port;
+                        
+                        if (worker.port) {
+                            worker.port.close();
+                        }
+                    } catch(e) {
+                        sharedWorkerResult.constructionError = e.name + ': ' + e.message;
+                        sharedWorkerResult.constructionSuccess = false;
+                    }
+                }
+                
+                logResult('3. SharedWorker Availability', sharedWorkerResult);
+                
+            } catch(e) {
+                logResult('3. SharedWorker Availability', { error: e.message }, 'error');
+            }
+            
+            // === 4. WebRTC ICE Candidates ===
+            try {
+                logResult('4. WebRTC ICE Candidates', { status: 'testing...' }, 'warning');
+                
+                const pc = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                });
+                
+                const candidates = [];
+                const webrtcResult = await new Promise(resolve => {
+                    const timeout = setTimeout(() => {
+                        pc.close();
+                        resolve({
+                            timeout: true,
+                            candidateCount: candidates.length,
+                            candidates: candidates.slice(0, 3),
+                            candidateTypes: [...new Set(candidates.map(c => c.type))]
+                        });
+                    }, 5000);
+                    
+                    pc.onicecandidate = (event) => {
+                        if (event.candidate) {
+                            candidates.push({
+                                type: event.candidate.type,
+                                protocol: event.candidate.protocol,
+                                address: event.candidate.address || 'hidden',
+                                port: event.candidate.port
+                            });
+                        } else {
+                            // Ice gathering complete
+                            clearTimeout(timeout);
+                            pc.close();
+                            resolve({
+                                gatheringComplete: true,
+                                candidateCount: candidates.length,
+                                candidates: candidates.slice(0, 3),
+                                candidateTypes: [...new Set(candidates.map(c => c.type))]
+                            });
+                        }
+                    };
+                    
+                    pc.onicegatheringstatechange = () => {
+                        console.log('ICE gathering state:', pc.iceGatheringState);
+                    };
+                    
+                    pc.createOffer().then(offer => {
+                        return pc.setLocalDescription(offer);
+                    }).catch(e => {
+                        clearTimeout(timeout);
+                        pc.close();
+                        resolve({ error: e.message });
+                    });
+                });
+                
+                logResult('4. WebRTC ICE Candidates', webrtcResult);
+                
+            } catch(e) {
+                logResult('4. WebRTC ICE Candidates', { error: e.message }, 'error');
+            }
+            
+            // === 5. Performance Resource Entries ===
+            try {
+                logResult('5. Performance Resource Entries', { status: 'testing...' }, 'warning');
+                
+                const resourceEntries = performance.getEntriesByType('resource');
+                const performanceResult = {
+                    count: resourceEntries.length,
+                    types: [...new Set(resourceEntries.map(e => e.initiatorType))],
+                    domains: [...new Set(resourceEntries.map(e => {
+                        try {
+                            return new URL(e.name).hostname;
+                        } catch {
+                            return 'parse-error';
+                        }
+                    }))],
+                    firstEntries: resourceEntries.slice(0, 3).map(e => ({
+                        name: e.name.substring(0, 100), // Truncate long URLs
+                        type: e.initiatorType,
+                        duration: e.duration,
+                        transferSize: e.transferSize
+                    }))
+                };
+                
+                logResult('5. Performance Resource Entries', performanceResult);
+                
+            } catch(e) {
+                logResult('5. Performance Resource Entries', { error: e.message }, 'error');
+            }
+            
+            // === 6. Credential Management API ===
+            try {
+                logResult('6. Credential Management API', { status: 'testing...' }, 'warning');
+                
+                const credentialsResult = {
+                    available: 'credentials' in navigator,
+                    publicKeyExists: 'PublicKeyCredential' in window,
+                    passwordCredentialExists: 'PasswordCredential' in window,
+                    federatedCredentialExists: 'FederatedCredential' in window
+                };
+                
+                if (navigator.credentials) {
+                    credentialsResult.methodsAvailable = {
+                        get: typeof navigator.credentials.get === 'function',
+                        create: typeof navigator.credentials.create === 'function',
+                        store: typeof navigator.credentials.store === 'function',
+                        preventSilentAccess: typeof navigator.credentials.preventSilentAccess === 'function'
+                    };
+                    
+                    // Test conditional mediation availability
+                    if (window.PublicKeyCredential && PublicKeyCredential.isConditionalMediationAvailable) {
+                        try {
+                            credentialsResult.conditionalMediationAvailable = 
+                                await PublicKeyCredential.isConditionalMediationAvailable();
+                        } catch(e) {
+                            credentialsResult.conditionalMediationError = e.message;
+                        }
+                    }
+                    
+                    // Test get() with minimal options (will likely fail but gives us info)
+                    try {
+                        const getResult = await navigator.credentials.get({
+                            publicKey: {
+                                challenge: new Uint8Array(32),
+                                timeout: 500,
+                                userVerification: 'discouraged'
+                            }
+                        }).catch(e => ({ error: e.name, message: e.message }));
+                        
+                        credentialsResult.getResult = getResult;
+                    } catch(e) {
+                        credentialsResult.getTestError = e.message;
+                    }
+                }
+                
+                logResult('6. Credential Management API', credentialsResult);
+                
+            } catch(e) {
+                logResult('6. Credential Management API', { error: e.message }, 'error');
+            }
+            
+            logResult('COMPLETE', { message: 'All detection vector tests completed', timestamp: new Date().toISOString() });
+        }
+        
+        // Start tests when page loads
+        document.addEventListener('DOMContentLoaded', runTests);
+        
+        // Also start immediately if already loaded
+        if (document.readyState === 'complete') {
+            runTests();
+        }
+    </script>
+</body>
+</html>

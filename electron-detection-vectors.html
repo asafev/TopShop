@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html><head><title>Electron Detection Vectors</title></head>
+<body>
+<h2>Electron Detection Vector Tests</h2>
+<pre id="results">Testing...</pre>
+<script>
+(async () => {
+    const results = {};
+    
+    // 1. Modern API Availability
+    results.modernAPIs = {
+        scheduler: 'scheduler' in window && !!window.scheduler?.postTask,
+        navigation: 'navigation' in window,
+        webLocks: 'locks' in navigator,
+        storageAccess: 'requestStorageAccess' in document,
+        mediaSession: 'mediaSession' in navigator,
+        webCodecs: 'VideoDecoder' in window,
+        originPrivateFS: 'getDirectory' in (navigator.storage || {}),
+        broadcastChannel: 'BroadcastChannel' in window,
+        trustedTypes: 'trustedTypes' in window,
+        pictureInPicture: 'pictureInPictureEnabled' in document
+    };
+    
+    // 2. Storage Quota Behavior
+    try {
+        const quota = await navigator.storage.estimate();
+        results.storage = {
+            quota: quota.quota,
+            usage: quota.usage,
+            quotaGB: Math.round(quota.quota / 1024/1024/1024 * 100) / 100
+        };
+    } catch(e) { results.storage = {error: e.message}; }
+    
+    // 3. Performance Memory
+    results.performanceMemory = {
+        available: 'memory' in performance,
+        usedJSHeapSize: performance.memory?.usedJSHeapSize || 'N/A',
+        totalJSHeapSize: performance.memory?.totalJSHeapSize || 'N/A',
+        jsHeapSizeLimit: performance.memory?.jsHeapSizeLimit || 'N/A'
+    };
+    
+    // 4. Hardware Concurrency
+    results.hardware = {
+        concurrency: navigator.hardwareConcurrency,
+        deviceMemory: navigator.deviceMemory || 'N/A',
+        maxTouchPoints: navigator.maxTouchPoints
+    };
+    
+    // 5. Chrome Runtime Info
+    results.chromeRuntime = {
+        platformInfo: typeof chrome?.runtime?.getPlatformInfo === 'function',
+        manifestV3: typeof chrome?.runtime?.getManifest === 'function',
+        contextMenus: typeof chrome?.contextMenus?.create === 'function',
+        tabs: typeof chrome?.tabs?.query === 'function'
+    };
+    
+    // 6. Font Rendering Test
+    try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = '16px Arial';
+        const metrics = ctx.measureText('test');
+        results.fontMetrics = {
+            width: metrics.width,
+            actualBoundingBoxAscent: metrics.actualBoundingBoxAscent,
+            actualBoundingBoxDescent: metrics.actualBoundingBoxDescent,
+            fontBoundingBoxAscent: metrics.fontBoundingBoxAscent,
+            fontBoundingBoxDescent: metrics.fontBoundingBoxDescent
+        };
+    } catch(e) { results.fontMetrics = {error: e.message}; }
+    
+    // 7. Timing Precision
+    const start = performance.now();
+    await new Promise(r => setTimeout(r, 0));
+    const end = performance.now();
+    results.timing = {
+        precisionDigits: (end - start).toString().split('.')[1]?.length || 0,
+        baseTimestamp: Math.floor(performance.timeOrigin)
+    };
+    
+    // 8. Feature Policy
+    results.featurePolicy = {
+        available: 'featurePolicy' in document || 'permissionsPolicy' in document,
+        allowedFeatures: document.featurePolicy?.allowedFeatures?.()?.length || 'N/A'
+    };
+    
+    // 9. Compression Streams
+    results.compressionStreams = {
+        CompressionStream: 'CompressionStream' in window,
+        DecompressionStream: 'DecompressionStream' in window
+    };
+    
+    // 10. Import Maps
+    results.importMaps = {
+        supported: HTMLScriptElement.supports?.('importmap') || false
+    };
+    
+    document.getElementById('results').textContent = JSON.stringify(results, null, 2);
+})();
+</script>
+</body></html>

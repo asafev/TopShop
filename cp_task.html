@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Survey — Win a Gift Card</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f5f6fa;color:#222;line-height:1.5}
+.wrap{max-width:700px;margin:30px auto;padding:0 16px}
+h1{font-size:1.4rem;margin-bottom:4px}
+.sub{color:#666;font-size:.85rem;margin-bottom:18px}
+form{background:#fff;border:1px solid #dde;border-radius:10px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+label{display:block;font-weight:600;margin:14px 0 4px;font-size:.9rem}
+label:first-child{margin-top:0}
+input[type=text],input[type=email],textarea,select{width:100%;padding:9px 11px;border:1px solid #ccd;border-radius:6px;font-size:.92rem;font-family:inherit;background:#fafbfc}
+textarea{resize:vertical;min-height:64px}
+select{appearance:auto}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+button[type=submit]{margin-top:18px;padding:10px 28px;background:#1a73e8;color:#fff;border:none;border-radius:6px;font-size:.95rem;cursor:pointer;font-weight:600}
+button[type=submit]:hover{background:#1557b0}
+
+/* --- results panel --- */
+#results-panel{display:none;margin-top:22px;background:#fff;border:1px solid #dde;border-radius:10px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+#results-panel.visible{display:block}
+#results-panel h2{font-size:1.15rem;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:.75rem;font-weight:700;letter-spacing:.3px}
+.sig-table{width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:14px}
+.sig-table th{text-align:left;padding:6px 8px;background:#f0f1f5;border-bottom:2px solid #dde}
+.sig-table td{padding:6px 8px;border-bottom:1px solid #eef}
+.sig-table tr:last-child td{border-bottom:none}
+td.val{font-family:'Cascadia Code',Consolas,monospace;font-size:.8rem}
+.profile-box{background:#f7f8fc;border:1px solid #dde;border-radius:8px;padding:14px;font-family:'Cascadia Code',Consolas,monospace;font-size:.82rem;white-space:pre-wrap;word-break:break-all;margin-bottom:14px;line-height:1.7}
+.act-bar{display:flex;gap:10px;flex-wrap:wrap}
+.act-bar button{padding:7px 16px;border:1px solid #ccd;border-radius:6px;background:#fff;cursor:pointer;font-size:.82rem;font-weight:600}
+.act-bar button:hover{background:#eef1f8}
+.grp-title{font-weight:700;font-size:.88rem;margin:14px 0 6px;color:#444}
+
+/* status bar */
+#status-bar{position:fixed;bottom:0;left:0;right:0;background:#222;color:#9f9;font-family:monospace;font-size:.75rem;padding:4px 12px;z-index:999;display:flex;gap:16px}
+#status-bar span{opacity:.7}
+/* trust matrix */
+.trust-matrix{width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:14px}
+.trust-matrix th{padding:5px 6px;background:#f0f1f5;border-bottom:2px solid #dde;font-size:.72rem;text-transform:uppercase}
+.trust-matrix td{padding:4px 6px;border-bottom:1px solid #eef;text-align:center;font-family:'Cascadia Code',Consolas,monospace;font-size:.78rem}
+.trust-matrix td:first-child{text-align:left;font-weight:600;font-family:inherit}
+.tm-trusted{background:#e8f5e9;color:#2e7d32}
+.tm-untrusted{background:#ffebee;color:#c62828;font-weight:700}
+.tm-mixed{background:#fff8e1;color:#e65100}
+.tm-none{color:#bbb}
+/* json display */
+.json-box{background:#f7f8fc;border:1px solid #dde;border-radius:8px;padding:14px;font-family:'Cascadia Code',Consolas,monospace;font-size:.72rem;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto;margin:10px 0 14px;line-height:1.5;cursor:text;user-select:all}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <h1>Product Satisfaction Survey</h1>
+  <p class="sub">Help us improve — takes 30 seconds. All fields required.</p>
+
+  <form id="survey-form" autocomplete="off">
+    <label for="f-name">Full Name</label>
+    <input type="text" id="f-name" name="name" placeholder="Jane Smith" required>
+
+    <label for="f-email">Email Address</label>
+    <input type="email" id="f-email" name="email" placeholder="jane@example.com" required>
+
+    <label for="f-cat">Product Category</label>
+    <select id="f-cat" name="category" required>
+      <option value="">— choose —</option>
+      <option value="phones">Phones</option>
+      <option value="laptops">Laptops</option>
+      <option value="tablets">Tablets</option>
+      <option value="accessories">Accessories</option>
+    </select>
+
+    <label for="f-comments">Comments</label>
+    <textarea id="f-comments" name="comments" placeholder="Tell us what you think…" rows="3"></textarea>
+
+    <button type="submit" id="btn-submit">Submit Survey</button>
+  </form>
+
+  <!-- results rendered here after analysis -->
+  <div id="results-panel"></div>
+</div>
+
+<!-- live status bar -->
+<div id="status-bar">
+  <span>Events: <b id="sb-count">0</b></span>
+  <span>Moves: <b id="sb-moves">0</b></span>
+  <span>Keys: <b id="sb-keys">0</b></span>
+  <span>Clicks: <b id="sb-clicks">0</b></span>
+  <span>Selects: <b id="sb-selects">0</b></span>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// SECTION 1 — EVENT COLLECTOR
+// Capture-phase listeners on document for ALL relevant events.
+// Stores minimal data per event. Uses performance.now() for sub-ms precision.
+// ═══════════════════════════════════════════════════════════════
+
+const EVT = [];          // master event log
+const MOVE_BUF = [];     // recent pointer moves (ring buffer, max 200)
+const MOUSEOVER_SET = new WeakSet(); // elements that received mouseover
+let _moveIdx = 0;
+let _counts = { evt: 0, moves: 0, keys: 0, clicks: 0, selects: 0 };
+
+function _rec(cat, e, extra) {
+  const d = {
+    t: performance.now(),
+    ts: Date.now(),
+    cat,
+    type: e.type,
+    trusted: e.isTrusted,
+    tag: e.target?.tagName || '',
+    id: e.target?.id || '',
+  };
+  if (extra) Object.assign(d, extra);
+  EVT.push(d);
+  _counts.evt++;
+}
+
+// --- pointer / mouse ---
+function _ptrMove(e) {
+  const entry = { t: performance.now(), x: e.clientX, y: e.clientY, trusted: e.isTrusted };
+  if (MOVE_BUF.length < 200) MOVE_BUF.push(entry);
+  else { MOVE_BUF[_moveIdx % 200] = entry; }
+  _moveIdx++;
+  _counts.moves++;
+}
+document.addEventListener('pointermove', _ptrMove, { capture: true, passive: true });
+document.addEventListener('mousemove', _ptrMove, { capture: true, passive: true });
+
+['pointerdown','pointerup','mousedown','mouseup','click','dblclick'].forEach(t => {
+  document.addEventListener(t, e => {
+    const rect = e.target?.getBoundingClientRect?.() || {};
+    const cx = rect.width ? rect.left + rect.width / 2 : null;
+    const cy = rect.height ? rect.top + rect.height / 2 : null;
+    _rec('click', e, {
+      x: e.clientX, y: e.clientY,
+      cx, cy,
+      distCenter: (cx !== null) ? Math.hypot(e.clientX - cx, e.clientY - cy) : null,
+      hasFloat: (e.clientX % 1 !== 0) || (e.clientY % 1 !== 0),
+      button: e.button,
+      recentMoves: MOVE_BUF.filter(m => (e.timeStamp || performance.now()) - m.t < 500).length
+    });
+    if (t === 'click') _counts.clicks++;
+  }, { capture: true });
+});
+
+['mouseover','mouseenter'].forEach(t => {
+  document.addEventListener(t, e => {
+    if (e.target) MOUSEOVER_SET.add(e.target);
+    _rec('hover', e);
+  }, { capture: true, passive: true });
+});
+
+// --- keyboard ---
+document.addEventListener('keydown', e => {
+  _rec('key', e, { key: e.key, code: e.code, dir: 'down' });
+  _counts.keys++;
+}, { capture: true });
+
+document.addEventListener('keyup', e => {
+  _rec('key', e, { key: e.key, code: e.code, dir: 'up' });
+}, { capture: true });
+
+document.addEventListener('keypress', e => {
+  _rec('key', e, { key: e.key, code: e.code, dir: 'press' });
+}, { capture: true });
+
+// --- input / change ---
+document.addEventListener('input', e => {
+  _rec('input', e, {
+    inputType: e.inputType || '',
+    data: e.data || '',
+    value: e.target?.value?.slice?.(0, 120) || ''
+  });
+}, { capture: true });
+
+document.addEventListener('change', e => {
+  _rec('change', e, {
+    value: e.target?.value || ''
+  });
+  if (e.target?.tagName === 'SELECT') _counts.selects++;
+}, { capture: true });
+
+// --- paste ---
+let _pasteCount = 0;
+document.addEventListener('paste', e => {
+  let len = 0;
+  try { len = e.clipboardData?.getData('text/plain')?.length || 0; } catch(err) {}
+  _rec('paste', e, { textLength: len });
+  _pasteCount++;
+}, { capture: true });
+
+// --- focus ---
+let _lastInputT = 0;
+document.addEventListener('pointermove', () => { _lastInputT = performance.now(); }, { capture: true, passive: true });
+document.addEventListener('keydown', () => { _lastInputT = performance.now(); }, { capture: true, passive: true });
+
+document.addEventListener('focusin', e => {
+  const gap = performance.now() - _lastInputT;
+  _rec('focus', e, { gapSinceInput: gap });
+}, { capture: true });
+
+document.addEventListener('focusout', e => {
+  _rec('focus', e);
+}, { capture: true });
+
+// --- scroll / wheel ---
+let _lastWheel = 0;
+document.addEventListener('wheel', e => {
+  _lastWheel = performance.now();
+  _rec('scroll', e, { dX: e.deltaX, dY: e.deltaY, mode: e.deltaMode });
+}, { capture: true, passive: true });
+
+document.addEventListener('scroll', () => {
+  const gap = performance.now() - _lastWheel;
+  EVT.push({ t: performance.now(), cat: 'scroll', type: 'scroll', noWheel: gap > 100 });
+  _counts.evt++;
+}, { capture: true, passive: true });
+
+// --- DOM mutation watcher (SG12) ---
+let _domInjections = [];
+const _mutObs = new MutationObserver(muts => {
+  for (const m of muts) {
+    for (const n of m.addedNodes) {
+      if (n.nodeType === 1) {
+        const s = getComputedStyle(n);
+        if (s.position === 'fixed' && parseInt(s.zIndex) > 9000) {
+          _domInjections.push({ tag: n.tagName, cls: n.className, t: performance.now() });
+        }
+      }
+    }
+  }
+});
+_mutObs.observe(document.documentElement, { childList: true, subtree: true });
+
+// --- status bar updater ---
+setInterval(() => {
+  document.getElementById('sb-count').textContent = _counts.evt;
+  document.getElementById('sb-moves').textContent = _counts.moves;
+  document.getElementById('sb-keys').textContent = _counts.keys;
+  document.getElementById('sb-clicks').textContent = _counts.clicks;
+  document.getElementById('sb-selects').textContent = _counts.selects;
+}, 250);
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 2 — SIGNAL ANALYZERS
+// Each function reads EVT[] and returns a signal object.
+// ═══════════════════════════════════════════════════════════════
+
+// --- SG1: Trusted click + Untrusted change on <select> ---
+function analyzeSG1() {
+  const selects = {};
+  for (const e of EVT) {
+    if (e.tag !== 'SELECT' && e.tag !== 'OPTION') continue;
+    const sid = (e.tag === 'OPTION') ? '' : e.id;
+    if (!sid) continue;
+    if (!selects[sid]) selects[sid] = { trClicks: 0, untrClicks: 0, trChanges: 0, untrChanges: 0, optionClicks: 0, events: [] };
+    const s = selects[sid];
+    if (e.type === 'click') {
+      if (e.tag === 'OPTION') s.optionClicks++;
+      else if (e.trusted) s.trClicks++;
+      else s.untrClicks++;
+    }
+    if (e.type === 'change') {
+      if (e.trusted) s.trChanges++;
+      else s.untrChanges++;
+    }
+    s.events.push({ type: e.type, trusted: e.trusted, t: e.t });
+  }
+  let copilotPattern = false;
+  for (const sid of Object.keys(selects)) {
+    const s = selects[sid];
+    if (s.trClicks > 0 && s.untrChanges > 0 && s.optionClicks === 0) copilotPattern = true;
+  }
+  return { id: 'SG1', name: 'Trusted Click + Untrusted Change on <select>', selects, copilotPattern };
+}
+
+// --- SG2: Ghost typing (CPS, CV, trusted) ---
+function analyzeSG2() {
+  const kd = EVT.filter(e => e.cat === 'key' && e.dir === 'down');
+  const ku = EVT.filter(e => e.cat === 'key' && e.dir === 'up');
+  if (kd.length < 3) return { id: 'SG2', name: 'Ghost Typing', cps: 0, cv: null, kdKuRatio: null, allTrusted: null, note: 'insufficient data' };
+
+  const dur = (kd[kd.length - 1].t - kd[0].t) / 1000;
+  const cps = dur > 0 ? kd.length / dur : 0;
+
+  const intervals = [];
+  for (let i = 1; i < kd.length; i++) intervals.push(kd[i].t - kd[i - 1].t);
+  const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const variance = intervals.reduce((s, v) => s + (v - mean) ** 2, 0) / intervals.length;
+  const cv = mean > 0 ? Math.sqrt(variance) / mean : null;
+
+  const holds = [];
+  for (const d of kd) {
+    const u = ku.find(k => k.key === d.key && k.t > d.t);
+    if (u) holds.push(u.t - d.t);
+  }
+  const avgHold = holds.length ? holds.reduce((a, b) => a + b, 0) / holds.length : -1;
+
+  return {
+    id: 'SG2', name: 'Ghost Typing',
+    cps: +cps.toFixed(1),
+    cv: cv !== null ? +cv.toFixed(3) : null,
+    kdKuRatio: kd.length > 0 ? +(ku.length / kd.length).toFixed(3) : null,
+    avgHoldMs: +avgHold.toFixed(1),
+    allTrusted: kd.every(k => k.trusted),
+    totalKd: kd.length,
+    totalKu: ku.length,
+    intervals: intervals.map(v => +v.toFixed(1))
+  };
+}
+
+// --- SG3: No pointermove before click ---
+function analyzeSG3() {
+  const clicks = EVT.filter(e => e.cat === 'click' && e.type === 'click');
+  if (!clicks.length) return { id: 'SG3', name: 'No Pointermove Before Click', ratio: null, note: 'no clicks' };
+  let teleporting = 0;
+  const details = [];
+  for (const c of clicks) {
+    const movesNear = MOVE_BUF.filter(m => c.t - m.t > 0 && c.t - m.t < 500).length;
+    if (movesNear === 0) teleporting++;
+    details.push({ id: c.id, tag: c.tag, recentMoves: movesNear, trusted: c.trusted });
+  }
+  return {
+    id: 'SG3', name: 'No Pointermove Before Click',
+    total: clicks.length, teleporting,
+    ratio: +(teleporting / clicks.length).toFixed(3),
+    details
+  };
+}
+
+// --- SG4: 2000ms inter-action gap clustering ---
+function analyzeSG4() {
+  const sig = EVT.filter(e => e.type === 'click' || e.type === 'change' || (e.cat === 'key' && e.dir === 'down') || e.type === 'focusin');
+
+  // deduplicate: keep only first event per 50ms window
+  const deduped = [];
+  for (const e of sig) {
+    if (!deduped.length || e.t - deduped[deduped.length - 1].t > 50) deduped.push(e);
+  }
+  if (deduped.length < 3) return { id: 'SG4', name: '2000ms Gap Clustering', ratio: null, note: 'insufficient actions' };
+
+  const gaps = [];
+  for (let i = 1; i < deduped.length; i++) gaps.push(+(deduped[i].t - deduped[i - 1].t).toFixed(1));
+
+  const twoSec = gaps.filter(g => g >= 1700 && g <= 2300);
+  const longGaps = gaps.filter(g => g >= 3000 && g <= 6000);
+  const ratio = gaps.length ? +(twoSec.length / gaps.length).toFixed(3) : 0;
+
+  // CV of all gaps
+  const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+  const variance = gaps.reduce((s, v) => s + (v - mean) ** 2, 0) / gaps.length;
+  const cv = mean > 0 ? +(Math.sqrt(variance) / mean).toFixed(3) : null;
+
+  return {
+    id: 'SG4', name: '2000ms Gap Clustering',
+    totalGaps: gaps.length,
+    twoSecCount: twoSec.length,
+    ratio,
+    longGaps: longGaps.length,
+    hasTwoTier: ratio > 0.2 && longGaps.length > 0,
+    gapCV: cv,
+    gaps
+  };
+}
+
+// --- SG5: Center click bias ---
+function analyzeSG5() {
+  const clicks = EVT.filter(e => e.cat === 'click' && e.type === 'click' && e.distCenter !== null);
+  if (!clicks.length) return { id: 'SG5', name: 'Center Click Bias', ratio: null, note: 'no clicks' };
+  const center = clicks.filter(c => c.distCenter < 3);
+  const distances = clicks.map(c => +c.distCenter.toFixed(1));
+  return {
+    id: 'SG5', name: 'Center Click Bias',
+    total: clicks.length, centerHits: center.length,
+    ratio: +(center.length / clicks.length).toFixed(3),
+    distances
+  };
+}
+
+// --- SG-FL: Float precision coordinates ---
+function analyzeSGFL() {
+  const clicks = EVT.filter(e => e.cat === 'click' && e.type === 'click');
+  const floats = clicks.filter(c => c.hasFloat);
+  const dpr = window.devicePixelRatio || 1;
+  return {
+    id: 'SG-FL', name: 'Float Coordinate Precision',
+    total: clicks.length, floatCount: floats.length,
+    ratio: clicks.length ? +(floats.length / clicks.length).toFixed(3) : 0,
+    dpr,
+    dprIsInteger: dpr % 1 === 0,
+    coords: clicks.map(c => ({ x: c.x, y: c.y, float: c.hasFloat }))
+  };
+}
+
+// --- SG6: Missing keyup events ---
+function analyzeSG6() {
+  const kd = EVT.filter(e => e.cat === 'key' && e.dir === 'down');
+  const ku = EVT.filter(e => e.cat === 'key' && e.dir === 'up');
+  const kp = EVT.filter(e => e.cat === 'key' && e.dir === 'press');
+  if (!kd.length) return { id: 'SG6', name: 'Missing Keyup Events', ratio: null, note: 'no keys' };
+  return {
+    id: 'SG6', name: 'Missing Keyup Events',
+    kd: kd.length, ku: ku.length, kp: kp.length,
+    kdKuRatio: +(ku.length / kd.length).toFixed(3),
+    kdKpRatio: kp.length ? +(kp.length / kd.length).toFixed(3) : 0
+  };
+}
+
+// --- SG7: Focus jump without prior input ---
+function analyzeSG7() {
+  const focuses = EVT.filter(e => e.type === 'focusin' && e.gapSinceInput !== undefined);
+  if (!focuses.length) return { id: 'SG7', name: 'Focus Jump', ratio: null, note: 'no focus events' };
+  const jumps = focuses.filter(f => f.gapSinceInput > 500);
+  return {
+    id: 'SG7', name: 'Focus Jump Without Prior Input',
+    total: focuses.length, jumps: jumps.length,
+    ratio: +(jumps.length / focuses.length).toFixed(3),
+    details: focuses.map(f => ({ id: f.id, gap: +f.gapSinceInput.toFixed(0) }))
+  };
+}
+
+// --- SG-AF: Autofill — value set without keyboard ---
+function analyzeSGAF() {
+  const inputs = EVT.filter(e => e.cat === 'input');
+  const keys = EVT.filter(e => e.cat === 'key' && e.dir === 'down');
+  let noKeyboard = 0;
+  const details = [];
+  for (const inp of inputs) {
+    const recentKey = keys.some(k => inp.t - k.t >= 0 && inp.t - k.t < 80);
+    if (!recentKey) {
+      noKeyboard++;
+      details.push({ id: inp.id, inputType: inp.inputType, t: +inp.t.toFixed(0) });
+    }
+  }
+  return {
+    id: 'SG-AF', name: 'Autofill: Value Without Keyboard',
+    totalInputs: inputs.length, noKeyboard,
+    ratio: inputs.length ? +(noKeyboard / inputs.length).toFixed(3) : 0,
+    details
+  };
+}
+
+// --- SG-MF: Multi-field fill < 10ms apart ---
+function analyzeSGMF() {
+  const changes = EVT.filter(e => (e.type === 'input' || e.type === 'change') && (e.tag === 'INPUT' || e.tag === 'TEXTAREA' || e.tag === 'SELECT'));
+  if (changes.length < 2) return { id: 'SG-MF', name: 'Multi-Field Rapid Fill', count: 0 };
+  let rapid = 0;
+  for (let i = 1; i < changes.length; i++) {
+    if (changes[i].t - changes[i - 1].t < 10 && changes[i].id !== changes[i - 1].id) rapid++;
+  }
+  return { id: 'SG-MF', name: 'Multi-Field Rapid Fill (<10ms)', pairs: rapid, total: changes.length };
+}
+
+// --- SG-RT: insertReplacementText inputType ---
+function analyzeSGRT() {
+  const replacements = EVT.filter(e => e.cat === 'input' && e.inputType === 'insertReplacementText');
+  return {
+    id: 'SG-RT', name: 'insertReplacementText InputType',
+    count: replacements.length,
+    fields: replacements.map(r => r.id)
+  };
+}
+
+// --- SG-SC: Scroll without wheel/touch ---
+function analyzeSGSC() {
+  const scrolls = EVT.filter(e => e.cat === 'scroll' && e.type === 'scroll');
+  const noWheel = scrolls.filter(s => s.noWheel);
+  return {
+    id: 'SG-SC', name: 'Scroll Without Wheel Event',
+    total: scrolls.length, noWheel: noWheel.length,
+    ratio: scrolls.length ? +(noWheel.length / scrolls.length).toFixed(3) : 0
+  };
+}
+
+// --- SG12: No DOM injection ---
+function analyzeSG12() {
+  return {
+    id: 'SG12', name: 'No DOM Injection (no overlay/stop button)',
+    injections: _domInjections.length,
+    noDOMInjection: _domInjections.length === 0,
+    details: _domInjections
+  };
+}
+
+// --- SG-TR: Per-field trust correlation ---
+function analyzeSG_TRUST() {
+  const FORM_IDS = ['f-name','f-email','f-cat','f-comments'];
+  const TRACK = ['click','focusin','input','change','keydown','keyup','pointerdown','pointerup'];
+  const fieldMap = {};
+  for (const fid of FORM_IDS) {
+    fieldMap[fid] = {};
+    for (const evt of TRACK) fieldMap[fid][evt] = { trusted: 0, untrusted: 0 };
+  }
+  for (const e of EVT) {
+    if (!e.id || !fieldMap[e.id]) continue;
+    const type = e.type;
+    if (!fieldMap[e.id][type]) fieldMap[e.id][type] = { trusted: 0, untrusted: 0 };
+    if (e.trusted) fieldMap[e.id][type].trusted++;
+    else fieldMap[e.id][type].untrusted++;
+  }
+  const fieldSummaries = {};
+  const combos = [];
+  for (const fid of FORM_IDS) {
+    let tT = 0, tU = 0;
+    const active = {};
+    for (const [evt, c] of Object.entries(fieldMap[fid])) {
+      if (c.trusted > 0 || c.untrusted > 0) {
+        active[evt] = c.untrusted > 0 ? (c.trusted > 0 ? 'MIXED' : 'UNTRUSTED') : 'TRUSTED';
+        tT += c.trusted; tU += c.untrusted;
+      }
+    }
+    const trust = tU > 0 && tT > 0 ? 'MIXED' : tU > 0 ? 'ALL_UNTRUSTED' : tT > 0 ? 'ALL_TRUSTED' : 'NONE';
+    fieldSummaries[fid] = { trust, totalTrusted: tT, totalUntrusted: tU, activeEvents: active };
+    if (Object.keys(active).length > 0) {
+      combos.push(fid + ':' + Object.entries(active).map(([e,t]) => e + '=' + t[0]).join('+'));
+    }
+  }
+  return {
+    id: 'SG-TR', name: 'Per-Field Trust Correlation',
+    fieldMap, fieldSummaries, combos,
+    anyUntrusted: Object.values(fieldSummaries).some(f => f.totalUntrusted > 0),
+    allFieldsTrusted: Object.values(fieldSummaries).every(f => f.trust === 'ALL_TRUSTED' || f.trust === 'NONE')
+  };
+}
+
+// --- SG-MO: Mouseover before click ---
+function analyzeSG_MO() {
+  const clicks = EVT.filter(e => e.cat === 'click' && e.type === 'click');
+  if (!clicks.length) return { id: 'SG-MO', name: 'Mouseover Before Click', ratio: null, note: 'no clicks' };
+  let noHover = 0;
+  const details = [];
+  for (const c of clicks) {
+    const el = c.id ? document.getElementById(c.id) : null;
+    const hadHover = el ? MOUSEOVER_SET.has(el) : false;
+    if (!hadHover && c.id) noHover++;
+    details.push({ id: c.id, tag: c.tag, hadHover, trusted: c.trusted });
+  }
+  return {
+    id: 'SG-MO', name: 'Mouseover Before Click',
+    total: clicks.length, noHover,
+    ratio: clicks.length ? +(noHover / clicks.length).toFixed(3) : 0,
+    details
+  };
+}
+
+// --- SG-DUR: Form fill speed ---
+function analyzeSG_DUR() {
+  const formEvts = EVT.filter(e => e.id && e.id.startsWith('f-'));
+  if (formEvts.length < 2) return { id: 'SG-DUR', name: 'Form Fill Speed', durationSec: 0, msPerField: 0, note: 'insufficient' };
+  const durMs = formEvts[formEvts.length - 1].t - formEvts[0].t;
+  const fields = new Set(formEvts.map(e => e.id)).size;
+  const msPerField = fields > 0 ? +(durMs / fields).toFixed(0) : 0;
+  return {
+    id: 'SG-DUR', name: 'Form Fill Speed',
+    durationMs: +durMs.toFixed(0), durationSec: +(durMs / 1000).toFixed(1),
+    fieldsInteracted: fields, msPerField,
+    suspiciouslyFast: msPerField < 500 && fields > 3
+  };
+}
+
+// --- SG-PA: Paste events ---
+function analyzeSG_PA() {
+  const pastes = EVT.filter(e => e.type === 'paste');
+  return {
+    id: 'SG-PA', name: 'Paste Events',
+    count: pastes.length,
+    fields: pastes.map(p => ({ id: p.id, textLength: p.textLength, trusted: p.trusted }))
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 3 — PROFILE BUILDER
+// Builds the agent identity string + full JSON report.
+// No scoring. No human/bot verdict. Just a factual profile.
+// ═══════════════════════════════════════════════════════════════
+
+function buildProfile() {
+  const sg1 = analyzeSG1();
+  const sg2 = analyzeSG2();
+  const sg3 = analyzeSG3();
+  const sg4 = analyzeSG4();
+  const sg5 = analyzeSG5();
+  const sgfl = analyzeSGFL();
+  const sg6 = analyzeSG6();
+  const sg7 = analyzeSG7();
+  const sgaf = analyzeSGAF();
+  const sgmf = analyzeSGMF();
+  const sgrt = analyzeSGRT();
+  const sgsc = analyzeSGSC();
+  const sg12 = analyzeSG12();
+  const sgtr = analyzeSG_TRUST();
+  const sgmo = analyzeSG_MO();
+  const sgdur = analyzeSG_DUR();
+  const sgpa = analyzeSG_PA();
+
+  // --- build profile identity string ---
+  const tags = [];
+
+  // Select trust pattern
+  if (sg1.copilotPattern) tags.push('TRUSTED_CLICK+UNTRUSTED_CHANGE');
+  else {
+    const anyUntr = Object.values(sg1.selects).some(s => s.untrChanges > 0);
+    const anyTr = Object.values(sg1.selects).some(s => s.trClicks > 0);
+    if (anyUntr && !anyTr) tags.push('UNTRUSTED_SELECT');
+    else if (anyTr && !anyUntr) tags.push('NATIVE_SELECT');
+    else if (Object.keys(sg1.selects).length === 0) tags.push('NO_SELECT_INTERACTION');
+  }
+
+  // Typing CPS band
+  if (sg2.cps > 25) tags.push('CPS_SUPERHUMAN');
+  else if (sg2.cps > 15) tags.push('CPS_FAST');
+  else if (sg2.cps > 0) tags.push('CPS_NORMAL');
+
+  // Typing uniformity
+  if (sg2.cv !== null) {
+    if (sg2.cv < 0.15) tags.push('CV_MACHINE');
+    else if (sg2.cv < 0.3) tags.push('CV_LOW');
+    else tags.push('CV_HUMAN');
+  }
+
+  // Trust of keystrokes
+  if (sg2.allTrusted === true && sg2.cps > 15) tags.push('TRUSTED_GHOST_TYPE');
+  else if (sg2.allTrusted === false) tags.push('UNTRUSTED_KEYS');
+
+  // Click path
+  if (sg3.ratio !== null) {
+    if (sg3.ratio > 0.5) tags.push('TELEPORTING_CLICKS');
+    else if (sg3.ratio > 0.2) tags.push('PARTIAL_TELEPORT');
+    else tags.push('MOUSE_TRAIL_PRESENT');
+  }
+
+  // Timing
+  if (sg4.ratio !== null) {
+    if (sg4.ratio > 0.25) tags.push('2S_GAP_CLUSTER');
+    else if (sg4.ratio > 0.10) tags.push('2S_GAP_PARTIAL');
+    else tags.push('VARIABLE_TIMING');
+  }
+  if (sg4.hasTwoTier) tags.push('TWO_TIER_PATTERN');
+
+  // Center bias
+  if (sg5.ratio !== null) {
+    if (sg5.ratio > 0.5) tags.push('CENTER_BIAS_HIGH');
+    else if (sg5.ratio > 0.2) tags.push('CENTER_BIAS_PARTIAL');
+  }
+
+  // Float coords
+  if (sgfl.ratio > 0.3 && sgfl.dprIsInteger) tags.push('FLOAT_COORDS');
+
+  // Keyup ratio
+  if (sg6.kdKuRatio !== null && sg6.kdKuRatio < 0.8) tags.push('MISSING_KEYUPS');
+
+  // Focus jumps
+  if (sg7.ratio !== null && sg7.ratio > 0.3) tags.push('FOCUS_JUMPS');
+
+  // Autofill
+  if (sgaf.ratio > 0.3) tags.push('AUTOFILL_PATH');
+  if (sgmf.pairs > 0) tags.push('MULTI_FIELD_RAPID');
+  if (sgrt.count > 0) tags.push('REPLACEMENT_TEXT');
+
+  // Scroll
+  if (sgsc.ratio > 0.3) tags.push('PROGRAMMATIC_SCROLL');
+
+  // DOM injection
+  if (sg12.noDOMInjection) tags.push('NO_DOM_INJECTION');
+  else tags.push('DOM_INJECTION_DETECTED');
+
+  // Per-field trust tags
+  for (const [fid, summary] of Object.entries(sgtr.fieldSummaries)) {
+    if (summary.trust === 'MIXED') tags.push(`${fid}:MIXED_TRUST`);
+    else if (summary.trust === 'ALL_UNTRUSTED') tags.push(`${fid}:ALL_UNTRUSTED`);
+  }
+
+  // Mouseover before click
+  if (sgmo.ratio !== null && sgmo.ratio > 0.5) tags.push('NO_HOVER_CLICKS');
+
+  // Form fill speed
+  if (sgdur.suspiciouslyFast) tags.push('FAST_FILL');
+
+  // Paste
+  if (sgpa.count > 0) tags.push('PASTE_DETECTED');
+
+  const profileString = tags.join(' AND ');
+
+  const report = {
+    _meta: {
+      version: '1.1.0',
+      capturedAt: new Date().toISOString(),
+      url: location.href,
+      userAgent: navigator.userAgent,
+      dpr: window.devicePixelRatio,
+      totalEvents: EVT.length,
+      duration_ms: EVT.length > 1 ? +(EVT[EVT.length - 1].t - EVT[0].t).toFixed(0) : 0
+    },
+    profile: profileString,
+    tags,
+    trustCombo: sgtr.combos,
+    signals: { sg1, sg2, sg3, sg4, sg5, sgfl, sg6, sg7, sgaf, sgmf, sgrt, sgsc, sg12, sgtr, sgmo, sgdur, sgpa },
+    rawEventCount: EVT.length,
+    rawMoveCount: MOVE_BUF.length
+  };
+
+  return report;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 4 — RESULTS RENDERER + EXPORT
+// ═══════════════════════════════════════════════════════════════
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderResults(report) {
+  const panel = document.getElementById('results-panel');
+  panel.classList.add('visible');
+
+  const sigList = Object.values(report.signals);
+
+  // determine tag color
+  function tagColor(tag) {
+    const red = ['TRUSTED_CLICK+UNTRUSTED_CHANGE','CPS_SUPERHUMAN','CV_MACHINE','TRUSTED_GHOST_TYPE','TELEPORTING_CLICKS','2S_GAP_CLUSTER','FLOAT_COORDS','MISSING_KEYUPS','FOCUS_JUMPS','AUTOFILL_PATH','MULTI_FIELD_RAPID','TWO_TIER_PATTERN','NO_HOVER_CLICKS','FAST_FILL'];
+    const yellow = ['CPS_FAST','CV_LOW','PARTIAL_TELEPORT','2S_GAP_PARTIAL','CENTER_BIAS_HIGH','CENTER_BIAS_PARTIAL','REPLACEMENT_TEXT','PROGRAMMATIC_SCROLL','UNTRUSTED_SELECT','PASTE_DETECTED'];
+    if (red.includes(tag) || tag.includes('ALL_UNTRUSTED') || tag.includes('MIXED_TRUST')) return '#e74c3c';
+    if (yellow.includes(tag)) return '#e67e22';
+    return '#27ae60';
+  }
+
+  let html = `<h2>Agent Profile</h2>`;
+  html += `<div class="profile-box">${report.tags.map(t => `<span style="color:${tagColor(t)};font-weight:700">${t}</span>`).join(' <span style="color:#999">AND</span> ')}</div>`;
+
+  // ── Trust Matrix ──
+  if (report.signals.sgtr) {
+    const sgtr = report.signals.sgtr;
+    const TRACK = ['click','focusin','input','change','keydown','keyup','pointerdown','pointerup'];
+    html += `<div class="grp-title">🔒 Per-Field Trust Matrix</div>`;
+    html += `<table class="trust-matrix"><tr><th>Field</th>`;
+    for (const evt of TRACK) html += `<th>${evt}</th>`;
+    html += `<th>Summary</th></tr>`;
+    for (const [fid, events] of Object.entries(sgtr.fieldMap)) {
+      const summary = sgtr.fieldSummaries[fid];
+      html += `<tr><td>${fid}</td>`;
+      for (const evt of TRACK) {
+        const c = events[evt] || { trusted: 0, untrusted: 0 };
+        if (c.trusted > 0 && c.untrusted > 0) html += `<td class="tm-mixed">T:${c.trusted} U:${c.untrusted}</td>`;
+        else if (c.untrusted > 0) html += `<td class="tm-untrusted">U:${c.untrusted}</td>`;
+        else if (c.trusted > 0) html += `<td class="tm-trusted">T:${c.trusted}</td>`;
+        else html += `<td class="tm-none">&ndash;</td>`;
+      }
+      const sc = summary.trust === 'ALL_TRUSTED' ? 'tm-trusted' : summary.trust === 'ALL_UNTRUSTED' ? 'tm-untrusted' : summary.trust === 'MIXED' ? 'tm-mixed' : 'tm-none';
+      html += `<td class="${sc}">${summary.trust}</td></tr>`;
+    }
+    html += `</table>`;
+    if (sgtr.combos.length) {
+      html += `<div class="profile-box" style="font-size:.72rem;margin-top:6px">${escapeHtml(sgtr.combos.join('\n'))}</div>`;
+    }
+  }
+
+  // ── Signal Detail ──
+  html += `<div class="grp-title">Signal Detail</div>`;
+  html += `<table class="sig-table"><tr><th>ID</th><th>Signal</th><th>Key Value</th><th>Raw</th></tr>`;
+  for (const s of sigList) {
+    const key = s.copilotPattern !== undefined ? (s.copilotPattern ? 'YES' : 'no') :
+                s.combos !== undefined ? (s.combos.length ? s.combos[0].slice(0, 60) + (s.combos.length > 1 ? '…' : '') : '-') :
+                s.cps !== undefined ? `CPS=${s.cps} CV=${s.cv}` :
+                s.ratio !== undefined ? `ratio=${s.ratio}` :
+                s.count !== undefined ? `count=${s.count}` :
+                s.pairs !== undefined ? `pairs=${s.pairs}` :
+                s.injections !== undefined ? `inj=${s.injections}` :
+                s.durationSec !== undefined ? `${s.durationSec}s (${s.msPerField}ms/field)` :
+                JSON.stringify(s).slice(0, 60);
+    html += `<tr><td><b>${s.id}</b></td><td>${s.name}</td><td class="val">${escapeHtml(String(key))}</td><td class="val">${JSON.stringify(s).length}b</td></tr>`;
+  }
+  html += `</table>`;
+
+  // ── Meta ──
+  html += `<div class="grp-title">Meta</div>`;
+  html += `<table class="sig-table">`;
+  for (const [k, v] of Object.entries(report._meta)) {
+    html += `<tr><td><b>${k}</b></td><td class="val">${escapeHtml(String(v))}</td></tr>`;
+  }
+  html += `</table>`;
+
+  // ── Full JSON ──
+  html += `<div class="grp-title">📋 Full JSON Report <button onclick="copyJSON()" style="font-size:.72rem;padding:2px 8px;margin-left:8px">Copy</button></div>`;
+  html += `<div class="json-box" id="json-display">${escapeHtml(JSON.stringify(report, null, 2))}</div>`;
+
+  html += `<div class="act-bar">`;
+  html += `<button onclick="copyJSON()">📋 Copy JSON</button>`;
+  html += `<button onclick="downloadJSON()">💾 Export .json</button>`;
+  html += `<button onclick="copyProfile()">📝 Copy Profile String</button>`;
+  html += `</div>`;
+
+  panel.innerHTML = html;
+  panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+let _lastReport = null;
+
+function runAnalysis() {
+  _lastReport = buildProfile();
+  renderResults(_lastReport);
+}
+
+function copyJSON() {
+  if (!_lastReport) return;
+  navigator.clipboard.writeText(JSON.stringify(_lastReport, null, 2))
+    .then(() => showToast('JSON copied to clipboard'));
+}
+
+function downloadJSON() {
+  if (!_lastReport) return;
+  const blob = new Blob([JSON.stringify(_lastReport, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `agent-profile-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function copyProfile() {
+  if (!_lastReport) return;
+  navigator.clipboard.writeText(_lastReport.profile)
+    .then(() => showToast('Profile string copied'));
+}
+
+function showToast(msg) {
+  const d = document.createElement('div');
+  d.textContent = msg;
+  Object.assign(d.style, { position:'fixed',top:'16px',right:'16px',background:'#222',color:'#fff',padding:'10px 18px',borderRadius:'8px',fontSize:'.85rem',zIndex:'9999',opacity:'1',transition:'opacity .3s' });
+  document.body.appendChild(d);
+  setTimeout(() => { d.style.opacity = '0'; setTimeout(() => d.remove(), 300); }, 1800);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 5 — FORM SUBMIT HOOK
+// ═══════════════════════════════════════════════════════════════
+
+document.getElementById('survey-form').addEventListener('submit', e => {
+  e.preventDefault();
+  // small delay to capture the submit click event itself
+  setTimeout(() => { runAnalysis(); downloadJSON(); }, 120);
+});
+</script>
+</body>
+</html>

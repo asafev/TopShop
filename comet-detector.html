@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="font-src 'self' data:; style-src 'self' 'unsafe-inline'; img-src * data: blob:; connect-src *; script-src 'self' 'unsafe-inline' 'unsafe-eval';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Comet Browser Detector</title>
+<script>
+// CSP Violation listener — MUST be as early as possible
+window.__cspViolations = [];
+window.__cometCSPDetected = false;
+document.addEventListener('securitypolicyviolation', function(e) {
+    var v = {
+        blockedURI: e.blockedURI,
+        directive: e.effectiveDirective,
+        source: e.sourceFile,
+        line: e.lineNumber,
+        sample: e.sample,
+        time: performance.now()
+    };
+    window.__cspViolations.push(v);
+    if (e.effectiveDirective === 'font-src' &&
+        e.blockedURI && e.blockedURI.indexOf('perplexity.ai') !== -1) {
+        window.__cometCSPDetected = true;
+    }
+});
+// Font loading event listeners
+window.__fontLoadEvents = [];
+document.fonts.addEventListener('loading', function() {
+    window.__fontLoadEvents.push({ type: 'loading', time: performance.now() });
+});
+document.fonts.addEventListener('loadingdone', function() {
+    window.__fontLoadEvents.push({ type: 'loadingdone', time: performance.now() });
+});
+document.fonts.addEventListener('loadingerror', function() {
+    window.__fontLoadEvents.push({ type: 'loadingerror', time: performance.now() });
+});
+// MutationObserver — catch style/link injections from content scripts
+window.__cometMutations = [];
+(function() {
+    var obs = new MutationObserver(function(mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+            var added = mutations[i].addedNodes;
+            for (var j = 0; j < added.length; j++) {
+                var node = added[j];
+                if (node.nodeType !== 1) continue;
+                if (node.tagName === 'STYLE') {
+                    var text = node.textContent || '';
+                    if (text.indexOf('FKGrotesk') !== -1 || text.indexOf('FK Grotesk') !== -1 ||
+                        text.indexOf('perplexity') !== -1 || text.indexOf('frontend-cdn') !== -1) {
+                        window.__cometMutations.push({ type: 'style', content: text.substring(0, 500), time: performance.now() });
+                    }
+                }
+                if (node.tagName === 'LINK' && node.rel === 'stylesheet' && node.href &&
+                    node.href.indexOf('perplexity') !== -1) {
+                    window.__cometMutations.push({ type: 'link', content: node.href, time: performance.now() });
+                }
+            }
+        }
+    });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+})();
+</script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; background: #fafafa; color: #1a1a1a; min-height: 100vh; padding: 32px 20px; }
+.container { max-width: 780px; margin: 0 auto; }
+
+/* Header */
+.header { margin-bottom: 32px; border-bottom: 1px solid #ddd; padding-bottom: 16px; }
+.header h1 { font-size: 1.3em; font-weight: 600; letter-spacing: -0.02em; color: #111; }
+.header p { font-size: 0.78em; color: #666; margin-top: 4px; line-height: 1.5; }
+
+/* Verdict */
+.verdict { padding: 16px 20px; border-radius: 4px; margin-bottom: 28px; border-left: 4px solid #ccc; background: #f5f5f5; }
+.verdict.detected { border-left-color: #c0392b; background: #fdf2f2; }
+.verdict.clean { border-left-color: #27ae60; background: #f2fdf5; }
+.verdict.scanning { border-left-color: #f39c12; background: #fffdf2; }
+.verdict-status { font-size: 0.7em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; }
+.verdict-result { font-size: 1.1em; font-weight: 700; margin: 4px 0; }
+.verdict.detected .verdict-result { color: #c0392b; }
+.verdict.clean .verdict-result { color: #27ae60; }
+.verdict.scanning .verdict-result { color: #f39c12; }
+.verdict-meta { font-size: 0.75em; color: #666; }
+
+/* MVP Section */
+.mvp-section { margin-bottom: 28px; }
+.mvp-label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; margin-bottom: 8px; }
+.mvp-card { border: 2px solid #2c3e50; border-radius: 4px; padding: 16px 20px; background: #fff; }
+.mvp-card.hit { border-color: #c0392b; background: #fdf8f8; }
+.mvp-card.miss { border-color: #27ae60; background: #f8fdf8; }
+.mvp-title { font-size: 0.85em; font-weight: 700; color: #2c3e50; display: flex; align-items: center; gap: 8px; }
+.mvp-title .tag { font-size: 0.7em; padding: 2px 6px; border-radius: 2px; background: #2c3e50; color: #fff; font-weight: 600; letter-spacing: 0.5px; }
+.mvp-card.hit .mvp-title { color: #c0392b; }
+.mvp-card.hit .mvp-title .tag { background: #c0392b; }
+.mvp-card.miss .mvp-title { color: #27ae60; }
+.mvp-card.miss .mvp-title .tag { background: #27ae60; }
+.mvp-desc { font-size: 0.72em; color: #555; margin-top: 6px; line-height: 1.5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.mvp-detail { font-size: 0.7em; color: #444; margin-top: 10px; padding: 8px 10px; background: #f0f0f0; border-radius: 3px; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
+.mvp-card.hit .mvp-detail { background: #fceaea; }
+.mvp-card.miss .mvp-detail { background: #eafcee; }
+
+/* Signals table */
+.signals-section { margin-bottom: 24px; }
+.signals-heading { font-size: 0.65em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; margin-bottom: 8px; }
+.signals-table { width: 100%; border-collapse: collapse; font-size: 0.75em; }
+.signals-table th { text-align: left; padding: 6px 10px; border-bottom: 2px solid #ddd; color: #666; font-weight: 600; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.5px; }
+.signals-table td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+.signals-table tr.hit td { background: #fdf8f8; }
+.signals-table tr.miss td { background: #fff; }
+.signals-table .col-status { width: 24px; text-align: center; font-size: 1.1em; }
+.signals-table .col-name { font-weight: 600; color: #2c3e50; }
+.signals-table .col-weight { width: 40px; text-align: right; color: #999; font-size: 0.85em; }
+.signals-table tr.hit .col-name { color: #c0392b; }
+.signal-detail-row td { padding: 0 10px 10px 34px; border-bottom: 1px solid #eee; }
+.signal-detail-content { font-size: 0.9em; color: #555; padding: 6px 8px; background: #f7f7f7; border-radius: 3px; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
+.hit .signal-detail-content { background: #fceaea; color: #7a2020; }
+
+/* Methodology */
+.methodology { margin-top: 28px; padding-top: 16px; border-top: 1px solid #ddd; }
+.methodology h2 { font-size: 0.75em; text-transform: uppercase; letter-spacing: 1.5px; color: #888; font-weight: 600; margin-bottom: 10px; }
+.methodology p { font-size: 0.72em; color: #555; line-height: 1.6; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.methodology code { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.95em; background: #eee; padding: 1px 4px; border-radius: 2px; }
+
+.footer { margin-top: 24px; font-size: 0.65em; color: #aaa; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Comet Browser Detection</h1>
+        <p>Identifies Perplexity's Comet browser by detecting injected font resources. Cross-platform (Mac + Windows).</p>
+    </div>
+
+    <div id="verdict" class="verdict scanning">
+        <div class="verdict-status">Verdict</div>
+        <div id="verdict-result" class="verdict-result">Scanning...</div>
+        <div id="verdict-meta" class="verdict-meta">Running signals...</div>
+    </div>
+
+    <div class="mvp-section">
+        <div class="mvp-label">Primary Signal (MVP)</div>
+        <div id="mvp-card" class="mvp-card">
+            <div class="mvp-title"><span class="tag">MVP</span> FontFaceSet: FK Grotesk Entries</div>
+            <div class="mvp-desc">
+                Enumerates <code>document.fonts</code> for FontFace objects with "FK Grotesk" family names.
+                Comet's content script injects <code>@font-face</code> CSS declarations into every page it loads,
+                registering Perplexity's proprietary FK Grotesk Neue font. This signal detects those injected entries
+                directly &mdash; no network request needed, works even when CSP blocks the font file download.
+            </div>
+            <div id="mvp-detail" class="mvp-detail">Waiting...</div>
+        </div>
+    </div>
+
+    <div class="signals-section">
+        <div class="signals-heading">Supporting Signals</div>
+        <table class="signals-table">
+            <thead><tr><th class="col-status"></th><th class="col-name">Signal</th><th class="col-weight">W</th></tr></thead>
+            <tbody id="signals-tbody"></tbody>
+        </table>
+    </div>
+
+    <div class="methodology">
+        <h2>How it works</h2>
+        <p>Comet (Perplexity's Chromium fork) injects a content script on every page that declares <code>@font-face</code> rules pointing to <code>frontend-cdn.perplexity.ai</code>. This registers "FKGroteskNeue" in the browser's FontFaceSet. On Windows, the font is also installed system-wide and detectable via canvas measurement.</p>
+        <p>We exploit three independent vectors: (1) enumerate <code>document.fonts</code> for injected FK Grotesk entries, (2) a strict CSP that traps the blocked font-load attempt, and (3) canvas text-width measurement against fallback baselines.</p>
+        <p>False positive rate: effectively zero &mdash; FK Grotesk Neue is a proprietary Perplexity typeface not available anywhere else.</p>
+    </div>
+
+    <div class="footer">comet-detector v2 &mdash; font injection fingerprint</div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    const signals = [];
+    let totalScore = 0;
+    let maxScore = 0;
+    let mvpResult = null;
+
+    function addSignal(id, name, weight, testFn) {
+        signals.push({ id, name, weight, testFn, result: null });
+        maxScore += weight;
+    }
+
+    // =====================================================================
+    // MVP: FONTFACESET ENUMERATION
+    // =====================================================================
+
+    async function runMVP() {
+        await document.fonts.ready;
+        await new Promise(r => setTimeout(r, 800));
+
+        const found = [];
+        for (const face of document.fonts) {
+            const family = (face.family || '').replace(/['"]/g, '');
+            if (family.toLowerCase().indexOf('fkgrotesk') !== -1 ||
+                family.toLowerCase().indexOf('fk grotesk') !== -1 ||
+                family.toLowerCase().indexOf('perplexity') !== -1) {
+                found.push({
+                    family: family,
+                    status: face.status,
+                    weight: face.weight,
+                    style: face.style,
+                    src: (face.src || '').substring(0, 150)
+                });
+            }
+        }
+        if (found.length > 0) {
+            const lines = found.map(f => `"${f.family}" [${f.status}] weight:${f.weight} src:${f.src || 'n/a'}`);
+            mvpResult = { hit: true, detail: `DETECTED \u2014 ${found.length} FK Grotesk entry(s) in document.fonts:\n${lines.join('\n')}` };
+        } else {
+            mvpResult = { hit: false, detail: `Clean \u2014 document.fonts.size=${document.fonts.size}, no FK Grotesk entries.` };
+        }
+        totalScore += mvpResult.hit ? 85 : 0;
+        maxScore += 85;
+    }
+
+    // =====================================================================
+    // SUPPORTING SIGNALS
+    // =====================================================================
+
+    addSignal('csp-font-violation', 'CSP: Perplexity font-src blocked', 95, async () => {
+        if (window.__cometCSPDetected) {
+            const v = window.__cspViolations.find(x => x.blockedURI && x.blockedURI.indexOf('perplexity.ai') !== -1);
+            return { hit: true, detail: `Blocked: ${v ? v.blockedURI : 'perplexity.ai'} (${v ? v.time.toFixed(0) : '?'}ms)` };
+        }
+        await new Promise(r => setTimeout(r, 1500));
+        if (window.__cometCSPDetected) {
+            const v = window.__cspViolations.find(x => x.blockedURI && x.blockedURI.indexOf('perplexity.ai') !== -1);
+            return { hit: true, detail: `Blocked (delayed): ${v ? v.blockedURI : 'perplexity.ai'}` };
+        }
+        return { hit: false, detail: `No font-src violations from perplexity.ai` };
+    });
+
+    addSignal('csp-any-perplexity', 'CSP: Any perplexity.ai resource blocked', 80, async () => {
+        await new Promise(r => setTimeout(r, 1000));
+        const pplx = window.__cspViolations.filter(v =>
+            v.blockedURI && v.blockedURI.indexOf('perplexity') !== -1
+        );
+        if (pplx.length > 0) {
+            return { hit: true, detail: `${pplx.length} blocked: ${pplx.map(v => v.blockedURI).join(', ')}` };
+        }
+        return { hit: false, detail: `0 perplexity resources blocked (${window.__cspViolations.length} total CSP events)` };
+    });
+
+    addSignal('fontfaceset-size', 'FontFaceSet: unexpected font count', 40, async () => {
+        await document.fonts.ready;
+        await new Promise(r => setTimeout(r, 800));
+        const size = document.fonts.size;
+        if (size > 0) {
+            const fonts = [];
+            for (const face of document.fonts) fonts.push((face.family || '').replace(/['"]/g, ''));
+            return { hit: true, detail: `size=${size} (expected 0): ${fonts.join(', ')}` };
+        }
+        return { hit: false, detail: `size=0 (clean)` };
+    });
+
+    addSignal('font-fkgrotesk', 'Canvas: FK Grotesk width measurement', 90, async () => {
+        await document.fonts.ready;
+        await new Promise(r => setTimeout(r, 600));
+        const ts = 'mmmmmmmmmmlli10OoQq@#$%';
+        const sz = '72px';
+        const c = document.createElement('canvas').getContext('2d');
+        c.font = `${sz} monospace`;
+        const base = c.measureText(ts).width;
+        const names = ['FK Grotesk Neue', 'FK Grotesk', 'FKGroteskNeue', 'FKGrotesk'];
+        const hits = [];
+        for (const n of names) {
+            c.font = `${sz} "${n}", monospace`;
+            const d = Math.abs(c.measureText(ts).width - base);
+            if (d > 0.1) hits.push(`${n} \u0394${d.toFixed(1)}px`);
+        }
+        if (hits.length > 0) return { hit: true, detail: `${hits.length} fonts: ${hits.join(', ')}` };
+        return { hit: false, detail: `No FK Grotesk variants rendered (base=${base.toFixed(1)}px)` };
+    });
+
+    addSignal('font-extended', 'Canvas: Extended Perplexity font family', 70, async () => {
+        await document.fonts.ready;
+        await new Promise(r => setTimeout(r, 600));
+        const c = document.createElement('canvas').getContext('2d');
+        const ts = 'mmmWWWiii000QQQ';
+        c.font = '48px monospace';
+        const base = c.measureText(ts).width;
+        const probes = ['FK Grotesk Neue Bold','FK Grotesk Neue Medium','FK Grotesk Neue Light','FK Grotesk Bold','FK Grotesk Medium','Perplexity Sans','PP Neue Montreal','Sohne'];
+        const hits = [];
+        for (const f of probes) {
+            c.font = `48px "${f}", monospace`;
+            if (Math.abs(c.measureText(ts).width - base) > 0.1) hits.push(f);
+        }
+        if (hits.length > 0) return { hit: true, detail: `${hits.length} found: ${hits.join(', ')}` };
+        return { hit: false, detail: `None of ${probes.length} extended variants available` };
+    });
+
+    // =====================================================================
+    // EXECUTION
+    // =====================================================================
+
+    async function run() {
+        await runMVP();
+
+        for (const sig of signals) {
+            try { sig.result = await sig.testFn(); }
+            catch(e) { sig.result = { hit: false, detail: `Error: ${e.message}` }; }
+            if (sig.result.hit) totalScore += sig.weight;
+        }
+
+        // Render MVP
+        const card = document.getElementById('mvp-card');
+        const detail = document.getElementById('mvp-detail');
+        card.className = `mvp-card ${mvpResult.hit ? 'hit' : 'miss'}`;
+        detail.textContent = mvpResult.detail;
+
+        // Render signals table
+        const tbody = document.getElementById('signals-tbody');
+        tbody.innerHTML = '';
+        for (const sig of signals) {
+            const r = sig.result;
+            const tr = document.createElement('tr');
+            tr.className = r.hit ? 'hit' : 'miss';
+            tr.innerHTML = `<td class="col-status">${r.hit ? '\u25CF' : '\u25CB'}</td><td class="col-name">${sig.name}</td><td class="col-weight">${sig.weight}</td>`;
+            tbody.appendChild(tr);
+            const dr = document.createElement('tr');
+            dr.className = `signal-detail-row ${r.hit ? 'hit' : 'miss'}`;
+            dr.innerHTML = `<td colspan="3"><div class="signal-detail-content">${r.detail}</div></td>`;
+            tbody.appendChild(dr);
+        }
+
+        // Verdict
+        const box = document.getElementById('verdict');
+        const result = document.getElementById('verdict-result');
+        const meta = document.getElementById('verdict-meta');
+        const hitCount = signals.filter(s => s.result.hit).length + (mvpResult.hit ? 1 : 0);
+        const totalSignals = signals.length + 1;
+
+        if (totalScore >= 80) {
+            box.className = 'verdict detected';
+            result.textContent = 'COMET DETECTED';
+            meta.textContent = `Score ${totalScore}/${maxScore} \u2014 ${hitCount}/${totalSignals} signals hit`;
+        } else if (totalScore > 0) {
+            box.className = 'verdict detected';
+            result.textContent = 'SUSPICIOUS';
+            meta.textContent = `Score ${totalScore}/${maxScore} \u2014 ${hitCount}/${totalSignals} signals hit`;
+        } else {
+            box.className = 'verdict clean';
+            result.textContent = 'NOT DETECTED';
+            meta.textContent = `Score 0/${maxScore} \u2014 no Comet signals`;
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', run);
+    } else {
+        run();
+    }
+})();
+</script>
+</body>
+</html>

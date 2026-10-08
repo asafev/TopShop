@@ -1,0 +1,14 @@
+# Private research tree — never pushed to origin (this repo is public).
+# Holds agent-detection research, the Muse detector source/build, and lab work.
+# It is version-controlled by its own nested git repo (research/.git).
+research/
+
+# Scratch / local-only
+test/
+claw/
+*.local.*
+.DS_Store
+Thumbs.db
+
+# Large binary fixtures
+*.bin

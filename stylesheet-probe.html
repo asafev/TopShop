@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>StyleSheet Prototype Probe</title>
+<style>
+body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+h1 { color: #00d4ff; }
+h2 { color: #ff6b6b; margin-top: 30px; border-bottom: 1px solid #333; padding-bottom: 5px; }
+.section { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 15px; margin: 10px 0; }
+.pass { color: #4caf50; }
+.fail { color: #f44336; }
+.warn { color: #ff9800; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+th, td { border: 1px solid #333; padding: 8px; text-align: left; }
+th { background: #0f3460; }
+tr:nth-child(even) { background: #1a1a3e; }
+.copy-btn { background: #00d4ff; color: #000; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; margin: 10px 0; }
+.copy-btn:hover { background: #00a8cc; }
+pre { background: #0d1117; padding: 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; }
+#json-output { max-height: 400px; overflow-y: auto; }
+</style>
+</head>
+<body>
+<h1>StyleSheet Prototype Probe</h1>
+<p>Open this page in Comet AND in Chrome/Brave to compare results.</p>
+<button class="copy-btn" onclick="copyJSON()">Copy Full JSON Report</button>
+
+<h2>1. StyleSheet.prototype — Own Property Descriptors</h2>
+<div class="section" id="stylesheet-proto"></div>
+
+<h2>2. CSSStyleSheet.prototype — Own Property Descriptors</h2>
+<div class="section" id="cssstylesheet-proto"></div>
+
+<h2>3. document.styleSheets[0] — Property Access Values</h2>
+<div class="section" id="sheet-values"></div>
+
+<h2>4. Prototype Chain Integrity</h2>
+<div class="section" id="proto-chain"></div>
+
+<h2>5. Own Property Names Comparison</h2>
+<div class="section" id="prop-names"></div>
+
+<h2>6. Console Expansion Simulation (getOwnPropertyNames + getters)</h2>
+<div class="section" id="expansion-sim"></div>
+
+<h2>7. Full JSON Report (for diff)</h2>
+<button class="copy-btn" onclick="copyJSON()">Copy JSON</button>
+<pre id="json-output"></pre>
+
+<script>
+const report = {};
+
+function describeDescriptor(desc) {
+  if (!desc) return { exists: false };
+  const r = { exists: true, configurable: desc.configurable, enumerable: desc.enumerable };
+  if ('value' in desc) {
+    r.type = 'data';
+    r.writable = desc.writable;
+    r.valueType = typeof desc.value;
+    r.value = String(desc.value);
+  } else {
+    r.type = 'accessor';
+    r.hasGet = typeof desc.get === 'function';
+    r.hasSet = typeof desc.set === 'function';
+    r.getStr = desc.get ? desc.get.toString().substring(0, 80) : null;
+  }
+  return r;
+}
+
+function renderDescriptorTable(containerId, proto, protoName) {
+  const container = document.getElementById(containerId);
+  const names = Object.getOwnPropertyNames(proto).sort();
+  const symbols = Object.getOwnPropertySymbols(proto);
+  
+  let html = `<p>Property count: <strong>${names.length}</strong> names + <strong>${symbols.length}</strong> symbols</p>`;
+  html += '<table><tr><th>Property</th><th>Type</th><th>Configurable</th><th>Enumerable</th><th>Details</th></tr>';
+  
+  const protoReport = {};
+  
+  for (const name of names) {
+    const desc = Object.getOwnPropertyDescriptor(proto, name);
+    const info = describeDescriptor(desc);
+    protoReport[name] = info;
+    
+    const cls = info.type === 'accessor' ? (info.hasGet ? 'pass' : 'warn') : '';
+    html += `<tr>
+      <td>${name}</td>
+      <td class="${cls}">${info.type || 'MISSING'}</td>
+      <td>${info.configurable}</td>
+      <td>${info.enumerable}</td>
+      <td>${info.type === 'accessor' ? `get:${info.hasGet} set:${info.hasSet}` : `value: ${info.value}`}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  container.innerHTML = html;
+  
+  report[protoName] = { count: names.length, symbolCount: symbols.length, properties: protoReport };
+}
+
+function testSheetValues() {
+  const container = document.getElementById('sheet-values');
+  const sheets = document.styleSheets;
+  
+  if (sheets.length === 0) {
+    container.innerHTML = '<p class="fail">No styleSheets found!</p>';
+    report.sheetValues = { error: 'no sheets' };
+    return;
+  }
+  
+  const sheet = sheets[0];
+  const props = ['type', 'href', 'ownerNode', 'ownerRule', 'parentStyleSheet', 'title', 'media', 'disabled',
+                 'cssRules', 'rules'];
+  
+  let html = '<table><tr><th>Property</th><th>Value</th><th>typeof</th><th>in sheet</th><th>hasOwnProperty</th></tr>';
+  const valReport = {};
+  
+  for (const p of props) {
+    let val, valType, inSheet, hasOwn;
+    try {
+      val = sheet[p];
+      valType = typeof val;
+      inSheet = p in sheet;
+      hasOwn = sheet.hasOwnProperty(p);
+    } catch (e) {
+      val = `ERROR: ${e.message}`;
+      valType = 'error';
+      inSheet = false;
+      hasOwn = false;
+    }
+    
+    const displayVal = val === null ? 'null' : val === undefined ? 'undefined' : 
+                       (typeof val === 'object' ? val.constructor.name + (val.length !== undefined ? `(${val.length})` : '') : String(val));
+    
+    valReport[p] = { value: displayVal, type: valType, inOperator: inSheet, hasOwnProperty: hasOwn };
+    
+    const cls = val === null || val === undefined ? 'warn' : 'pass';
+    html += `<tr>
+      <td>${p}</td>
+      <td class="${cls}">${displayVal}</td>
+      <td>${valType}</td>
+      <td>${inSheet}</td>
+      <td>${hasOwn}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  container.innerHTML = html;
+  report.sheetValues = valReport;
+}
+
+function testProtoChain() {
+  const container = document.getElementById('proto-chain');
+  const sheet = document.styleSheets[0];
+  if (!sheet) { container.innerHTML = '<p class="fail">No sheet</p>'; return; }
+  
+  const chain = [];
+  let obj = sheet;
+  while (obj) {
+    const name = obj.constructor ? obj.constructor.name : 'unknown';
+    chain.push(name);
+    obj = Object.getPrototypeOf(obj);
+    if (chain.length > 10) break;
+  }
+  
+  const checks = {
+    instanceOfStyleSheet: sheet instanceof StyleSheet,
+    instanceOfCSSStyleSheet: sheet instanceof CSSStyleSheet,
+    protoChain: chain,
+    styleSheetProtoIdentity: Object.getPrototypeOf(Object.getPrototypeOf(sheet)) === StyleSheet.prototype,
+    cssStyleSheetProtoIdentity: Object.getPrototypeOf(sheet) === CSSStyleSheet.prototype,
+  };
+  
+  let html = '<table><tr><th>Check</th><th>Result</th></tr>';
+  for (const [k, v] of Object.entries(checks)) {
+    const cls = v === true ? 'pass' : (v === false ? 'fail' : '');
+    html += `<tr><td>${k}</td><td class="${cls}">${JSON.stringify(v)}</td></tr>`;
+  }
+  html += '</table>';
+  container.innerHTML = html;
+  report.protoChain = checks;
+}
+
+function testPropNames() {
+  const container = document.getElementById('prop-names');
+  
+  const styleSheetNames = Object.getOwnPropertyNames(StyleSheet.prototype).sort();
+  const cssStyleSheetNames = Object.getOwnPropertyNames(CSSStyleSheet.prototype).sort();
+  
+  // Expected per spec
+  const expectedStyleSheet = ['constructor', 'disabled', 'href', 'media', 'ownerNode', 'parentStyleSheet', 'title', 'type'].sort();
+  const expectedCSSStyleSheet = ['constructor', 'cssRules', 'deleteRule', 'insertRule', 'ownerRule', 'replace', 'replaceSync', 'rules', 'addRule', 'removeRule'].sort();
+  
+  const missingFromStyleSheet = expectedStyleSheet.filter(n => !styleSheetNames.includes(n));
+  const extraInStyleSheet = styleSheetNames.filter(n => !expectedStyleSheet.includes(n));
+  const missingFromCSSStyleSheet = expectedCSSStyleSheet.filter(n => !cssStyleSheetNames.includes(n));
+  const extraInCSSStyleSheet = cssStyleSheetNames.filter(n => !expectedCSSStyleSheet.includes(n));
+  
+  let html = '<h3>StyleSheet.prototype</h3>';
+  html += `<p>Actual: [${styleSheetNames.join(', ')}]</p>`;
+  html += `<p class="${missingFromStyleSheet.length ? 'fail' : 'pass'}">Missing vs spec: [${missingFromStyleSheet.join(', ') || 'none'}]</p>`;
+  html += `<p class="${extraInStyleSheet.length ? 'warn' : 'pass'}">Extra: [${extraInStyleSheet.join(', ') || 'none'}]</p>`;
+  
+  html += '<h3>CSSStyleSheet.prototype</h3>';
+  html += `<p>Actual: [${cssStyleSheetNames.join(', ')}]</p>`;
+  html += `<p class="${missingFromCSSStyleSheet.length ? 'fail' : 'pass'}">Missing vs spec: [${missingFromCSSStyleSheet.join(', ') || 'none'}]</p>`;
+  html += `<p class="${extraInCSSStyleSheet.length ? 'warn' : 'pass'}">Extra: [${extraInCSSStyleSheet.join(', ') || 'none'}]</p>`;
+  
+  container.innerHTML = html;
+  report.propNames = {
+    styleSheet: { actual: styleSheetNames, missing: missingFromStyleSheet, extra: extraInStyleSheet },
+    cssStyleSheet: { actual: cssStyleSheetNames, missing: missingFromCSSStyleSheet, extra: extraInCSSStyleSheet }
+  };
+}
+
+function testExpansionSim() {
+  const container = document.getElementById('expansion-sim');
+  const sheet = document.styleSheets[0];
+  if (!sheet) { container.innerHTML = '<p class="fail">No sheet</p>'; return; }
+  
+  // Simulate what DevTools does: enumerate all properties including inherited accessors
+  const allProps = {};
+  let obj = sheet;
+  let level = 0;
+  const levels = ['instance', 'CSSStyleSheet.prototype', 'StyleSheet.prototype', 'Object.prototype'];
+  
+  while (obj && level < 4) {
+    const names = Object.getOwnPropertyNames(obj);
+    for (const name of names) {
+      if (name === '__proto__' || name === 'constructor') continue;
+      if (allProps[name]) continue; // shadowed
+      const desc = Object.getOwnPropertyDescriptor(obj, name);
+      let val;
+      try {
+        val = sheet[name]; // invoke getter on original sheet
+      } catch(e) {
+        val = `ERROR: ${e.message}`;
+      }
+      const displayVal = val === null ? 'null' : val === undefined ? 'undefined' :
+                         typeof val === 'function' ? 'function' :
+                         (typeof val === 'object' ? val.constructor.name : String(val));
+      allProps[name] = { level: levels[level], value: displayVal, isNull: val === null, isFalse: val === false };
+    }
+    obj = Object.getPrototypeOf(obj);
+    level++;
+  }
+  
+  let html = '<p>This simulates DevTools object expansion — shows ALL accessible properties with their values:</p>';
+  html += '<table><tr><th>Property</th><th>Defined On</th><th>Value</th><th>Null/False?</th></tr>';
+  
+  const sorted = Object.entries(allProps).sort((a,b) => a[0].localeCompare(b[0]));
+  for (const [name, info] of sorted) {
+    const cls = info.isNull || info.isFalse ? 'warn' : 'pass';
+    html += `<tr>
+      <td>${name}</td>
+      <td>${info.level}</td>
+      <td class="${cls}">${info.value}</td>
+      <td>${info.isNull ? 'NULL' : info.isFalse ? 'FALSE' : ''}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  container.innerHTML = html;
+  report.expansionSim = allProps;
+}
+
+// Run all tests
+renderDescriptorTable('stylesheet-proto', StyleSheet.prototype, 'StyleSheet.prototype');
+renderDescriptorTable('cssstylesheet-proto', CSSStyleSheet.prototype, 'CSSStyleSheet.prototype');
+testSheetValues();
+testProtoChain();
+testPropNames();
+testExpansionSim();
+
+// Add metadata
+report._meta = {
+  userAgent: navigator.userAgent,
+  timestamp: new Date().toISOString(),
+  sheetsCount: document.styleSheets.length,
+  chromeVersion: navigator.userAgent.match(/Chrome\/([\d.]+)/)?.[1] || 'unknown'
+};
+
+document.getElementById('json-output').textContent = JSON.stringify(report, null, 2);
+
+function copyJSON() {
+  navigator.clipboard.writeText(JSON.stringify(report, null, 2)).then(() => {
+    alert('JSON copied to clipboard!');
+  });
+}
+</script>
+</body>
+</html>

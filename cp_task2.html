@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quick Product Survey</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f2ed;--card:#fff;--tx:#1a1a1a;--tx2:#71706c;--brd:#ddd9d1;
+  --ac:#2d6a4f;--inp:#f7f5f0;
+  --dk:#0c1015;--ds:#151a21;--db:#272d36;--dt:#b5bcc7;
+  --grn:#40c463;--red:#f44;--amb:#e8a735;--cyn:#4ea4f6;--dim:#8891a0;
+  --pur:#b37aeb;
+}
+html{font-size:14px}
+body{font-family:'DM Sans',sans-serif;background:var(--dk);color:var(--tx);min-height:100vh;overflow:hidden}
+.page{display:grid;grid-template-columns:420px 1fr;height:100vh}
+@media(max-width:960px){.page{grid-template-columns:1fr;height:auto;overflow:auto}
+  .results{max-height:60vh}}
+
+/* ── LEFT: form ── */
+.form-side{background:var(--bg);padding:24px 22px;overflow-y:auto}
+.form-side h1{font-size:1.2rem;font-weight:700;margin-bottom:1px}
+.form-side .sub{color:var(--tx2);font-size:.78rem;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--brd);border-radius:10px;padding:16px;margin-bottom:10px}
+.card h2{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--ac);margin-bottom:10px}
+.f{margin-bottom:10px}
+.f label{display:block;font-size:.7rem;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.f input[type=text],.f input[type=email],.f input[type=number],.f textarea,.f select{
+  width:100%;padding:7px 9px;border:1px solid var(--brd);border-radius:6px;
+  background:var(--inp);font-family:inherit;font-size:.88rem;color:var(--tx);outline:none}
+.f input:focus,.f textarea:focus,.f select:focus{border-color:var(--ac);box-shadow:0 0 0 2px rgba(45,106,79,.1)}
+.f textarea{resize:vertical;min-height:48px}
+.r2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn{width:100%;padding:9px;border:none;border-radius:7px;background:var(--ac);color:#fff;font-family:inherit;
+  font-size:.92rem;font-weight:600;cursor:pointer;margin-top:4px}
+.btn:hover{background:#1b4332}
+
+/* ── RIGHT: results ── */
+.results{background:var(--dk);color:var(--dt);padding:20px 18px;overflow-y:auto;
+  font-family:'JetBrains Mono',monospace;font-size:10.5px;display:flex;flex-direction:column;gap:0}
+.results h1{font-family:'DM Sans',sans-serif;font-size:1rem;font-weight:700;color:#fff;margin-bottom:1px}
+.results .sub{color:#9aa2ae;font-size:.7rem;margin-bottom:12px}
+
+/* verdict */
+.vbox{padding:12px;border-radius:7px;background:var(--ds);border:1px solid var(--db);text-align:center;margin-bottom:10px;
+  display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center}
+.vring{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:18px;font-weight:700;border:3px solid var(--dim)}
+.vring.human{border-color:var(--grn);color:var(--grn)}
+.vring.sus{border-color:var(--amb);color:var(--amb)}
+.vring.bot{border-color:var(--red);color:var(--red)}
+.vring.copilot{border-color:var(--pur);color:var(--pur)}
+.vmeta{text-align:left}
+.vlabel{font-size:11px;font-weight:600;color:#fff;margin-bottom:2px}
+.vsub{font-size:9px;color:var(--dt)}
+
+/* smoking guns */
+.sg{display:flex;align-items:center;gap:6px;padding:4px 7px;border-radius:3px;background:var(--ds);margin-bottom:2px}
+.dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.dot.x{background:var(--dim)}.dot.ok{background:var(--grn)}.dot.fire{background:var(--red);animation:p 1s infinite}.dot.part{background:var(--amb)}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}
+.sn{flex:1;font-size:9.5px;line-height:1.4;color:var(--dt)}.sn i{display:block;font-style:normal;font-size:7.5px;color:#7a8494;margin-top:1px}
+.sv{color:var(--dt);font-size:9px;text-align:right;min-width:55px}
+
+/* sections */
+.rh{font-size:8px;text-transform:uppercase;letter-spacing:.13em;color:#a0a8b4;margin:10px 0 4px;
+  padding-bottom:2px;border-bottom:1px solid var(--db)}
+.mr{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(39,45,54,.5)}
+.mn{color:#9aa2ae}.mv{font-weight:500}
+.mv.ok{color:var(--grn)}.mv.w{color:var(--amb)}.mv.b{color:var(--red)}.mv.i{color:var(--cyn)}
+
+/* log */
+.elog{max-height:120px;overflow-y:auto;background:var(--ds);border-radius:3px;padding:4px 6px;font-size:8.5px;line-height:1.5}
+.elog div{border-bottom:1px solid rgba(39,45,54,.3);padding:1px 0}
+.eT{color:var(--grn)}.eF{color:var(--red)}.et{color:var(--dim)}
+
+/* json output */
+.json-box{background:var(--ds);border:1px solid var(--db);border-radius:5px;padding:8px;margin-top:8px;
+  max-height:180px;overflow:auto;font-size:9px;white-space:pre-wrap;word-break:break-all;color:var(--dt);display:none}
+.json-box.show{display:block}
+.bx{width:100%;padding:6px;margin-top:5px;background:var(--ds);border:1px solid var(--db);border-radius:3px;
+  color:var(--cyn);font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer}
+.bx:hover{background:#1a2029}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ═══ LEFT: FORM ═══ -->
+<div class="form-side">
+  <h1>Quick Product Survey</h1>
+  <p class="sub">Help us personalize your experience</p>
+
+  <div class="card">
+    <h2>About You</h2>
+    <div class="r2">
+      <div class="f"><label for="f-name">Full Name</label>
+        <input type="text" id="f-name" placeholder="Jane Smith" autocomplete="off"></div>
+      <div class="f"><label for="f-email">Email</label>
+        <input type="email" id="f-email" placeholder="you@example.com" autocomplete="off"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Preferences</h2>
+    <div class="r2">
+      <div class="f"><label for="f-cat">Category</label>
+        <select id="f-cat"><option value="">— Choose —</option><option value="laptops">Laptops</option><option value="phones">Phones</option><option value="audio">Audio</option><option value="gaming">Gaming</option><option value="home">Smart Home</option></select></div>
+      <div class="f"><label for="f-budget">Budget</label>
+        <select id="f-budget"><option value="">— Select —</option><option value="low">Under $100</option><option value="mid">$100–$500</option><option value="high">$500–$1k</option><option value="prem">Over $1k</option></select></div>
+    </div>
+    <div class="f"><label for="f-brand">Brand</label>
+      <select id="f-brand"><option value="">— Any —</option><option value="apple">Apple</option><option value="samsung">Samsung</option><option value="sony">Sony</option><option value="other">Other</option></select></div>
+  </div>
+
+  <div class="card">
+    <h2>Feedback</h2>
+    <div class="f"><label for="f-text">Dream product features?</label>
+      <textarea id="f-text" rows="2" placeholder="Tell us anything…"></textarea></div>
+    <button class="btn" onclick="finish()">Submit Survey</button>
+  </div>
+</div>
+
+<!-- ═══ RIGHT: LIVE RESULTS ═══ -->
+<div class="results" id="results">
+  <h1>Live Telemetry</h1>
+  <p class="sub">Behavioral fingerprint · updates in real time</p>
+
+  <div class="vbox" id="vbox">
+    <div class="vring" id="vring">—</div>
+    <div class="vmeta"><div class="vlabel" id="vlabel">Awaiting interactions…</div>
+      <div class="vsub" id="vsub">Fill the form to begin profiling</div></div>
+  </div>
+
+  <div class="rh">Smoking Guns (Copilot-specific first)</div>
+  <div id="sg1" class="sg"><span class="dot x"></span><span class="sn">SG1 Trusted click + Untrusted change on &lt;select&gt; <i>02§2.1 · 05§5.3 · tools.js:~3003 selectOptionWithScript</i></span><span class="sv" id="v1">—</span></div>
+  <div id="sg4" class="sg"><span class="dot x"></span><span class="sn">SG4 ~2000ms inter-action gap clustering <i>03§3.1 · 05§5.6 · tools.js:~5429 handleSingleAction</i></span><span class="sv" id="v4">—</span></div>
+  <div id="sg10" class="sg"><span class="dot x"></span><span class="sn">SG10 Sub-pixel Float click coordinates <i>05§5.2 · 07§7.4 · mojom ClickOnTab_Params.x/y=Float</i></span><span class="sv" id="v10">—</span></div>
+  <div id="sg2" class="sg"><span class="dot x"></span><span class="sn">SG2 Ghost typing &gt;25 CPS + CV&lt;0.15 <i>02§2.2 · 05§5.7 · tools.js typeOnTab bulk string</i></span><span class="sv" id="v2">—</span></div>
+  <div id="sg3" class="sg"><span class="dot x"></span><span class="sn">SG3 Clicks without prior mouse movement <i>02§2.1 · 07§7.5 · clickOnTab skips moveMouseOnTab</i></span><span class="sv" id="v3">—</span></div>
+  <div id="sg5" class="sg"><span class="dot x"></span><span class="sn">SG5 Exact center clicks &lt;3px <i>02§2.1 · 05§5.2 · resolveElementClickPointWithElementInfo</i></span><span class="sv" id="v5">—</span></div>
+  <div id="sg6" class="sg"><span class="dot x"></span><span class="sn">SG6 Missing keyup events (kd/ku&lt;0.8) <i>02§2.2 · typeOnTab may skip keyup</i></span><span class="sv" id="v6">—</span></div>
+  <div id="sg7" class="sg"><span class="dot x"></span><span class="sn">SG7 Focus without prior input <i>02§2.4 · domType click→type may focus internally</i></span><span class="sv" id="v7">—</span></div>
+  <div id="sg8" class="sg"><span class="dot x"></span><span class="sn">SG8 Input without keydown (injection) <i>02§2.2 · 08§8.6 · value set without keyboard path</i></span><span class="sv" id="v8">—</span></div>
+  <div id="sg9" class="sg"><span class="dot x"></span><span class="sn">SG9 Autofill: insertReplacementText <i>08§8.6 · populateFormFields→Chromium autofill engine</i></span><span class="sv" id="v9">—</span></div>
+  <div id="sg11" class="sg"><span class="dot x"></span><span class="sn">SG11 Multi-field fill &lt;10ms <i>08§8.4 · populateFormFields fills ALL fields in one IPC</i></span><span class="sv" id="v11">—</span></div>
+  <div id="sg12" class="sg"><span class="dot x"></span><span class="sn">SG12 No option mousedown (dropdown skipped) <i>01§1.3 · 05§5.3 · tag==="option"→script path</i></span><span class="sv" id="v12">—</span></div>
+  <div id="sgAF" class="sg"><span class="dot x"></span><span class="sn">SG-AF Value set without keyboard <i>08§8.2 · fieldRendererId bypasses keyboard entirely</i></span><span class="sv" id="vAF">—</span></div>
+  <div id="sgSC" class="sg"><span class="dot x"></span><span class="sn">SG-SC Scroll without wheel/touch <i>06§6.3 · 07§7.5 · scrollOnTab or find-in-page highlight</i></span><span class="sv" id="vSC">—</span></div>
+
+  <div class="rh">Typing</div><div id="tm"></div>
+  <div class="rh">Mouse</div><div id="mm"></div>
+  <div class="rh">Timing</div><div id="im"></div>
+  <div class="rh">Select Audit</div><div id="sm"></div>
+  <div class="rh">Event Log (last 25)</div><div class="elog" id="elog"></div>
+
+  <div style="display:flex;gap:4px;margin-top:6px">
+    <button class="bx" style="flex:1" onclick="showJSON()">📋 JSON</button>
+    <button class="bx" style="flex:1" onclick="copyJSON()">📄 Copy</button>
+    <button class="bx" style="flex:1" onclick="dlJSON()">💾 Save</button>
+  </div>
+  <div class="json-box" id="jbox"></div>
+</div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   TELEMETRY ENGINE
+   Based on: Copilot Actions reverse engineering, phases 2–9
+   Covers all 12 smoking guns from the research
+   ═══════════════════════════════════════════════════════════ */
+const D = window.devicePixelRatio || 1;
+const T0 = performance.now();
+const S = {
+  kd:[], ku:[], inp:[], clk:[], mv:[], foc:[], selEvt:[], act:[], log:[],
+  lastPtr:0, lastKey:0,
+  chars:0, inpNoKd:0, multiChar:0, autofillCount:0,
+  selTrClk:0, selUntrChg:0, selTrChg:0, selOptMd:0,
+  focJumps:0, noMvClk:0, ctrClk:0, floatClk:0,
+  multiFill:[], // timestamps of rapid field changes for SG11
+  selectInteracted: false, // did user interact with any select?
+  valueSetCount:0, // value setter without keyboard (SG-AF)
+  lastWheel:0, scrollNoWheel:0, scrollTotal:0 // SG-SC scroll detection
+};
+
+// ── helpers ──
+const cap = true, pas = true;
+
+// ── POINTERMOVE ──
+document.addEventListener('pointermove', e => {
+  S.lastPtr = performance.now();
+  S.mv.push({t:S.lastPtr, x:e.clientX, y:e.clientY});
+  if(S.mv.length>200) S.mv.shift();
+}, {capture:cap, passive:pas});
+
+// ── MOUSEDOWN ──
+document.addEventListener('mousedown', e => {
+  lg('mousedown', e.target, e.isTrusted, `(${e.clientX},${e.clientY})`);
+}, {capture:cap, passive:pas});
+
+// ── WHEEL (for SG-SC: detect scroll without wheel) ──
+document.addEventListener('wheel', () => {
+  S.lastWheel = performance.now();
+}, {capture:cap, passive:pas});
+
+// ── SCROLL (SG-SC) ──
+document.addEventListener('scroll', () => {
+  S.scrollTotal++;
+  const n = performance.now();
+  if(n - S.lastWheel > 100 && n - S.lastPtr > 100) S.scrollNoWheel++;
+}, {capture:cap, passive:pas});
+
+// ── CLICK ──
+document.addEventListener('click', e => {
+  const n = performance.now();
+  const r = e.target.getBoundingClientRect();
+  if(r.width === 0 && r.height === 0) return; // skip invisible
+  const cx = r.left + r.width/2, cy = r.top + r.height/2;
+  const dist = Math.hypot(e.clientX - cx, e.clientY - cy);
+  const recent = S.mv.filter(m => n - m.t < 500);
+  const moved = recent.length >= 3;
+  const isCtr = dist < 3;
+  // SG10: float check (compensate for DPI — only flag if DPR is 1 and still float)
+  const hasFl = (e.clientX % 1 !== 0) || (e.clientY % 1 !== 0);
+  // even at DPR>1, compositor events from human are still integers at CSS-pixel level
+  // Copilot's Float coords from PointF may produce sub-pixel CSS values
+
+  if(!moved) S.noMvClk++;
+  if(isCtr) S.ctrClk++;
+  if(hasFl) S.floatClk++;
+
+  // path deviation
+  let pd = 0;
+  if(recent.length >= 3){
+    const s=recent[0], dx=e.clientX-s.x, dy=e.clientY-s.y, len=Math.hypot(dx,dy);
+    if(len>5){let td=0;for(const p of recent){const t=((p.x-s.x)*dx+(p.y-s.y)*dy)/(len*len);
+      td+=Math.hypot(p.x-(s.x+t*dx),p.y-(s.y+t*dy))}pd=td/recent.length}
+  }
+  S.clk.push({t:n, x:e.clientX, y:e.clientY, tr:e.isTrusted, moved, isCtr, dist, pd, hasFl,
+    tag:e.target.tagName, id:e.target.id});
+  if(S.clk.length>100) S.clk.shift();
+  S.act.push(n);
+  lg('click', e.target, e.isTrusted, `ctr:${dist.toFixed(1)} mv:${moved} fl:${hasFl}`);
+  up();
+}, {capture:cap, passive:pas});
+
+// ── KEYDOWN ──
+document.addEventListener('keydown', e => {
+  const n = performance.now();
+  const iv = S.kd.length ? n - S.kd[S.kd.length-1].t : 0;
+  S.kd.push({t:n, k:e.key, iv, tr:e.isTrusted});
+  S.lastKey = n;
+  if(S.kd.length>500) S.kd.shift();
+  lg('keydown', e.target, e.isTrusted, `"${e.key}"`);
+}, {capture:cap, passive:pas});
+
+// ── KEYUP ──
+document.addEventListener('keyup', e => {
+  S.ku.push({t:performance.now(), k:e.key, tr:e.isTrusted});
+  if(S.ku.length>500) S.ku.shift();
+}, {capture:cap, passive:pas});
+
+// ── INPUT (critical for SG8, SG9, SG11) ──
+document.addEventListener('input', e => {
+  const n = performance.now();
+  const hadKd = (n - S.lastKey) < 150;
+  const dl = e.data ? e.data.length : 0;
+  if(!hadKd && dl > 0) S.inpNoKd++;
+  if(dl > 1) S.multiChar++;
+  S.chars += Math.max(dl, 1);
+
+  // SG9: autofill detection
+  if(e.inputType === 'insertReplacementText') S.autofillCount++;
+
+  // SG11: multi-field rapid fill
+  S.multiFill.push(n);
+  if(S.multiFill.length > 20) S.multiFill.shift();
+
+  S.inp.push({t:n, hadKd, dl, type:e.inputType||'', tr:e.isTrusted, id:e.target.id});
+  if(S.inp.length>300) S.inp.shift();
+  S.act.push(n);
+  if(dl > 1 || !hadKd) lg('input', e.target, e.isTrusted, `len=${dl} type="${e.inputType}" noKd=${!hadKd}`);
+  up();
+}, {capture:cap, passive:pas});
+
+// ── FOCUSIN (SG7) ──
+document.addEventListener('focusin', e => {
+  const n = performance.now();
+  const jp = (n - S.lastPtr > 500) && (n - S.lastKey > 500);
+  if(jp) S.focJumps++;
+  S.foc.push({t:n, jp, id:e.target.id||e.target.tagName, tr:e.isTrusted});
+  if(S.foc.length>100) S.foc.shift();
+  if(jp) lg('focus', e.target, e.isTrusted, '⚠ JUMP');
+  up();
+}, {capture:cap, passive:pas});
+
+// ── SELECT TRACKING (SG1, SG12 — the crown jewels) ──
+document.querySelectorAll('select').forEach(sel => {
+  // track trusted clicks ON the select element
+  sel.addEventListener('click', e => {
+    if(e.isTrusted) S.selTrClk++;
+    S.selEvt.push({t:performance.now(), tp:'click', tr:e.isTrusted, id:sel.id});
+    lg('sel:click', sel, e.isTrusted, sel.id);
+  }, {capture:cap});
+
+  // track mousedown on select (human opens dropdown)
+  sel.addEventListener('mousedown', e => {
+    S.selEvt.push({t:performance.now(), tp:'mousedown', tr:e.isTrusted, id:sel.id});
+  }, {capture:cap});
+
+  // THE KEY EVENT: change — trusted vs untrusted
+  sel.addEventListener('change', e => {
+    S.selectInteracted = true;
+    if(e.isTrusted) S.selTrChg++; else S.selUntrChg++;
+    S.selEvt.push({t:performance.now(), tp:'change', tr:e.isTrusted, id:sel.id, v:sel.value});
+    S.act.push(performance.now());
+    lg('sel:change', sel, e.isTrusted, `★ val="${sel.value}" trusted=${e.isTrusted}`);
+    up();
+  }, {capture:cap});
+
+  // track 'input' on select (some browsers fire this)
+  sel.addEventListener('input', e => {
+    S.selEvt.push({t:performance.now(), tp:'input', tr:e.isTrusted, id:sel.id});
+  }, {capture:cap});
+});
+
+// SG12: track mousedown on OPTION elements (humans do this, Copilot doesn't)
+document.addEventListener('mousedown', e => {
+  if(e.target.tagName === 'OPTION') {
+    S.selOptMd++;
+    lg('option:md', e.target, e.isTrusted, e.target.textContent.slice(0,15));
+  }
+}, {capture:cap, passive:pas});
+
+// ── VALUE SETTER INTERCEPTION (SG9 autofill path) ──
+// Detect when values are set programmatically without input events
+document.querySelectorAll('input[type=text], input[type=email], input[type=number]').forEach(el => {
+  const proto = Object.getPrototypeOf(el);
+  const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+  if(!desc) return;
+  const origSet = desc.set;
+  let lastSetTime = 0;
+  Object.defineProperty(el, 'value', {
+    get: desc.get,
+    set: function(v) {
+      const n = performance.now();
+      // If value set rapidly AND no recent keyboard → autofill path
+      if((n - S.lastKey) > 200 && v && v.length > 0) {
+        S.valueSetCount++;
+        lg('valueSetter', el, false, `⚠ DIRECT SET "${v.slice(0,20)}"`);
+      }
+      lastSetTime = n;
+      return origSet.call(this, v);
+    },
+    configurable: true
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// ANALYSIS
+// ═══════════════════════════════════════════════════════
+function typing(){
+  const r = {kd:S.kd.length, ku:S.ku.length, ch:S.chars, cps:null, cv:null, ratio:null,
+    noKd:S.inpNoKd, multi:S.multiChar, autofill:S.autofillCount, avgHold:null,
+    burstCps:null, burstCv:null, bursts:0};
+
+  // ── Per-field BURST analysis (fixes ghost-typing dilution across inter-field gaps) ──
+  // A burst = consecutive keydowns with interval < 500ms
+  const bursts = [];
+  let cur = [];
+  for(const k of S.kd){
+    if(cur.length === 0 || k.iv < 500) cur.push(k);
+    else { if(cur.length >= 3) bursts.push(cur); cur = [k]; }
+  }
+  if(cur.length >= 3) bursts.push(cur);
+  r.bursts = bursts.length;
+
+  // Use MAX burst CPS — catches ghost typing even with 2s inter-field waits
+  let maxCps = 0, bestCv = null;
+  for(const b of bursts){
+    const d = (b[b.length-1].t - b[0].t) / 1000;
+    if(d > 0){
+      const bCps = b.length / d;
+      if(bCps > maxCps){
+        maxCps = bCps;
+        const ivs = b.filter(k => k.iv > 0).map(k => k.iv);
+        if(ivs.length >= 2){
+          const m = ivs.reduce((a,c)=>a+c,0)/ivs.length;
+          const v = ivs.reduce((s,x)=>s+(x-m)**2,0)/ivs.length;
+          bestCv = Math.sqrt(v)/m;
+        }
+      }
+    }
+  }
+  if(maxCps > 0) r.burstCps = +maxCps.toFixed(1);
+  if(bestCv !== null) r.burstCv = +bestCv.toFixed(3);
+
+  // Global CPS (legacy display — diluted across fields, kept for reference)
+  if(S.kd.length >= 3){
+    const d = (S.kd[S.kd.length-1].t - S.kd[0].t)/1000;
+    if(d > 0) r.cps = +(S.kd.length/d).toFixed(1);
+  }
+  const ivs = S.kd.filter(k => k.iv > 0 && k.iv < 2000).map(k => k.iv);
+  if(ivs.length >= 3){
+    const m = ivs.reduce((a,b) => a+b,0)/ivs.length;
+    const v = ivs.reduce((s,x) => s+(x-m)**2,0)/ivs.length;
+    r.cv = +(Math.sqrt(v)/m).toFixed(3);
+  }
+  if(S.kd.length > 0) r.ratio = +(S.ku.length/S.kd.length).toFixed(2);
+  // average key hold duration
+  const holds = [];
+  for(const d of S.kd){
+    const u = S.ku.find(u => u.k === d.k && u.t > d.t && u.t - d.t < 500);
+    if(u) holds.push(u.t - d.t);
+  }
+  if(holds.length > 0) r.avgHold = +(holds.reduce((a,b)=>a+b,0)/holds.length).toFixed(1);
+  return r;
+}
+function mouse(){
+  const c=S.clk, n=c.length;
+  return{n, noMv:S.noMvClk, noMvR:n?+(S.noMvClk/n).toFixed(2):null,
+    ctr:S.ctrClk, ctrR:n?+(S.ctrClk/n).toFixed(2):null,
+    fl:S.floatClk, flR:n?+(S.floatClk/n).toFixed(2):null,
+    pd:n?+(c.reduce((s,x)=>s+x.pd,0)/n).toFixed(1):null, mvs:S.mv.length};
+}
+function timing(){
+  const a=S.act, n=a.length; let avg=null, g2=0, gaps=[];
+  if(n>=2){for(let i=1;i<n;i++) gaps.push(a[i]-a[i-1]);
+    avg=+(gaps.reduce((a,b)=>a+b,0)/gaps.length).toFixed(0);
+    g2=gaps.filter(g=>g>1700&&g<2300).length}
+  const tf=S.foc.length;
+  // SG11: multi-field rapid fill
+  let rapidFills = 0;
+  for(let i=1; i<S.multiFill.length; i++){
+    if(S.multiFill[i] - S.multiFill[i-1] < 10) rapidFills++;
+  }
+  return{n, avg, g2, gapRatio: (n>=2 ? +(g2/gaps.length).toFixed(2) : null),
+    fj:S.focJumps, fjR:tf?+(S.focJumps/tf).toFixed(2):null, rapidFills, gaps};
+}
+
+// ═══════════════════════════════════════════════════════
+// SMOKING GUN EVALUATION
+// ═══════════════════════════════════════════════════════
+function sgs(){
+  const t=typing(), m=mouse(), ti=timing(), sg={};
+
+  // SG1: THE Copilot fingerprint — trusted click + untrusted change on <select>
+  if(S.selTrClk>0 && S.selUntrChg>0)
+    sg.s1={f:true, d:`${S.selTrClk}T clk + ${S.selUntrChg}F chg`, w:35};
+  else if(S.selUntrChg>0)
+    sg.s1={f:'p', d:`${S.selUntrChg}F chg (no T clk)`, w:35};
+  else if(S.selectInteracted)
+    sg.s1={f:false, d:'all trusted', w:35};
+  else sg.s1={f:null, d:'—', w:35};
+
+  // SG4: 2-second gap clustering (hardcoded in tools.js handleSingleAction)
+  if(ti.n>=4){
+    if(ti.gapRatio>.30) sg.s4={f:true, d:`${ti.g2} gaps (${(ti.gapRatio*100)|0}%)`, w:20};
+    else if(ti.g2>0) sg.s4={f:'p', d:`${ti.g2} gaps`, w:20};
+    else sg.s4={f:false, d:`avg ${ti.avg}ms`, w:20};
+  } else sg.s4={f:null, d:'—', w:20};
+
+  // SG10: Float coordinates (proven in Mojo: ClickOnTab_Params.x/y = Float)
+  if(m.n>=3){
+    if(m.flR>.3) sg.s10={f:true, d:`${m.fl}/${m.n} float`, w:5};
+    else if(m.fl>0) sg.s10={f:'p', d:`${m.fl} float`, w:5};
+    else sg.s10={f:false, d:'all integer', w:5};
+  } else sg.s10={f:null, d:'—', w:5};
+
+  // SG2: Ghost typing — uses per-field BURST CPS (not global) + requires low CV
+  const bCps = t.burstCps || t.cps;
+  const bCv = t.burstCv ?? t.cv;
+  if(bCps !== null){
+    const isGhost = bCps > 25 && (bCv === null || bCv < 0.15);
+    // Partial also requires CV<0.4 — high CV (>0.4) = human variance even at fast CPS
+    const isSusp = bCps > 15 && (bCv === null || bCv < 0.4);
+    if(isGhost) sg.s2={f:true, d:`${bCps} CPS cv=${bCv??'?'}`, w:15};
+    else if(isSusp) sg.s2={f:'p', d:`${bCps} CPS cv=${bCv??'?'}`, w:15};
+    else sg.s2={f:false, d:`${bCps} CPS`, w:15};
+  } else sg.s2={f:null, d:'—', w:15};
+
+  // SG3: No mousemove before click (clickOnTab doesn't call moveMouseOnTab first)
+  if(m.n>=3){
+    if(m.noMvR>.5) sg.s3={f:true, d:`${(m.noMvR*100)|0}%`, w:10};
+    else if(m.noMvR>.2) sg.s3={f:'p', d:`${(m.noMvR*100)|0}%`, w:10};
+    else sg.s3={f:false, d:`${(m.noMvR*100)|0}%`, w:10};
+  } else sg.s3={f:null, d:'—', w:10};
+
+  // SG5: Center clicks (extractSerializedDomElementInfo returns visibleBounds center)
+  if(m.n>=3){
+    if(m.ctrR>.5) sg.s5={f:true, d:`${(m.ctrR*100)|0}%`, w:6};
+    else if(m.ctrR>.2) sg.s5={f:'p', d:`${(m.ctrR*100)|0}%`, w:6};
+    else sg.s5={f:false, d:`${(m.ctrR*100)|0}%`, w:6};
+  } else sg.s5={f:null, d:'—', w:6};
+
+  // SG6: Missing keyup (typeOnTab may skip keyup events)
+  if(t.kd>=5){
+    if(t.ratio<.5) sg.s6={f:true, d:`ratio ${t.ratio}`, w:5};
+    else if(t.ratio<.8) sg.s6={f:'p', d:`ratio ${t.ratio}`, w:5};
+    else sg.s6={f:false, d:`ratio ${t.ratio}`, w:5};
+  } else sg.s6={f:null, d:'—', w:5};
+
+  // SG7: Focus without prior input (domType may focus without click)
+  if(S.foc.length>=3){
+    if(ti.fjR>.5) sg.s7={f:true, d:`${(ti.fjR*100)|0}%`, w:4};
+    else if(ti.fjR>.2) sg.s7={f:'p', d:`${(ti.fjR*100)|0}%`, w:4};
+    else sg.s7={f:false, d:`${(ti.fjR*100)|0}%`, w:4};
+  } else sg.s7={f:null, d:'—', w:4};
+
+  // SG8: Input without keydown (value injection path)
+  if(S.inp.length>=3){
+    const r=S.inpNoKd/S.inp.length;
+    if(r>.3) sg.s8={f:true, d:`${S.inpNoKd}/${S.inp.length}`, w:3};
+    else if(S.inpNoKd>0) sg.s8={f:'p', d:`${S.inpNoKd}`, w:3};
+    else sg.s8={f:false, d:'0', w:3};
+  } else sg.s8={f:null, d:'—', w:3};
+
+  // SG9: insertReplacementText (populateFormFields autofill path)
+  if(S.autofillCount > 0) sg.s9={f:true, d:`${S.autofillCount} fields`, w:3};
+  else if(S.inp.length>0) sg.s9={f:false, d:'none', w:3};
+  else sg.s9={f:null, d:'—', w:3};
+
+  // SG11: Multi-field fill <10ms (populateFormFields fills all at once)
+  if(ti.rapidFills > 0) sg.s11={f:true, d:`${ti.rapidFills} rapid`, w:4};
+  else if(S.inp.length>2) sg.s11={f:false, d:'none', w:4};
+  else sg.s11={f:null, d:'—', w:4};
+
+  // SG12: No option mousedown (Copilot uses selectOptionWithScript, never opens dropdown)
+  // Note: Chromium/Windows native dropdowns NEVER fire mousedown on <option>,
+  // so optMd===0 alone is NOT suspicious. Only flag when combined with untrusted changes
+  // or when no trusted changes exist (select was manipulated without human dropdown use).
+  if(S.selectInteracted){
+    if(S.selOptMd === 0 && S.selUntrChg > 0) sg.s12={f:true, d:'0 option clicks', w:5};
+    else if(S.selOptMd === 0 && S.selTrChg === 0) sg.s12={f:'p', d:'0 option clicks, 0 T chg', w:5};
+    else if(S.selOptMd > 0) sg.s12={f:false, d:`${S.selOptMd} option clicks`, w:5};
+    else sg.s12={f:false, d:'trusted changes ok', w:5};
+  } else sg.s12={f:null, d:'—', w:5};
+
+  // SG-AF: Autofill value set without keyboard (populateFormFields uses fieldRendererId)
+  if(S.valueSetCount > 0) sg.sAF={f:true, d:`${S.valueSetCount} fields`, w:12};
+  else if(S.inp.length > 2) sg.sAF={f:false, d:'none', w:12};
+  else sg.sAF={f:null, d:'—', w:12};
+
+  // SG-SC: Scroll without wheel/touch event (scrollOnTab or find-in-page)
+  if(S.scrollTotal >= 2){
+    const r = S.scrollNoWheel / S.scrollTotal;
+    if(r > .5) sg.sSC={f:true, d:`${S.scrollNoWheel}/${S.scrollTotal}`, w:2};
+    else if(S.scrollNoWheel > 0) sg.sSC={f:'p', d:`${S.scrollNoWheel}`, w:2};
+    else sg.sSC={f:false, d:'all user', w:2};
+  } else sg.sSC={f:null, d:'—', w:2};
+
+  return sg;
+}
+
+function verdict(){
+  const sg = sgs();
+  let sc=0, mx=0, full=0;
+  for(const v of Object.values(sg)){
+    if(v.w == null) continue;
+    mx += v.w;
+    if(v.f === true){ sc += v.w; full++; }
+    else if(v.f === 'p') sc += Math.round(v.w * 0.2);
+  }
+  let pct = mx ? Math.round(sc/mx*100) : 0;
+  let lbl, cls, sub;
+
+  // 5-tier verdict — requires at least 1 full signal to leave HUMAN tier
+  // Partials alone (scattered noise) can never push past HUMAN
+  if(sg.s1?.f === true){
+    lbl = 'COPILOT ACTIONS'; cls = 'copilot'; pct = Math.max(pct, 85);
+    sub = 'Trusted click + Untrusted change on <select> = Copilot selectOptionWithScript';
+  } else if(sc >= 50){
+    lbl = 'COPILOT ACTIONS'; cls = 'copilot';
+    sub = `Raw score ${sc}/${mx} — multiple Copilot-specific signals converged`;
+  } else if(sc >= 35){
+    lbl = 'COPILOT LIKELY'; cls = 'copilot';
+    sub = `Raw score ${sc}/${mx} — strong Copilot indicators, needs more data`;
+  } else if(sc >= 20 && full >= 1){
+    lbl = 'AI AGENT'; cls = 'bot';
+    sub = `Raw score ${sc}/${mx} — automation detected, agent unidentified`;
+  } else if(sc >= 15 && full >= 1){
+    lbl = 'SUSPICIOUS'; cls = 'sus';
+    sub = `Raw score ${sc}/${mx} — some automation signals`;
+  } else {
+    lbl = 'HUMAN'; cls = 'human';
+    sub = 'Interaction patterns consistent with human user';
+  }
+  return {pct, sc, mx, lbl, cls, sub, sg};
+}
+
+// ═══════════════════════════════════════════════════════
+// UI RENDER
+// ═══════════════════════════════════════════════════════
+const sgIds = {s1:'sg1',s4:'sg4',s10:'sg10',s2:'sg2',s3:'sg3',s5:'sg5',s6:'sg6',s7:'sg7',s8:'sg8',s9:'sg9',s11:'sg11',s12:'sg12',sAF:'sgAF',sSC:'sgSC'};
+const vIds  = {s1:'v1',s4:'v4',s10:'v10',s2:'v2',s3:'v3',s5:'v5',s6:'v6',s7:'v7',s8:'v8',s9:'v9',s11:'v11',s12:'v12',sAF:'vAF',sSC:'vSC'};
+
+function up(){
+  const v=verdict(), t=typing(), m=mouse(), ti=timing();
+  // verdict
+  const ring = document.getElementById('vring');
+  ring.textContent = v.pct+'%';
+  ring.className = 'vring '+v.cls;
+  document.getElementById('vlabel').textContent = v.lbl;
+  document.getElementById('vsub').textContent = v.sub;
+
+  // smoking guns
+  for(const[k,sg] of Object.entries(v.sg)){
+    const row=document.getElementById(sgIds[k]); if(!row) continue;
+    row.querySelector('.dot').className='dot '+(sg.f===true?'fire':sg.f==='p'?'part':sg.f===false?'ok':'x');
+    const vel=document.getElementById(vIds[k]); if(vel) vel.textContent=sg.d;
+  }
+
+  // metrics
+  const cc=(v,lo,hi,inv)=>{if(v==null)return'i';if(inv)return v<lo?'b':v<hi?'w':'ok';return v>hi?'b':v>lo?'w':'ok'};
+  document.getElementById('tm').innerHTML=
+    mr('Keydowns',t.kd,'i')+mr('Keyups',t.ku,'i')+
+    mr('Burst CPS',t.burstCps??'—',cc(t.burstCps,15,25))+
+    mr('Burst CV',t.burstCv??'—',cc(t.burstCv,.15,.3,1))+
+    mr('Bursts',t.bursts,'i')+
+    mr('Global CPS',t.cps??'—',cc(t.cps,15,25))+
+    mr('Inter-key CV',t.cv??'—',cc(t.cv,.15,.3,1))+mr('KD/KU ratio',t.ratio??'—',cc(t.ratio,.5,.8,1))+
+    mr('Avg hold (ms)',t.avgHold??'—',cc(t.avgHold,10,50,1))+
+    mr('Input w/o KD',t.noKd,t.noKd?'b':'ok')+mr('Multi-char',t.multi,t.multi?'w':'ok')+
+    mr('Autofill fills',t.autofill,t.autofill?'b':'ok')+
+    mr('Value setter',S.valueSetCount,S.valueSetCount?'b':'ok');
+  document.getElementById('mm').innerHTML=
+    mr('Clicks',m.n,'i')+mr('No-move %',m.noMvR!=null?(m.noMvR*100|0)+'%':'—',cc(m.noMvR,.2,.5))+
+    mr('Center %',m.ctrR!=null?(m.ctrR*100|0)+'%':'—',cc(m.ctrR,.2,.5))+
+    mr('Float coords',m.fl,'i')+mr('Float %',m.flR!=null?(m.flR*100|0)+'%':'—',cc(m.flR,.1,.3))+
+    mr('Path dev (px)',m.pd!=null?m.pd:'—',cc(m.pd,2,5,1))+mr('Move events',m.mvs,'i');
+  document.getElementById('im').innerHTML=
+    mr('Actions',ti.n,'i')+mr('Avg gap (ms)',ti.avg??'—','i')+
+    mr('~2s gaps',ti.g2,ti.g2?'b':'ok')+mr('Gap ratio',ti.gapRatio??'—',cc(ti.gapRatio,.15,.3))+
+    mr('Focus jumps',ti.fj,ti.fj?'w':'ok')+mr('Rapid fills',ti.rapidFills,ti.rapidFills?'b':'ok')+
+    mr('Scroll no-wheel',S.scrollNoWheel,S.scrollNoWheel?'w':'ok');
+  document.getElementById('sm').innerHTML=
+    mr('Trusted clicks',S.selTrClk,'i')+mr('Untrusted chg',S.selUntrChg,S.selUntrChg?'b':'ok')+
+    mr('Trusted chg',S.selTrChg,'ok')+mr('Option mousedown',S.selOptMd,'i');
+}
+function mr(n,v,c){return`<div class="mr"><span class="mn">${n}</span><span class="mv ${c}">${v}</span></div>`}
+
+function lg(type,el,trusted,detail){
+  const t=((performance.now()-T0)/1000).toFixed(2);
+  S.log.push({t,type,tag:el.tagName||'?',id:el.id?'#'+el.id:'',tr:trusted,d:detail||''});
+  if(S.log.length>25) S.log.shift();
+  document.getElementById('elog').innerHTML=S.log.map(e=>
+    `<div><span class="et">${e.t}s</span> <span class="${e.tr?'eT':'eF'}">[${e.tr?'T':'F'}]</span> ${e.type} ${e.tag}${e.id} ${e.d}</div>`
+  ).reverse().join('');
+}
+
+// ═══════════════════════════════════════════════════════
+// REPORT / EXPORT
+// ═══════════════════════════════════════════════════════
+function report(){
+  const t=typing(), m=mouse(), ti=timing(), v=verdict();
+  return{
+    _meta:{tool:'Experiment',version:'3.0',
+      timestamp:new Date().toISOString(), duration:Math.round(performance.now()-T0)+'ms',
+      userAgent:navigator.userAgent, devicePixelRatio:D},
+    verdict:{score:v.pct, rawScore:v.sc, maxScore:v.mx, label:v.lbl, detail:v.sub},
+    smokingGuns: Object.fromEntries(Object.entries(v.sg).map(([k,v])=>[k,{fired:v.f,detail:v.d,weight:v.w}])),
+    typing:t, mouse:m, timing:{actions:ti.n, avgGap:ti.avg, twoSecGaps:ti.g2, gapRatio:ti.gapRatio,
+      focusJumps:ti.fj, focusJumpRatio:ti.fjR, rapidFills:ti.rapidFills, allGaps:ti.gaps},
+    selectAudit:{trustedClicks:S.selTrClk, untrustedChange:S.selUntrChg, trustedChange:S.selTrChg,
+      optionMousedown:S.selOptMd, events:S.selEvt},
+    clicks:S.clk.map(c=>({t:Math.round(c.t-T0),x:c.x,y:c.y,tr:c.tr,moved:c.moved,
+      ctr:c.isCtr,dist:+c.dist.toFixed(1),pd:+c.pd.toFixed(1),fl:c.hasFl,tag:c.tag,id:c.id})),
+    keyIntervals:S.kd.filter(k=>k.iv>0&&k.iv<2000).map(k=>Math.round(k.iv)),
+    form:{name:gv('f-name'),email:gv('f-email'),cat:gv('f-cat'),budget:gv('f-budget'),
+      brand:gv('f-brand'),text:gv('f-text')}
+  };
+}
+function gv(id){return document.getElementById(id)?.value||''}
+
+function showJSON(){
+  const box=document.getElementById('jbox');
+  box.textContent=JSON.stringify(report(),null,2);
+  box.classList.toggle('show');
+}
+function copyJSON(){
+  const j=JSON.stringify(report(),null,2);
+  navigator.clipboard.writeText(j).then(()=>{
+    document.querySelectorAll('.bx')[1].textContent='✓ Copied';
+    setTimeout(()=>document.querySelectorAll('.bx')[1].textContent='📄 Copy to Clipboard',1500);
+  });
+}
+function dlJSON(){
+  const j=JSON.stringify(report(),null,2);
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([j],{type:'application/json'}));
+  a.download='fingerprint-'+new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')+'.json';
+  a.click();
+}
+function finish(){
+  up();
+  showJSON();
+  // scroll results to top
+  document.getElementById('results').scrollTop=0;
+}
+
+setInterval(up, 1500);
+up();
+</script>
+</body>
+</html>
