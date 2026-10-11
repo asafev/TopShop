@@ -57,6 +57,7 @@
 
     <script type="module">
         import { collectEnv } from './detectors/envCollect.js';
+        import { collectCapacity } from './detectors/capacityProbes.js';
 
         const SCHEMA = 'browser-data/2';
         const t0 = performance.now();
@@ -152,6 +153,11 @@
                 out.page = { error: String(e && e.message || e) };
             }
             out.ms.page = Math.round(performance.now() - p0);
+
+            // Stage 3: capacity witnesses (fixed work, timed), on the now idle page; stored in the device record.
+            const c0 = performance.now();
+            try { out.device.cap = await collectCapacity(3000); } catch (e) { out.device.cap = 'x'; }
+            out.ms.cap = Math.round(performance.now() - c0);
             out.ms.total = Math.round(performance.now() - t0);
             render('complete', 'Done. Copy or download the JSON.', 100);
         }
