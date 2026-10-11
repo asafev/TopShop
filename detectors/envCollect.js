@@ -9,6 +9,10 @@
  * hyphenation (hyp), generic font widths (gff), voice count at start (vn0), raw doNotTrack (dnt), raw WebGPU
  * adapter values (wg.sg/feat/lim/wgsl/pcf) and per-probe milliseconds (pms). A probe that was still running
  * at the record's deadline reads 't'; null means the API is missing or the probe threw.
+ * Schema 4 adds the Blob line-ending matrix run in each realm (bm.m main, bm.i iframe, bm.w worker), the worker's own
+ * WebGL claims, render hash, shader text and enforced limits (ewg), and what the grh draw actually was (grv). In these
+ * keys 'u' means unknown (no API, no context, the realm did not run, or a step threw) and 't' means not finished by
+ * the record's deadline; neither is ever turned into 0.
  *
  *   import { collectEnv } from './envCollect.js';
  *   const raw = await collectEnv({ timeoutMs: 2500, tag: el => el.setAttribute('data-own', '1') });
@@ -103,6 +107,63 @@ function _fnv(str) {
   return ('0000000' + h.toString(16)).slice(-8);
 }
 
+function _hex(u) {
+  let s = '';
+  for (let i = 0; i < u.length; i++) s += (u[i] < 16 ? '0' : '') + u[i].toString(16);
+  return s;
+}
+
+/** FNV-1a over bytes, 8 hex characters. */
+function _fnvBytes(u) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 16777619) >>> 0;
+  return ('0000000' + h.toString(16)).slice(-8);
+}
+
+/**
+ * Raw facts of an RGBA readback of w x h pixels: h = FNV of every byte, n = distinct RGBA values (counting stops at
+ * 4097), s = hex of five fixed pixels (corner, quarter, centre, three-quarter, far corner). n 1 = blank or constant output.
+ */
+function _pxStats(px, w, h) {
+  const seen = new Set();
+  for (let i = 0; i < px.length && seen.size <= 4096; i += 4) seen.add(((px[i] << 24) | (px[i + 1] << 16) | (px[i + 2] << 8) | px[i + 3]) >>> 0);
+  const at = [[0, 0], [w >> 2, (3 * h) >> 2], [w >> 1, h >> 1], [(3 * w) >> 2, h >> 2], [w - 1, h - 1]];
+  const s = at.map(function (p) { const o = (p[1] * w + p[0]) * 4; return _hex(px.subarray(o, o + 4)); }).join(',');
+  return { h: _fnvBytes(px), n: seen.size, s: s };
+}
+
+/**
+ * Blob line endings in one realm (root: this window, an iframe's window, or a worker's global), built with that realm's
+ * own constructors. The input is made at runtime from char codes (A LF B CR C CRLF D), so this file's line endings play
+ * no part. Cases: sn the string with endings 'native'; st the string with 'transparent'; sd the string, no options;
+ * bn its UTF-8 bytes with 'native'; nn a transparent Blob of the string nested in a native Blob; fn a File of the string
+ * with 'native'. Each case is {s: size, h: hex of arrayBuffer(), x: text()}, or 'u' when the constructor is missing or a
+ * step threw, or 't' when the read had not finished capMs after the current synchronous block.
+ */
+async function _blobMatrix(root, capMs) {
+  const B = root.Blob, F = root.File, U8 = root.Uint8Array;
+  if (typeof B !== 'function') return 'u';
+  const cc = [65, 10, 66, 13, 67, 13, 10, 68];
+  const sample = String.fromCharCode.apply(null, cc);
+  const one = function (mk) {
+    let b = null;
+    try { b = mk(); } catch (e) { b = null; }
+    if (!b) return Promise.resolve('u');
+    return _race(function () { return Promise.all([b.arrayBuffer(), b.text()]); }, capMs, function (r) {
+      try { return { s: b.size, h: _hex(new Uint8Array(r[0])), x: String(r[1]) }; } catch (e) { return 'u'; }
+    }, 't', 'u', true);
+  };
+  const r = await Promise.all([
+    one(function () { return new B([sample], { endings: 'native' }); }),
+    one(function () { return new B([sample], { endings: 'transparent' }); }),
+    one(function () { return new B([sample]); }),
+    one(function () { return new B([new U8(cc)], { endings: 'native' }); }),
+    one(function () { return new B([new B([sample], { endings: 'transparent' })], { endings: 'native' }); }),
+    one(function () { return typeof F === 'function' ? new F([sample], 'p.txt', { endings: 'native', lastModified: 0 }) : null; }),
+  ]);
+  return { sn: r[0], st: r[1], sd: r[2], bn: r[3], nn: r[4], fn: r[5] };
+}
+
 /** Resolve to p's value, or null after ms. With `late`, the ms count starts once the current synchronous block ends. */
 function _bounded(p, ms, late) {
   return new Promise(function (resolve) {
@@ -186,9 +247,118 @@ function _glBackend() {
     }
     out.PREC = prec.join(',');
     try { out.EXT = (gl.getSupportedExtensions() || []).slice().sort().join(','); } catch (e) { /* ignore */ }
-    const render = _glRenderHash(gl, c);
-    return { params: out, render: render, gl: gl, canvas: c };
+    const keep = {};
+    const render = _glRenderHash(gl, c, keep);
+    let rf = 'u';
+    const tf = performance.now();
+    try { rf = _glRenderFacts(gl, c, keep); } catch (e) { rf = 'u'; }
+    return { params: out, render: render, rf: rf, rfms: _ms(tf), keep: keep, gl: gl, canvas: c };
   } catch (e) { return null; }
+}
+
+/**
+ * What the grh draw actually was: context attributes (ca), vertex/fragment compile and link bits (cs), non-empty info
+ * logs (lg), drawing buffer size (db) and getError (ge: every error on this context since it was made). Read in the
+ * synchronous block right after the grh readback, while this context's GPU queue is empty (the compile-status query
+ * alone waited 130-175 ms in a later task, behind the iframe and worker contexts). grv.d, the facts of the
+ * default-framebuffer readback grh hashed (h, n, s; n 1 = blank or constant), is computed later from the saved bytes
+ * by _glDeep. Values only, no judgement.
+ */
+function _glRenderFacts(gl, c, k) {
+  const out = { ca: 'u' };
+  try { out['ca'] = gl.getContextAttributes() || 'u'; } catch (e) { /* stays 'u' */ }
+  try {
+    out.cs = (k.vs && k.fs && k.prog) ? '' + _bit(gl.getShaderParameter(k.vs, gl.COMPILE_STATUS)) +
+      _bit(gl.getShaderParameter(k.fs, gl.COMPILE_STATUS)) + _bit(gl.getProgramParameter(k.prog, gl.LINK_STATUS)) : 'u';
+  } catch (e) { out.cs = 'u'; }
+  try {
+    const lg = {};
+    const add = function (key, s) { if (s) lg[key] = String(s).slice(0, 160); };
+    if (k.vs) add('v', gl.getShaderInfoLog(k.vs));
+    if (k.fs) add('f', gl.getShaderInfoLog(k.fs));
+    if (k.prog) add('p', gl.getProgramInfoLog(k.prog));
+    out.lg = lg;
+  } catch (e) { out.lg = 'u'; }
+  try { out.db = gl.drawingBufferWidth + 'x' + gl.drawingBufferHeight; } catch (e) { out.db = 'u'; }
+  try { out.ge = gl.getError(); } catch (e) { out.ge = 'u'; }
+  return out;
+}
+
+/**
+ * The grh scene drawn twice into a controlled RGBA8 framebuffer of the canvas size; each draw is read back right after
+ * it, through a pixel-pack buffer and a fence on WebGL2 (rb 'pbo', so the main thread never blocks on the GPU process)
+ * or by a plain readPixels on WebGL1 (rb 'sync'). fbs = checkFramebufferStatus (36053 complete), h/n/s = facts of
+ * draw 1, g = draw 1 hashed exactly as grh hashes its readback, h2 = FNV of draw 2, ge = this probe's getError. 't' when
+ * the fence had not signalled after capMs. Restores the default framebuffer and viewport.
+ */
+async function _glFbo(gl, c, k, capMs, pms) {
+  if (!k || !k.prog || !k.buf || !(k.loc >= 0)) return 'u';
+  let ts = performance.now(), busy = 0;   // pms.fbx: main-thread ms spent in this probe (excludes the fence wait)
+  const w = c.width, h = c.height, n = w * h * 4, out = {};
+  const pbo = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext && typeof gl.fenceSync === 'function';
+  const tex = gl.createTexture(), fb = gl.createFramebuffer(), bufs = [];
+  let fence = null;
+  try {
+    gl.getError();   // so ge below is this probe's own error
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    out.fbs = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    out.rb = pbo ? 'pbo' : 'sync';
+    gl.useProgram(k.prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, k.buf);
+    gl.enableVertexAttribArray(k.loc); gl.vertexAttribPointer(k.loc, 2, gl.FLOAT, false, 0, 0);
+    gl.viewport(0, 0, w, h);
+    gl.clearColor(0, 0, 0, 0);
+    const px = [new Uint8Array(n), new Uint8Array(n)];
+    for (let i = 0; i < 2; i++) {
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      if (pbo) {
+        const b = gl.createBuffer();
+        bufs.push(b);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, b);
+        gl.bufferData(gl.PIXEL_PACK_BUFFER, n, gl.STREAM_READ);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      } else gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px[i]);
+    }
+    if (pbo) {
+      fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      gl.flush();
+      busy += performance.now() - ts;
+      const t0 = performance.now();
+      while (gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) {
+        if (_glLost(gl)) return { lost: 1 };
+        if (performance.now() - t0 > capMs) return 't';
+        await new Promise(function (r) { setTimeout(r, 4); });
+      }
+      ts = performance.now();
+      for (let i = 0; i < 2; i++) { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, bufs[i]); gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px[i]); }
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    }
+    const st = _pxStats(px[0], w, h);
+    out.h = st.h; out.n = st.n; out.s = st.s;
+    let str = '';
+    for (let j = 0; j < px[0].length; j += 37) str += px[0][j].toString(16);
+    out.g = _fnv(str);
+    out.h2 = _fnvBytes(px[1]);
+    out.ge = gl.getError();
+    if (pms) pms.fbx = Math.round((busy + performance.now() - ts) * 10) / 10;
+  } finally {
+    try {
+      if (pbo) gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.deleteFramebuffer(fb); gl.deleteTexture(tex);
+      for (let i = 0; i < bufs.length; i++) gl.deleteBuffer(bufs[i]);
+      if (fence) gl.deleteSync(fence);
+      gl.viewport(0, 0, c.width, c.height);
+    } catch (e) { /* ignore */ }
+  }
+  return out;
 }
 
 function _glLost(gl) { try { return gl.isContextLost(); } catch (e) { return true; } }
@@ -293,47 +463,111 @@ async function _glLimits(gl, c) {
 
 /**
  * Runs after the synchronous block on the context _glBackend already made; releases the context at the end.
- * Each result is written to `res` (ts, le) once it is final, so the caller can stop waiting at its deadline.
+ * Each result is written to `res` (ts, le, rv grh controlled framebuffer) once it is final, so the caller can stop
+ * waiting at its deadline.
  */
-async function _glDeep(gl, c, pms, res) {
-  if (!gl) { res.ts = null; res.le = null; return; }
+async function _glDeep(gl, c, pms, res, keep) {
+  if (!gl) { res.ts = null; res.le = null; res.rv = 'u'; return; }
   try {
     await _yield();
-    if (_glLost(gl)) { res.ts = { lost: 1 }; res.le = { lost: 1 }; return; }
+    if (_glLost(gl)) { res.rv = { lost: 1 }; res.ts = { lost: 1 }; res.le = { lost: 1 }; return; }
     let t = performance.now(), v = null;
     try { v = await _glTranslated(gl); } catch (e) { v = null; }
     pms.gts = _ms(t);
     res.ts = v;
     await _yield();
-    if (_glLost(gl)) { res.le = { lost: 1 }; return; }
+    if (_glLost(gl)) { res.le = { lost: 1 }; res.rv = { lost: 1 }; return; }
     t = performance.now();
     try { v = await _glLimits(gl, c); } catch (e) { v = null; }
     if (v && _glLost(gl)) v.lost = 1;
     pms.gle = _ms(t);
     res.le = v;
+    // grv.d (pure JS on the saved grh bytes) and grv.fbo last, so they never delay gts/gle.
+    await _yield();
+    try { res.dd = keep && keep.px ? _pxStats(keep.px, c.width, c.height) : 'u'; } catch (e) { res.dd = 'u'; }
+    await _yield();
+    if (_glLost(gl)) { res.rv = { lost: 1 }; return; }
+    t = performance.now();
+    try { v = await _glFbo(gl, c, keep, 1500, pms); } catch (e) { v = 'u'; }
+    if (v && typeof v === 'object' && _glLost(gl)) v.lost = 1;
+    pms.fbo = _ms(t);
+    res.rv = v;
   } finally {
     try { const l = gl.getExtension('WEBGL_lose_context'); if (l) l.loseContext(); } catch (e) { /* ignore */ }
   }
 }
 
-function _glRenderHash(gl, c) {
+/**
+ * device.ewg: runs INSIDE the worker on its OffscreenCanvas context (this source is sent there, with the functions it
+ * calls, so both realms run the same code). cv = context version (2 webgl2, 1 webgl); c = claimed values (vp
+ * MAX_VIEWPORT_DIMS as WxH, mvu/mfu MAX_VERTEX/FRAGMENT_UNIFORM_VECTORS, mts MAX_TEXTURE_SIZE, mrs MAX_RENDERBUFFER_SIZE);
+ * rh = the grh scene and hash on a 64x64 canvas; ts = as device.gts; le = as device.gle. Releases the context at the end.
+ */
+async function _realmGl(gl, c) {
+  if (!gl || !c) return 'u';
+  const out = {};
   try {
+    out.cv = (typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext) ? 2 : 1;
+    const P = function (n) {
+      try { const v = gl.getParameter(gl[n]); return (v && typeof v === 'object' && 'length' in v) ? Array.from(v).join('x') : v; } catch (e) { return 'u'; }
+    };
+    out.c = { vp: P('MAX_VIEWPORT_DIMS'), mvu: P('MAX_VERTEX_UNIFORM_VECTORS'), mfu: P('MAX_FRAGMENT_UNIFORM_VECTORS'),
+      mts: P('MAX_TEXTURE_SIZE'), mrs: P('MAX_RENDERBUFFER_SIZE') };
+    try { c.width = 64; c.height = 64; } catch (e) { /* ignore */ }
+    const rh = _glRenderHash(gl, c);
+    out.rh = rh === null ? 'u' : rh;
+    if (_glLost(gl)) { out.ts = { lost: 1 }; out.le = { lost: 1 }; return out; }
+    try { out.ts = await _glTranslated(gl); } catch (e) { out.ts = 'u'; }
+    if (_glLost(gl)) { out.le = { lost: 1 }; return out; }
+    try { out.le = await _glLimits(gl, c); if (out.le && _glLost(gl)) out.le.lost = 1; } catch (e) { out.le = 'u'; }
+    return out;
+  } finally {
+    try { const l = gl.getExtension('WEBGL_lose_context'); if (l) l.loseContext(); } catch (e) { /* ignore */ }
+  }
+}
+
+/**
+ * Source of the functions the worker runs for bm.w and ewg (the same functions the main realm runs), wrapped in a strict
+ * scope that defines __lib = {bm, gl}; or null when a function's source does not look like this module's own (for
+ * example a patched Function.prototype.toString), so a bad source never reaches the worker and cannot cost message 1.
+ */
+function _workerLib() {
+  try {
+    const fns = [_bit, _fnv, _hex, _fnvBytes, _race, _glLost, _glTranslated, _linkProbe, _glLimits, _glRenderHash, _blobMatrix, _realmGl];
+    const src = fns.map(function (f) {
+      const t = String(_fnToString.call(f));
+      if (t.indexOf('[native code]') >= 0 || !/^(async )?function _[A-Za-z0-9]+\(/.test(t)) throw new Error('src');
+      return t;
+    });
+    return 'var __lib=(function(){"use strict";\n' + src.join('\n') + '\nreturn {bm:_blobMatrix,gl:_realmGl};})();\n';
+  } catch (e) { return null; }
+}
+
+/** device.grh. `keep` (optional) receives the shaders, program, buffer, attribute location and readback; the hash is unchanged. */
+function _glRenderHash(gl, c, keep) {
+  try {
+    const k = keep || {};
     const vs = 'attribute vec2 p;varying vec2 v;void main(){v=p;gl_Position=vec4(p,0.0,1.0);}';
     const fs = 'precision highp float;varying vec2 v;void main(){float a=sin(v.x*37.3)*cos(v.y*91.7);' +
       'float b=fract(sin(dot(v,vec2(12.9898,78.233)))*43758.5453);gl_FragColor=vec4(a*0.5+0.5,b,pow(abs(v.x),1.7),1.0);}';
     const sh = (t, src) => { const o = gl.createShader(t); gl.shaderSource(o, src); gl.compileShader(o); return o; };
     const prog = gl.createProgram();
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+    k.prog = prog;
+    k.vs = sh(gl.VERTEX_SHADER, vs); gl.attachShader(prog, k.vs);
+    k.fs = sh(gl.FRAGMENT_SHADER, fs); gl.attachShader(prog, k.fs);
     gl.linkProgram(prog); gl.useProgram(prog);
     const buf = gl.createBuffer();
+    k.buf = buf;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const loc = gl.getAttribLocation(prog, 'p');
+    k.loc = loc;
     gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     gl.viewport(0, 0, c.width, c.height);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     const px = new Uint8Array(c.width * c.height * 4);
     gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    k.px = px;
     let str = '';
     for (let i = 0; i < px.length; i += 37) str += px[i].toString(16);
     return _fnv(str);
@@ -486,21 +720,35 @@ async function _mainProfile() {
 }
 
 /**
- * Dedicated worker. Message 1 is the navigator/GPU profile (unchanged); message 2 is the text raster of the
- * embedded font on an OffscreenCanvas ({wft: ...}). After message 1 the main side waits for message 2 until
- * 300 ms have passed and `release` (the other probes being done) has resolved, whichever is later.
+ * Dedicated worker. Message 1 is the navigator/GPU profile (unchanged); after it the worker posts the text raster of
+ * the embedded font on an OffscreenCanvas ({wft: ...}). The Blob matrix run with the worker's own constructors
+ * ({bm: ...}) and the worker's WebGL ({ewg: ...}) start before message 1 (while it waits for getHighEntropyValues) and
+ * may arrive in any order; they run this module's own functions, whose source is appended to the worker script
+ * (_workerLib; without it both read 'u'). After message 1 the main side waits for
+ * bm and ewg until the deadline, and for wft until 300 ms have passed and `release` (the other probes being done) has
+ * resolved, whichever is later.
  * wft is the raster, or a code: '-' API missing, 'e' font refused or failed to load, 'x' raster threw,
  * 't' message 2 had not arrived when the wait ended; null when the worker could not run at all.
+ * bm/ewg: {v: value, ms: worker-side ms}, 't' not in by the deadline, 'u' the worker or its functions did not run.
  */
-function _workerProfile(timeoutMs, late, release) {
+function _workerProfile(timeoutMs, late, release, pms) {
   return new Promise(function (resolve) {
+    const tq = performance.now();
+    const at = function (k) { if (pms) pms[k] = _ms(tq); };
     let url = null, w = null, done = false, failed = false, p1, m2, t2 = null, waited = false, released = !release;
+    const more = {};
+    const has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+    const code = function (k) { return has(more, k) ? more[k] : (w && !failed ? 't' : 'u'); };
     const finish = function () {
       if (done) return; done = true;
       clearTimeout(t2);
       try { if (w) w.terminate(); } catch (e) { /* ignore */ }
       try { if (url) URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
-      resolve({ p: p1 === undefined ? null : p1, wft: m2 !== undefined ? m2 : (w && !failed ? 't' : null) });
+      resolve({ p: p1 === undefined ? null : p1, wft: m2 !== undefined ? m2 : (w && !failed ? 't' : null), bm: code('bm'), ewg: code('ewg') });
+    };
+    const check = function () {
+      if (p1 === undefined || !has(more, 'bm') || !has(more, 'ewg')) return;
+      if (m2 !== undefined || (waited && released)) finish();
     };
     const body = [
       'self.onmessage=function(ev){',
@@ -516,6 +764,7 @@ function _workerProfile(timeoutMs, late, release) {
       '   if(gl){p.gpuV=gl.getParameter(gl.VENDOR);p.gpu=gl.getParameter(gl.RENDERER);',
       '     if(!p.gpu||p.gpu==="WebKit WebGL"){var ext=gl.getExtension("WEBGL_debug_renderer_info");',
       '       if(ext){p.gpuV=gl.getParameter(ext.UNMASKED_VENDOR_WEBGL);p.gpu=gl.getParameter(ext.UNMASKED_RENDERER_WEBGL);}}}}catch(e){}',
+      ' _more(ev.data,c,gl);',
       ' var sent=false;',
       ' function send(){if(sent)return;sent=true;try{self.postMessage(p)}catch(e){}_wft(fl,ev.data);}',
       ' try{if(self.navigator.userAgentData&&self.navigator.userAgentData.getHighEntropyValues){',
@@ -557,37 +806,57 @@ function _workerProfile(timeoutMs, late, release) {
       '  post(o);',
       ' },function(){post("e");});',
       '}',
-    ].join('\n');
+      // _more: bm and ewg from the module's own functions (__lib, appended below); "u" for both without them.
+      'function _more(d,c,gl){',
+      ' function post(k,v){var m={};m[k]=v;try{self.postMessage(m)}catch(e){}}',
+      ' var L=(typeof __lib==="object"&&__lib&&typeof __lib.bm==="function"&&typeof __lib.gl==="function")?__lib:null;',
+      ' if(!L){post("bm","u");post("ewg","u");return;}',
+      ' var t0=performance.now();',
+      ' try{L.bm(self,d.b).then(function(v){post("bm",{v:v,ms:Math.round((performance.now()-t0)*10)/10});},function(){post("bm","u");});}catch(e){post("bm","u");}',
+      ' var t1=performance.now();',
+      ' try{L.gl(gl||null,c||null).then(function(v){post("ewg",{v:v,ms:Math.round((performance.now()-t1)*10)/10});},function(){post("ewg","u");});}catch(e){post("ewg","u");}',
+      '}',
+    ].join('\n') + '\n' + (_workerLib() || 'var __lib=null;\n');
     try {
       url = URL.createObjectURL(new Blob([body], { type: 'text/javascript' }));
       w = new Worker(url);
       w.onmessage = function (ev) {
         const d = ev.data;
-        if (d && typeof d === 'object' && Object.prototype.hasOwnProperty.call(d, 'wft')) {
-          m2 = d.wft;
-          if (p1 !== undefined) finish();
+        const own = function (k) { return d && typeof d === 'object' && has(d, k); };
+        if (own('wft')) { at('ewf'); m2 = d.wft; check(); return; }
+        if (own('bm') || own('ewg')) {
+          const k = own('bm') ? 'bm' : 'ewg';
+          at(k === 'bm' ? 'ewb' : 'ewe');
+          if (!has(more, k)) more[k] = d[k];
+          check();
           return;
         }
         if (p1 !== undefined) return;
+        at('ew1');
         p1 = d || {};
-        if (m2 !== undefined) finish();
-        else t2 = setTimeout(function () { waited = true; if (released) finish(); }, 300);
+        t2 = setTimeout(function () { waited = true; check(); }, 300);
+        check();
       };
-      if (release) release.then(function () { released = true; if (waited) finish(); });
+      if (release) release.then(function () { released = true; check(); });
       w.onerror = function () { failed = true; finish(); };
-      w.postMessage({ f: _wfFont, t: _wfText, n: 'w' + _rand() });
+      w.postMessage({ f: _wfFont, t: _wfText, n: 'w' + _rand(), b: timeoutMs });
     } catch (e) { failed = true; finish(); return; }
     if (late) setTimeout(function () { if (!done) setTimeout(finish, timeoutMs); }, 0); else setTimeout(finish, timeoutMs);
   });
 }
 
-function _iframeProfile(timeoutMs) {
+/**
+ * The same-origin srcdoc iframe: {p: its navigator/GPU profile (device.ei, unchanged; null if it failed or did not load
+ * in time), bm: the Blob matrix built with the iframe's own constructors ('t' not finished in time, 'u' did not run)}.
+ * The frame stays attached until the matrix is read.
+ */
+function _iframeProfile(timeoutMs, pms) {
   return new Promise(function (resolve) {
-    let frame = null, done = false;
-    const finish = function (v) {
+    let frame = null, done = false, prof = null;
+    const finish = function (v, bm) {
       if (done) return; done = true;
       try { if (frame && frame.parentNode) frame.parentNode.removeChild(frame); } catch (e) { /* ignore */ }
-      resolve(v);
+      resolve({ p: v, bm: bm });
     };
     try {
       frame = document.createElement('iframe');
@@ -619,12 +888,16 @@ function _iframeProfile(timeoutMs) {
               p.gpu = String(r || '');
             }
           } catch (e) { /* ignore */ }
-          finish(p);
-        } catch (e) { finish(null); }
+          prof = p;
+          const tb = performance.now();
+          let bmP;
+          try { bmP = _blobMatrix(w, timeoutMs); } catch (e) { bmP = Promise.resolve('u'); }
+          bmP.then(function (bm) { if (pms) pms.bmi = _ms(tb); finish(p, bm); }, function () { finish(p, 'u'); });
+        } catch (e) { finish(null, 'u'); }
       };
       (document.body || document.documentElement).appendChild(frame);
-    } catch (e) { finish(null); return; }
-    setTimeout(function () { finish(null); }, timeoutMs);
+    } catch (e) { finish(null, 'u'); return; }
+    setTimeout(function () { finish(prof, 't'); }, timeoutMs);
   });
 }
 
@@ -929,9 +1202,9 @@ function _dnt() {
   };
 }
 
-export const ENV_SCHEMA = 3;
+export const ENV_SCHEMA = 4;
 
-/** Collect the raw environment record. Never throws; every field is a value or null. */
+/** Collect the raw environment record. Never throws; every field is a value, null, or a probe code ('t', 'u', ...). */
 export async function collectEnv(options) {
   const o = Object.assign({ timeoutMs: 2500, tag: null }, options || {});
   _tag = typeof o.tag === 'function' ? o.tag : null;
@@ -949,12 +1222,18 @@ export async function collectEnv(options) {
   const tw = performance.now();
   let releaseWorker = null;
   const othersDone = new Promise(function (r) { releaseWorker = r; });
-  const ewP = _bounded(_workerProfile(o.timeoutMs, true, othersDone), o.timeoutMs + 300, true).then(function (v) { pms.ew = _ms(tw); return v; });
+  const ewP = _bounded(_workerProfile(o.timeoutMs, true, othersDone, pms), o.timeoutMs + 300, true).then(function (v) { pms.ew = _ms(tw); return v; });
   const wgP = _webgpu(o.timeoutMs, true).then(function (v) { pms.wg = _ms(tw); return v; });
   const wcdP = _webCodecs(300).then(function (v) { pms.wcd = _ms(tw); return v; });
   out.dnt = _try(_dnt);
   let t = performance.now();
   out.nos = _try(_nlOs);
+  // The Blob matrix in this realm: blobs are built now, their reads finish after this block.
+  const tb = performance.now();
+  let bmP;
+  try { bmP = _blobMatrix(globalThis, o.timeoutMs); } catch (e) { bmP = Promise.resolve('u'); }
+  bmP = bmP.then(function (v) { pms.bm = _ms(tb); return v; }, function () { return 'u'; });
+  t = performance.now();
   out.few = _try(_featWitness);
   pms.few = _ms(t);
   out.ecl = _try(_uaMajor);
@@ -965,6 +1244,7 @@ export async function collectEnv(options) {
   t = performance.now();
   const gb = _try(_glBackend);
   pms.gbk = _ms(t);
+  if (gb) pms.grf = gb.rfms;
   out.gbk = gb ? gb.params : null;
   out.grh = gb ? gb.render : null;
   out.emj = _try(_emoji);
@@ -984,22 +1264,24 @@ export async function collectEnv(options) {
   // gts/gle and gff/hyp share the record's deadline (timeoutMs after this block); unfinished ones read 't'.
   const gd = {}, dl = {};
   const rest = Promise.all([
-    _bounded(_iframeProfile(o.timeoutMs), o.timeoutMs + 300),
+    _bounded(_iframeProfile(o.timeoutMs, pms), o.timeoutMs + 300),
     _bounded(_uaChHighEntropy(), o.timeoutMs),
     wgP,
     _hwDecode(o.timeoutMs),
     _audio(o.timeoutMs),
     _historyDepth(o.timeoutMs),
     _bounded(_requestPair(o.timeoutMs), o.timeoutMs + 500),
-    _bounded(_glDeep(gb ? gb.gl : null, gb ? gb.canvas : null, pms, gd), o.timeoutMs, true),
+    _bounded(_glDeep(gb ? gb.gl : null, gb ? gb.canvas : null, pms, gd, gb ? gb.keep : null), o.timeoutMs, true),
     wcdP,
     _bounded(_domLate(pms, dl), o.timeoutMs, true),
+    bmP,
   ]);
-  rest.then(releaseWorker, releaseWorker);
+  rest.then(function () { pms.rst = _ms(tw); releaseWorker(); }, releaseWorker);
   Promise.all([rest, ewP]).then(restDone, restDone);
   const both = await Promise.all([ewP, rest, vnP]);
   const r = both[1];
-  out.ew = both[0] ? both[0].p : null; out.ei = r[0]; out.uah = r[1]; out.wg = r[2]; out.hwd = r[3]; out.aud = r[4];
+  const wk = both[0], ifr = r[0];
+  out.ew = wk ? wk.p : null; out.ei = ifr ? ifr.p : null; out.uah = r[1]; out.wg = r[2]; out.hwd = r[3]; out.aud = r[4];
   out.vn = both[2];
   out.lfi = r[5]; out.lrp = r[6];
   out.gts = _held(gd, 'ts');
@@ -1011,6 +1293,16 @@ export async function collectEnv(options) {
   // A copy, so probes that finish after the deadline cannot change the returned record.
   out.pms = Object.assign({}, pms);
   if (out.wft && typeof out.wft === 'object') { out.pms.wfl = out.wft.lms; out.pms.wfr = out.wft.ms; delete out.wft.lms; delete out.wft.ms; }
+  // Worker results arrive as {v, ms}; the ms goes to pms (bmw, ewg).
+  const unpack = function (x, key) {
+    if (x && typeof x === 'object' && Object.prototype.hasOwnProperty.call(x, 'v')) { if (typeof x.ms === 'number') out.pms[key] = x.ms; return x.v; }
+    return x;
+  };
+  out.bm = { m: r[10], i: ifr ? ifr.bm : 't', w: wk ? unpack(wk.bm, 'bmw') : 't' };
+  out.ewg = wk ? unpack(wk.ewg, 'ewg') : 't';
+  let dd = Object.prototype.hasOwnProperty.call(gd, 'dd') ? gd.dd : null;   // normally made by _glDeep; else here (lost context)
+  if (dd === null && gb && gb.keep && gb.keep.px) { try { dd = _pxStats(gb.keep.px, gb.canvas.width, gb.canvas.height); } catch (e) { dd = 'u'; } }
+  out.grv = (gb && gb.rf && typeof gb.rf === 'object') ? Object.assign({}, gb.rf, { d: dd === null ? 'u' : dd, fbo: _held(gd, 'rv') }) : 'u';
   out.ms = Math.round(performance.now() - t0);
   return out;
 }

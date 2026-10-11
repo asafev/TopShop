@@ -574,6 +574,7 @@ class WebGLFingerprintDetector {
             let imageHash = null;
             let imageError = null;
             let imageDataUrl = null;
+            let imageValidity = 'u';
             if (contexts.length > 0) {
                 const ctx = this._getContext(canvasByContext[contexts[0]], contexts[0]);
                 if (ctx) {
@@ -585,6 +586,7 @@ class WebGLFingerprintDetector {
                         
                         imageHash = imageResult.hash;
                         imageDataUrl = imageResult.dataUrl;
+                        imageValidity = imageResult.validity;
                     } catch (err) {
                         imageError = err.message;
                     }
@@ -603,6 +605,7 @@ class WebGLFingerprintDetector {
                 imageHash,
                 imageDataUrl,
                 imageError,
+                imageValidity,
                 timing
             };
 
@@ -1640,11 +1643,97 @@ class WebGLFingerprintDetector {
         // Convert to string using BrowserLeaks method
         const y = JSON.stringify(w).replace(/,?"[0-9]+":/g, '');
 
+        // What this draw actually was (raw facts, read after the hash input above, which they do not change)
+        let validity = 'u';
+        try {
+            validity = this._imageFacts(gl, vs, fs, prog, w, geometryData.length / 6);
+        } catch (e) {
+            validity = 'u';
+        }
+
         // Return both MD5 hash and data URL
         return {
             hash: md5(y),
-            dataUrl: dataUrl
+            dataUrl: dataUrl,
+            validity
         };
+    }
+
+    /**
+     * Raw facts of the image-hash draw: context attributes (ca), vertex/fragment compile and link bits (cs), non-empty
+     * info logs (lg), drawing buffer and canvas size (db, cv), the facts of the default-framebuffer readback that the
+     * hash used (d: h FNV of all bytes, n distinct RGBA values, s five fixed pixels; n 1 = blank or constant), and the
+     * same scene drawn twice into a controlled RGBA8 framebuffer, each read back at once (fbo: fbs status, h/n/s of
+     * draw 1, h2 FNV of draw 2, ge getError). 'u' marks a part that could not be read. No judgement is made here.
+     * @private
+     */
+    _imageFacts(gl, vs, fs, prog, px, count) {
+        const fnvBytes = (u) => {
+            let h = 0x811c9dc5;
+            for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 16777619) >>> 0;
+            return ('0000000' + h.toString(16)).slice(-8);
+        };
+        const hex = (u) => Array.from(u, (b) => (b < 16 ? '0' : '') + b.toString(16)).join('');
+        const stats = (p, w, h) => {
+            const seen = new Set();
+            for (let i = 0; i < p.length && seen.size <= 4096; i += 4) seen.add(((p[i] << 24) | (p[i + 1] << 16) | (p[i + 2] << 8) | p[i + 3]) >>> 0);
+            const at = [[0, 0], [w >> 2, (3 * h) >> 2], [w >> 1, h >> 1], [(3 * w) >> 2, h >> 2], [w - 1, h - 1]];
+            return { h: fnvBytes(p), n: seen.size, s: at.map(([x, yy]) => hex(p.subarray((yy * w + x) * 4, (yy * w + x) * 4 + 4))).join(',') };
+        };
+        const bit = (b) => (b ? 1 : 0);
+        const t0 = performance.now();
+        const out = { ca: 'u' };
+        const W = gl.canvas.width, H = gl.canvas.height;
+        try { out['ca'] = gl.getContextAttributes() || 'u'; } catch (e) { /* stays 'u' */ }
+        try {
+            out.cs = '' + bit(gl.getShaderParameter(vs, gl.COMPILE_STATUS)) + bit(gl.getShaderParameter(fs, gl.COMPILE_STATUS)) +
+                bit(gl.getProgramParameter(prog, gl.LINK_STATUS));
+        } catch (e) { out.cs = 'u'; }
+        try {
+            const lg = {};
+            const add = (k, s) => { if (s) lg[k] = String(s).slice(0, 160); };
+            add('v', gl.getShaderInfoLog(vs)); add('f', gl.getShaderInfoLog(fs)); add('p', gl.getProgramInfoLog(prog));
+            out.lg = lg;
+        } catch (e) { out.lg = 'u'; }
+        try { out.db = gl.drawingBufferWidth + 'x' + gl.drawingBufferHeight; } catch (e) { out.db = 'u'; }
+        out.cv = W + 'x' + H;
+        try { out.ge = gl.getError(); } catch (e) { out.ge = 'u'; }
+        try { out.d = stats(px, W, H); } catch (e) { out.d = 'u'; }
+        // Controlled framebuffer: same program, buffer and attribute state, cleared, drawn, read back immediately; twice.
+        const tex = gl.createTexture(), fb = gl.createFramebuffer();
+        try {
+            const f = {};
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+            f.fbs = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+            gl.useProgram(prog);
+            gl.viewport(0, 0, W, H);
+            gl.clearColor(0, 0, 0, 0);
+            const p = new Uint8Array(W * H * 4);
+            for (let i = 0; i < 2; i++) {
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                gl.drawArrays(gl.LINE_STRIP, 0, count);
+                gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, p);
+                if (i === 0) Object.assign(f, stats(p, W, H));
+                else f.h2 = fnvBytes(p);
+            }
+            f.ge = gl.getError();
+            out.fbo = f;
+        } catch (e) {
+            out.fbo = 'u';
+        } finally {
+            try {
+                gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.bindTexture(gl.TEXTURE_2D, null);
+                gl.deleteFramebuffer(fb); gl.deleteTexture(tex);
+                gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+            } catch (e) { /* ignore */ }
+        }
+        out.ms = Math.round((performance.now() - t0) * 10) / 10;   // timing only
+        return out;
     }
 
     /**
@@ -1715,6 +1804,12 @@ class WebGLFingerprintDetector {
         metrics.imageHash = {
             value: result.imageHash || 'none',
             description: 'MD5 hash of rendered WebGL scene',
+            risk: 'NONE'
+        };
+
+        metrics.imageValidity = {
+            value: result.imageValidity === undefined ? 'u' : result.imageValidity,
+            description: 'Raw facts of the image-hash draw: context attributes, compile/link bits, buffer size, readback facts, controlled-framebuffer repeat',
             risk: 'NONE'
         };
 
