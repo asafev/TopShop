@@ -1205,6 +1205,182 @@ function _dnt() {
 export const ENV_SCHEMA = 4;
 
 /** Collect the raw environment record. Never throws; every field is a value, null, or a probe code ('t', 'u', ...). */
+/**
+ * Word movement by the engine's native editing policy (Blink EditingBehavior). In a rendered same-origin iframe
+ * holding one text node "abc def hij", Selection.modify moves forward three words from offset 0 (f), backward three
+ * words from the end (b), and extends forward one word from offset 5 (x: anchor,focus). Raw offsets only.
+ * '-' API missing, 'u' could not run, 'x' threw, 't' not done within capMs.
+ */
+function _editWords(capMs) {
+  return new Promise(function (resolve) {
+    let done = false, f = null;
+    const fin = function (v) {
+      if (done) return; done = true;
+      try { if (f && f.parentNode) f.parentNode.removeChild(f); } catch (e) { /* ignore */ }
+      resolve(v);
+    };
+    setTimeout(function () { fin('t'); }, capMs);
+    try {
+      if (!document.body) { fin('u'); return; }
+      f = document.createElement('iframe');
+      f.setAttribute('data-rc-own', '1'); f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
+      f.style.cssText = 'position:absolute;left:-10000px;top:0;width:400px;height:60px;border:0';
+      f.srcdoc = "<!doctype html><body style='margin:0'><div id=t style='white-space:pre;font:16px monospace;direction:ltr'>abc def hij</div></body>";
+      document.body.appendChild(f);
+      const t0 = performance.now();
+      const poll = function () {
+        if (done) return;
+        let d = null;
+        try { d = f.contentDocument; } catch (e) { fin('u'); return; }
+        const el = d && d.getElementById('t');
+        if (!el) { if (performance.now() - t0 > capMs) { fin('t'); return; } setTimeout(poll, 20); return; }
+        try {
+          const s = f.contentWindow.getSelection(), n = el.firstChild;
+          if (!s || typeof s.modify !== 'function') { fin('-'); return; }
+          const fw = [], bw = [];
+          s.collapse(n, 0); for (let i = 0; i < 3; i++) { s.modify('move', 'forward', 'word'); fw.push(s.focusOffset); }
+          s.collapse(n, 11); for (let i = 0; i < 3; i++) { s.modify('move', 'backward', 'word'); bw.push(s.focusOffset); }
+          s.collapse(n, 5); s.modify('extend', 'forward', 'word');
+          fin({ f: fw.join(','), b: bw.join(','), x: s.anchorOffset + ',' + s.focusOffset });
+        } catch (e) { fin('x'); }
+      };
+      poll();
+    } catch (e) { fin('u'); }
+  });
+}
+
+/**
+ * WebGL2 multisample allocation for RGBA8: every sample count the format query reports, then MAX_SAMPLES + 1.
+ * Each row is count:glError:complete(1/0):allocatedSamples. Own small context, lost afterwards.
+ */
+function _msPromises() {
+  const c = document.createElement('canvas'); c.width = c.height = 4;
+  const gl = c.getContext('webgl2');
+  if (!gl) return '-';
+  try {
+    const mx = gl.getParameter(gl.MAX_SAMPLES);
+    const counts = Array.from(gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA8, gl.SAMPLES) || []);
+    const rows = [];
+    counts.concat([mx + 1]).forEach(function (n) {
+      const rb = gl.createRenderbuffer(), fb = gl.createFramebuffer();
+      gl.getError();
+      gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+      gl.renderbufferStorageMultisample(gl.RENDERBUFFER, n, gl.RGBA8, 1, 1);
+      const e = gl.getError();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rb);
+      const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE ? 1 : 0;
+      const got = e ? '' : gl.getRenderbufferParameter(gl.RENDERBUFFER, gl.RENDERBUFFER_SAMPLES);
+      rows.push(n + ':' + e + ':' + ok + ':' + got);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+      gl.deleteFramebuffer(fb); gl.deleteRenderbuffer(rb);
+    });
+    return { mx: mx, c: counts.join(','), r: rows.join(' ') };
+  } finally {
+    try { const l = gl.getExtension('WEBGL_lose_context'); if (l) l.loseContext(); } catch (e) { /* ignore */ }
+  }
+}
+
+/** One compute dispatch writing to a 16-byte buffer; returns the first u32, or a stage code. */
+async function _gpuRun(d, code) {
+  d.pushErrorScope('validation');
+  const m = d.createShaderModule({ code: code });
+  const info = await m.getCompilationInfo();
+  if (info.messages.some(function (x) { return x.type === 'error'; })) { await d.popErrorScope(); return 'c'; }
+  const p = d.createComputePipeline({ layout: 'auto', compute: { module: m, entryPoint: 'main' } });
+  const buf = d.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  const rd = d.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  const bg = d.createBindGroup({ layout: p.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: buf } }] });
+  const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
+  pass.setPipeline(p); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(1); pass.end();
+  enc.copyBufferToBuffer(buf, 0, rd, 0, 16);
+  d.queue.submit([enc.finish()]);
+  if (await d.popErrorScope()) return 'v';
+  await rd.mapAsync(GPUMapMode.READ);
+  const v = new Uint32Array(rd.getMappedRange())[0];
+  rd.unmap(); buf.destroy(); rd.destroy();
+  return v;
+}
+
+/**
+ * WebGPU limits and features as negotiated, filled into `h` as it goes (a timeout keeps what finished).
+ * l: for three count limits, requestDevice at the adapter's reported value (e) and one above it (p), each on a fresh
+ * adapter: 'ok' or the error name. f: the listed features the adapter reports (n), requested together (all) and, only
+ * if that fails, one by one. sg: the reported
+ * subgroup range and the subgroup_size a compute shader reads (x). w: a baseline shader result (b, expect 9) and, when
+ * the 'swizzle_assignment' WGSL feature is reported, its fixture result (s, expect 12). Stage codes: c compile, v
+ * validation, n no adapter, '-' no API.
+ */
+async function _gpuNeg(h) {
+  if (typeof navigator === 'undefined' || !navigator.gpu || typeof navigator.gpu.requestAdapter !== 'function') { h.s = '-'; h.done = 1; return; }
+  const ad = function () { return navigator.gpu.requestAdapter(); };
+  const a0 = await ad();
+  if (!a0) { h.s = 'n'; h.done = 1; return; }
+  const nm = function (e) { return (e && e.name) || 'err'; };
+  h.l = {};
+  for (const name of ['maxBindGroups', 'maxColorAttachments', 'maxStorageBuffersPerShaderStage']) {
+    const c = a0.limits[name], row = { c: c };
+    h.l[name] = row;
+    for (const kv of [['e', c], ['p', c + 1]]) {
+      try {
+        const a = await ad(), lim = {}; lim[name] = kv[1];
+        const d = await a.requestDevice({ requiredLimits: lim }); row[kv[0]] = 'ok'; d.destroy();
+      } catch (e) { row[kv[0]] = nm(e); }
+    }
+  }
+  // Listed features the adapter reports: one request for all of them; only on failure, one request per feature.
+  const fl = ['shader-f16', 'subgroups', 'float32-filterable', 'texture-compression-bc', 'texture-compression-astc', 'dual-source-blending', 'timestamp-query']
+    .filter(function (ft) { return a0.features.has(ft); });
+  h.f = { n: fl.join(',') };
+  if (fl.length) {
+    try { const a = await ad(); const d = await a.requestDevice({ requiredFeatures: fl }); h.f.all = 'ok'; d.destroy(); } catch (e) { h.f.all = nm(e); }
+    if (h.f.all !== 'ok') {
+      for (const ft of fl) {
+        try { const a = await ad(); const d = await a.requestDevice({ requiredFeatures: [ft] }); h.f[ft] = 'ok'; d.destroy(); } catch (e) { h.f[ft] = nm(e); }
+      }
+    }
+  }
+  h.sg = { n: a0.info ? a0.info.subgroupMinSize : null, m: a0.info ? a0.info.subgroupMaxSize : null };
+  if (a0.features.has('subgroups')) {
+    try {
+      const a = await ad(), d = await a.requestDevice({ requiredFeatures: ['subgroups'] });
+      h.sg.x = await _gpuRun(d, 'enable subgroups;\n@group(0) @binding(0) var<storage, read_write> r: array<u32, 4>;\n' +
+        '@compute @workgroup_size(64) fn main(@builtin(subgroup_size) s: u32, @builtin(local_invocation_index) i: u32) { if (i == 0u) { r[0] = s; } }');
+      d.destroy();
+    } catch (e) { h.sg.x = nm(e); }
+  }
+  h.w = {};
+  try {
+    const a = await ad(), d = await a.requestDevice();
+    h.w.b = await _gpuRun(d, '@group(0) @binding(0) var<storage, read_write> r: array<u32, 4>;\n@compute @workgroup_size(1) fn main() { r[0] = 9u; }');
+    const wl = navigator.gpu.wgslLanguageFeatures;
+    if (wl && typeof wl.has === 'function' && wl.has('swizzle_assignment')) {
+      h.w.s = await _gpuRun(d, 'requires swizzle_assignment;\n@group(0) @binding(0) var<storage, read_write> r: array<u32, 4>;\n' +
+        '@compute @workgroup_size(1) fn main() { var v = vec2u(1u, 2u); v.xy = vec2u(5u, 7u); r[0] = v.x + v.y; }');
+    }
+    d.destroy();
+  } catch (e) { h.w.e = nm(e); }
+  h.done = 1;
+}
+
+/** Date offset vs the Intl offset of the reported zone at 8 fixed instants (minutes east of UTC, 'date/intl'). */
+function _tzCoherence() {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' });
+  const inst = [Date.UTC(2026, 0, 15, 12), Date.UTC(2026, 6, 15, 12), Date.UTC(2026, 2, 8, 6), Date.UTC(2026, 2, 29, 1, 30),
+    Date.UTC(2026, 9, 25, 1, 30), Date.UTC(2026, 10, 1, 7), Date.UTC(2025, 11, 31, 23, 59), Date.UTC(2026, 5, 1)];
+  let mis = 0;
+  const rows = inst.map(function (t) {
+    const dOff = -new Date(t).getTimezoneOffset();
+    const p = fmt.formatToParts(new Date(t)).find(function (x) { return x.type === 'timeZoneName'; });
+    const m = p ? String(p.value).match(/GMT([+-])(\d{2}):(\d{2})/) : null;
+    const iOff = m ? (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0;
+    if (dOff !== iOff) mis++;
+    return dOff + '/' + iOff;
+  });
+  return { z: tz, m: mis, r: rows.join(' ') };
+}
+
 export async function collectEnv(options) {
   const o = Object.assign({ timeoutMs: 2500, tag: null }, options || {});
   _tag = typeof o.tag === 'function' ? o.tag : null;
@@ -1225,6 +1401,10 @@ export async function collectEnv(options) {
   const ewP = _bounded(_workerProfile(o.timeoutMs, true, othersDone, pms), o.timeoutMs + 300, true).then(function (v) { pms.ew = _ms(tw); return v; });
   const wgP = _webgpu(o.timeoutMs, true).then(function (v) { pms.wg = _ms(tw); return v; });
   const wcdP = _webCodecs(300).then(function (v) { pms.wcd = _ms(tw); return v; });
+  // WebGPU as negotiated (fresh adapter per request); partial results survive the deadline.
+  const gnH = {};
+  const gnP = _bounded(_gpuNeg(gnH).catch(function () { gnH.s = gnH.s || 'x'; }), o.timeoutMs, true)
+    .then(function () { pms.gn = _ms(tw); });
   out.dnt = _try(_dnt);
   let t = performance.now();
   out.nos = _try(_nlOs);
@@ -1259,8 +1439,14 @@ export async function collectEnv(options) {
   out.lat = _try(_animTiming);
   out.lff = _try(_fontFaceStatus);
   out.lhm = _try(_heap);
+  out.tzc = _try(_tzCoherence);
+  t = performance.now();
+  out.gms = _try(_msPromises);
+  pms.gms = _ms(t);
   out.em = await _mainProfile();
   pms.sync = _ms(t0);
+  const tE = performance.now();
+  const edP = _editWords(o.timeoutMs).then(function (v) { pms.ed = _ms(tE); return v; }, function () { return 'u'; });
   // gts/gle and gff/hyp share the record's deadline (timeoutMs after this block); unfinished ones read 't'.
   const gd = {}, dl = {};
   const rest = Promise.all([
@@ -1275,6 +1461,8 @@ export async function collectEnv(options) {
     wcdP,
     _bounded(_domLate(pms, dl), o.timeoutMs, true),
     bmP,
+    edP,
+    gnP,
   ]);
   rest.then(function () { pms.rst = _ms(tw); releaseWorker(); }, releaseWorker);
   Promise.all([rest, ewP]).then(restDone, restDone);
@@ -1300,6 +1488,11 @@ export async function collectEnv(options) {
   };
   out.bm = { m: r[10], i: ifr ? ifr.bm : 't', w: wk ? unpack(wk.bm, 'bmw') : 't' };
   out.ewg = wk ? unpack(wk.ewg, 'ewg') : 't';
+  // Record 4 extension 1: editing policy, WebGPU negotiation, multisample allocation, timezone coherence.
+  out.x = 1;
+  out.ed = r[11];
+  out.gn = 't';
+  if (Object.keys(gnH).length) { out.gn = Object.assign({}, gnH, gnH.done ? {} : { t: 1 }); delete out.gn.done; }
   let dd = Object.prototype.hasOwnProperty.call(gd, 'dd') ? gd.dd : null;   // normally made by _glDeep; else here (lost context)
   if (dd === null && gb && gb.keep && gb.keep.px) { try { dd = _pxStats(gb.keep.px, gb.canvas.width, gb.canvas.height); } catch (e) { dd = 'u'; } }
   out.grv = (gb && gb.rf && typeof gb.rf === 'object') ? Object.assign({}, gb.rf, { d: dd === null ? 'u' : dd, fbo: _held(gd, 'rv') }) : 'u';
