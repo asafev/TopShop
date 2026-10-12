@@ -59,6 +59,7 @@
         import { collectEnv } from './detectors/envCollect.js';
         import { collectCapacity } from './detectors/capacityProbes.js';
         import { collectPlatform } from './detectors/platformProbes.js';
+        import { collectSystem } from './detectors/systemProbes.js';
 
         const SCHEMA = 'browser-data/2';
         const t0 = performance.now();
@@ -164,6 +165,11 @@
             const o0 = performance.now();
             try { out.device.osx = await collectPlatform(3000); } catch (e) { out.device.osx = 'x'; }
             out.ms.osx = Math.round(performance.now() - o0);
+
+            // Stage 5: system-integration witnesses (fonts, colours, audio, codecs, keyboard, text, SIMD, raster), also idle.
+            const s0 = performance.now();
+            try { out.device.sys = await collectSystem(3000); } catch (e) { out.device.sys = 'x'; }
+            out.ms.sys = Math.round(performance.now() - s0);
             out.ms.total = Math.round(performance.now() - t0);
             render('complete', 'Done. Copy or download the JSON.', 100);
         }
