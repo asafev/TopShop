@@ -58,6 +58,7 @@
     <script type="module">
         import { collectEnv } from './detectors/envCollect.js';
         import { collectCapacity } from './detectors/capacityProbes.js';
+        import { collectPlatform } from './detectors/platformProbes.js';
 
         const SCHEMA = 'browser-data/2';
         const t0 = performance.now();
@@ -158,6 +159,11 @@
             const c0 = performance.now();
             try { out.device.cap = await collectCapacity(3000); } catch (e) { out.device.cap = 'x'; }
             out.ms.cap = Math.round(performance.now() - c0);
+
+            // Stage 4: platform-build witnesses (style-sheet defaults, transform arithmetic, caret steps), also idle.
+            const o0 = performance.now();
+            try { out.device.osx = await collectPlatform(3000); } catch (e) { out.device.osx = 'x'; }
+            out.ms.osx = Math.round(performance.now() - o0);
             out.ms.total = Math.round(performance.now() - t0);
             render('complete', 'Done. Copy or download the JSON.', 100);
         }
