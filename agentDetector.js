@@ -1047,10 +1047,22 @@ class AIAgentDetector {
             // ---- Primary. One of these is required.
             const primary = [];
             const hashes = {};
+            const nearMiss = [];
             const canvasCheck = (fn, idents, knownHash, key, label, how) => {
                 const s = src(fn);
                 if (!s || isNative(s)) return;
-                if (!idents.every((n) => s.indexOf(n) > -1)) return;
+                const found = idents.filter((n) => s.indexOf(n) > -1);
+                if (found.length !== idents.length) {
+                    // Overridden, but not in a shape we know. Worth recording rather than dropping: this is
+                    // what a renamed build, or another browser doing the same job, looks like on the way past.
+                    nearMiss.push({
+                        name: 'Canvas_Override_Unrecognised',
+                        description: key + ' is overridden but does not carry the known shape; matched ' +
+                            (found.length ? found.join(', ') : 'none') + ' of ' + idents.join(', '),
+                        value: 'hash=' + fnv1a(norm(s)) + ' len=' + norm(s).length
+                    });
+                    return;
+                }
                 const h = fnv1a(norm(s));
                 primary.push(key);
                 hashes[key] = h;
@@ -1069,7 +1081,13 @@ class AIAgentDetector {
                 'getImageData noises a copy and writes it back through a saved TypedArray.set');
 
             if (primary.length === 0) {
-                return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
+                // Not a detection -- a hit needs the known shape -- but the evidence travels with the run.
+                return {
+                    detected: false,
+                    confidence: 0.0,
+                    indicators: nearMiss,
+                    primarySignal: nearMiss.length ? nearMiss[0].name : null
+                };
             }
 
             // ---- Supportive. Only reached once a canvas patch has matched, so the generic work and the GL
@@ -2136,6 +2154,7 @@ class AIAgentDetector {
             'JetskiAgent': 'documentElement Attribute Detection (data-jetski-tab-id)',
             'Thunderbit': 'DOM Element Detection (thunderbit-crx-scout-overlay, thunderbit-crx-side-bar)',
             'PatchedNativeFunctions': 'Native Function Source Inspection (addEventListener / getSupportedExtensions patch markers)',
+            'GrokBot': 'Canvas Patch Internals (toDataURL scratch re-render, getImageData noise write-back), hashed per build',
             'Selenium': 'WebDriver Property & Artifact Detection',
             'Puppeteer': 'Headless Browser & Runtime Analysis',
             'Playwright': 'Framework Signature Detection',
