@@ -159,6 +159,7 @@ class SuspiciousIndicatorDetector {
                     'zero_touch_points',
                     'stack_trace_eval_context', // Eval context in stack traces
                     'stack_trace_vm_context', // VM context markers in stack traces
+                    'stack_trace_shape_only_globals', // Automation-shaped global names, no tool named
                     'iframe_fresh_window_mismatch', // Property mismatches between main and fresh window
                     'iframe_plugins_proxied' // navigator.plugins appears proxied
                 ]
@@ -644,21 +645,42 @@ class SuspiciousIndicatorDetector {
             });
         }
 
-        // Check for automation properties in global objects
-        const windowAutomationKeys = stackTraceData.windowAutomationKeys?.value || 0;
-        const navigatorAutomationKeys = stackTraceData.navigatorAutomationKeys?.value || 0;
-        const totalAutomationProps = windowAutomationKeys + navigatorAutomationKeys;
-        
-        if (totalAutomationProps > 0) {
+        // Check for automation properties in global objects. The scan records the key it matched and
+        // the pattern that caught it, so the indicator can name the keys rather than only count them.
+        const scannedProps = stackTraceData.suspiciousProperties?.value || [];
+        const namedTool = scannedProps.filter(p => (p.weight || 0) >= 5);
+        const shapeOnly = scannedProps.filter(p => (p.weight || 0) < 5);
+        const listKeys = (list, max) => {
+            const shown = list.slice(0, max).map(p => {
+                const where = p.enumerable === false ? ', non-enumerable' : '';
+                return p.pattern ? `${p.key} (${p.pattern}${where})` : p.key;
+            }).join(', ');
+            return list.length > max ? `${shown}, +${list.length - max} more` : shown;
+        };
+
+        if (namedTool.length > 0) {
             this._addIndicator({
                 name: 'stack_trace_automation_properties',
                 category: 'StackTrace',
-                description: 'Automation-related properties found in global objects',
-                value: `window: ${windowAutomationKeys}, navigator: ${navigatorAutomationKeys}`,
-                riskLevel: totalAutomationProps > 3 ? 'HIGH' : 'MEDIUM',
-                confidence: Math.min(0.9, 0.5 + (totalAutomationProps * 0.1)),
-                importance: totalAutomationProps > 3 ? 'CRITICAL' : 'STRONG',
-                details: `Found ${totalAutomationProps} automation-related properties in window/navigator`
+                description: 'Properties named after a known automation tool found in global objects',
+                value: listKeys(namedTool, 3),
+                riskLevel: namedTool.length > 3 ? 'HIGH' : 'MEDIUM',
+                confidence: Math.min(0.9, 0.5 + (namedTool.length * 0.1)),
+                importance: namedTool.length > 3 ? 'CRITICAL' : 'STRONG',
+                details: `Keys found: ${listKeys(namedTool, 12)}. A tool writes these names itself; page code has no reason to.`
+            });
+        }
+
+        if (shapeOnly.length > 0) {
+            this._addIndicator({
+                name: 'stack_trace_shape_only_globals',
+                category: 'StackTrace',
+                description: 'Globals with an automation-shaped name but no tool named in it',
+                value: listKeys(shapeOnly, 3),
+                riskLevel: 'LOW',
+                confidence: 0.2,
+                importance: 'WEAK',
+                details: `Keys found: ${listKeys(shapeOnly, 12)}. Analytics and app code use names like these, so this is clustering context rather than evidence.`
             });
         }
     }

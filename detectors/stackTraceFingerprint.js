@@ -62,18 +62,26 @@ const STACK_TRACE_CONFIG = {
         INJECTED: { pattern: /__puppeteer|__playwright|__selenium/gi, weight: 10 }
     },
     
-    // Property patterns that indicate automation (for window/navigator scan)
+    // Property patterns that indicate automation (for window/navigator scan).
+    // Weight >= 5 names a specific tool: no page has a reason to define such a key, so one match is
+    // reportable on its own. Weight < 5 describes a shape that ordinary page code shares, and is kept
+    // for clustering only.
     automationPropertyPatterns: [
-        { pattern: /^_(?!_)/, name: 'underscore_prefix', weight: 1 },
+        { pattern: /cdc_|__cdp/i, name: 'cdp_related', weight: 6 },
+        { pattern: /^\$cdc_|^\$chrome_/, name: 'chrome_automation', weight: 6 },
+        { pattern: /domAutomation/i, name: 'dom_automation', weight: 6 },
+        { pattern: /callPhantom|callSelenium/i, name: 'automation_call', weight: 6 },
         { pattern: /webdriver/i, name: 'webdriver_related', weight: 5 },
+        { pattern: /chromedriver/i, name: 'chromedriver_related', weight: 5 },
+        { pattern: /fxdriver|marionette/i, name: 'firefox_driver_related', weight: 5 },
+        { pattern: /^__(driver|selenium)_(evaluate|unwrapped)$/, name: 'driver_hook', weight: 5 },
         { pattern: /selenium/i, name: 'selenium_related', weight: 5 },
         { pattern: /phantom/i, name: 'phantom_related', weight: 5 },
         { pattern: /puppeteer/i, name: 'puppeteer_related', weight: 5 },
         { pattern: /playwright/i, name: 'playwright_related', weight: 5 },
-        { pattern: /cdc_|__cdp/i, name: 'cdp_related', weight: 6 },
-        { pattern: /domAutomation/i, name: 'dom_automation', weight: 6 },
-        { pattern: /callPhantom|callSelenium/i, name: 'automation_call', weight: 6 },
-        { pattern: /$cdc_|$chrome_/i, name: 'chrome_automation', weight: 5 }
+        { pattern: /^__(pw|PW)_/, name: 'playwright_internal', weight: 5 },
+        { pattern: /__nightmare|__lastWatir|awesomium/i, name: 'legacy_automation', weight: 5 },
+        { pattern: /^_(?!_)/, name: 'underscore_prefix', weight: 1 }
     ]
 };
 
@@ -392,45 +400,80 @@ class StackTraceFingerprintDetector {
      * This collects valuable clustering data, not just detection
      */
     _scanForAutomationProperties() {
+        // At or above this weight the pattern names a tool; below it, it only describes a shape.
+        const NAMED_TOOL_WEIGHT = 5;
+
         const results = {
-            windowKeys: { found: [], count: 0 },
-            documentKeys: { found: [], count: 0 },
-            navigatorKeys: { found: [], count: 0 },
+            windowKeys: { found: [], count: 0, strongCount: 0, weakCount: 0 },
+            documentKeys: { found: [], count: 0, strongCount: 0, weakCount: 0 },
+            navigatorKeys: { found: [], count: 0, strongCount: 0, weakCount: 0 },
             automationControlled: null,
-            totalSuspiciousCount: 0
+            totalSuspiciousCount: 0,
+            totalWeakCount: 0
+        };
+
+        // The strongest pattern a key matches, not the first one listed: `_phantom` is a phantom
+        // marker, not merely a key that happens to start with an underscore.
+        const classify = (key) => {
+            let best = null;
+            for (const { pattern, name, weight } of this.config.automationPropertyPatterns) {
+                if (pattern.test(key) && (!best || weight > best.weight)) {
+                    best = { pattern: name, weight };
+                }
+            }
+            return best;
         };
 
         const scanObject = (obj, objName) => {
             const found = [];
-            if (!obj) return { found, count: 0 };
-            
+            let strongCount = 0;
+            let weakCount = 0;
+            if (!obj) return { found, count: 0, strongCount, weakCount };
+
+            const seen = new Set();
+            const consider = (key, enumerable) => {
+                if (seen.has(key)) return;
+                seen.add(key);
+
+                // Skip our own instrumentation and properties
+                if (key.startsWith('__browserFingerprint') || key.startsWith('__native')) return;
+                if (key === '_fingerprintAnalyzer' || key === 'fingerprintAnalyzer') return;
+
+                // Skip navigator.webdriver - it's a standard property, not suspicious
+                // Only suspicious if the VALUE is true, which is checked elsewhere
+                if (objName === 'navigator' && key === 'webdriver') return;
+
+                const match = classify(key);
+                if (!match) return;
+                const isNamedTool = match.weight >= NAMED_TOOL_WEIGHT;
+
+                let val;
+                try {
+                    val = obj[key];
+                } catch (e) {
+                    val = undefined;
+                }
+
+                // A shape-only match holding nothing is ordinary page code. A named-tool marker counts
+                // either way: stealth patches routinely leave the key in place with its value emptied.
+                if (!isNamedTool && (val === false || val === null || val === undefined)) return;
+
+                found.push({
+                    key,
+                    pattern: match.pattern,
+                    weight: match.weight,
+                    enumerable,
+                    type: typeof val,
+                    valueHint: this._getSafeValueHint(obj, key)
+                });
+                if (isNamedTool) strongCount++;
+                else weakCount++;
+            };
+
             try {
                 for (const key in obj) {
                     try {
-                        // Skip our own instrumentation and properties
-                        if (key.startsWith('__browserFingerprint') || key.startsWith('__native')) continue;
-                        if (key === '_fingerprintAnalyzer' || key === 'fingerprintAnalyzer') continue;
-                        
-                        // Skip navigator.webdriver - it's a standard property, not suspicious
-                        // Only suspicious if the VALUE is true, which is checked elsewhere
-                        if (objName === 'navigator' && key === 'webdriver') continue;
-                        
-                        for (const { pattern, name, weight } of this.config.automationPropertyPatterns) {
-                            if (pattern.test(key)) {
-                                // Additional check: skip if it's a standard property with false/null value
-                                const val = obj[key];
-                                if (val === false || val === null || val === undefined) continue;
-                                
-                                found.push({
-                                    key,
-                                    pattern: name,
-                                    weight,
-                                    type: typeof obj[key],
-                                    valueHint: this._getSafeValueHint(obj, key)
-                                });
-                                break; // Only match first pattern per key
-                            }
-                        }
+                        consider(key, true);
                     } catch (e) {
                         // Some properties throw on access
                     }
@@ -438,8 +481,37 @@ class StackTraceFingerprintDetector {
             } catch (e) {
                 // Object enumeration failed
             }
-            
-            return { found: found.slice(0, 20), count: found.length };
+
+            // Own names along the prototype chain as well: a key defined with `enumerable: false`
+            // never shows up in for...in, and a patch that hides itself usually sits on the prototype
+            // rather than the instance. Only tool names are read here - the shape pattern would match
+            // ordinary internals by the hundred.
+            try {
+                let proto = obj;
+                for (let depth = 0; proto && depth < 6; depth++) {
+                    for (const key of Object.getOwnPropertyNames(proto)) {
+                        if (seen.has(key)) continue;
+                        const match = classify(key);
+                        if (!match || match.weight < NAMED_TOOL_WEIGHT) {
+                            seen.add(key);
+                            continue;
+                        }
+                        try {
+                            consider(key, false);
+                        } catch (e) {
+                            // Some properties throw on access
+                        }
+                    }
+                    proto = Object.getPrototypeOf(proto);
+                }
+            } catch (e) {
+                // Own-name enumeration failed
+            }
+
+            // Strongest first, so the cap below keeps the evidence rather than the noise
+            found.sort((a, b) => b.weight - a.weight);
+
+            return { found: found.slice(0, 20), count: found.length, strongCount, weakCount };
         };
 
         if (typeof window !== 'undefined') {
@@ -462,10 +534,15 @@ class StackTraceFingerprintDetector {
             results.automationControlled = 'error';
         }
 
-        results.totalSuspiciousCount = 
-            results.windowKeys.count + 
-            results.documentKeys.count + 
-            results.navigatorKeys.count;
+        results.totalSuspiciousCount =
+            results.windowKeys.strongCount +
+            results.documentKeys.strongCount +
+            results.navigatorKeys.strongCount;
+
+        results.totalWeakCount =
+            results.windowKeys.weakCount +
+            results.documentKeys.weakCount +
+            results.navigatorKeys.weakCount;
         
         return results;
     }
@@ -666,8 +743,9 @@ class StackTraceFingerprintDetector {
             boundFunctionSignature: this._hashString(data.functionToStringFormat?.boundFunctionFormat || ''),
             
             // Automation property counts (useful for clustering)
-            windowAutomationKeys: data.automationProperties?.windowKeys?.count || 0,
-            navigatorAutomationKeys: data.automationProperties?.navigatorKeys?.count || 0,
+            windowAutomationKeys: data.automationProperties?.windowKeys?.strongCount || 0,
+            navigatorAutomationKeys: data.automationProperties?.navigatorKeys?.strongCount || 0,
+            shapeOnlyGlobalKeys: data.automationProperties?.totalWeakCount || 0,
             
             // Caller behavior (varies by environment/strict mode)
             callerAccessible: data.callerAnalysis?.callerAccessible || false,
@@ -781,14 +859,24 @@ class StackTraceFingerprintDetector {
             
             // Automation property scan
             windowAutomationKeys: {
-                value: result.automationProperties?.windowKeys?.count || 0,
-                description: 'Number of automation-related window properties found',
-                risk: (result.automationProperties?.windowKeys?.count || 0) > 0 ? 'High' : 'Low'
+                value: result.automationProperties?.windowKeys?.strongCount || 0,
+                description: 'Window properties named after a known automation tool',
+                risk: (result.automationProperties?.windowKeys?.strongCount || 0) > 0 ? 'High' : 'Low'
             },
             navigatorAutomationKeys: {
-                value: result.automationProperties?.navigatorKeys?.count || 0,
-                description: 'Number of automation-related navigator properties found',
-                risk: (result.automationProperties?.navigatorKeys?.count || 0) > 0 ? 'High' : 'Low'
+                value: result.automationProperties?.navigatorKeys?.strongCount || 0,
+                description: 'Navigator properties named after a known automation tool',
+                risk: (result.automationProperties?.navigatorKeys?.strongCount || 0) > 0 ? 'High' : 'Low'
+            },
+            documentAutomationKeys: {
+                value: result.automationProperties?.documentKeys?.strongCount || 0,
+                description: 'Document properties named after a known automation tool',
+                risk: (result.automationProperties?.documentKeys?.strongCount || 0) > 0 ? 'High' : 'Low'
+            },
+            shapeOnlyGlobalKeys: {
+                value: result.automationProperties?.totalWeakCount || 0,
+                description: 'Globals whose name only matches an automation shape, no tool named in it',
+                risk: 'N/A'
             },
             
             // Detailed property findings (for research/clustering)
@@ -798,7 +886,7 @@ class StackTraceFingerprintDetector {
                     ...(result.automationProperties?.navigatorKeys?.found || []),
                     ...(result.automationProperties?.documentKeys?.found || [])
                 ].slice(0, 30),
-                description: 'Automation-related properties found in global objects',
+                description: 'Each automation-related property found: the key itself, the pattern that matched it, and whether it was enumerable',
                 risk: 'N/A'
             },
             
