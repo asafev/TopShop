@@ -245,7 +245,7 @@ function createMetricRow(index, metricName, metricData, categoryKey, visibleColu
     if (visibleColumns.includes('value')) {
         const valueCell = document.createElement('td');
         valueCell.setAttribute('data-column', 'value');
-        valueCell.appendChild(createValueElement(value, metricName, categoryKey));
+        valueCell.appendChild(createValueElement(value, metricName, categoryKey, metricData));
         row.appendChild(valueCell);
     }
     
@@ -286,9 +286,10 @@ function createMetricRow(index, metricName, metricData, categoryKey, visibleColu
  * @param {any} value - The value to display
  * @param {string} metricName - The metric name
  * @param {string} categoryKey - The category key
+ * @param {object} [metricData] - The whole metric, read for its untruncated fullValue when it has one
  * @returns {HTMLElement} Value element
  */
-function createValueElement(value, metricName, categoryKey) {
+function createValueElement(value, metricName, categoryKey, metricData) {
     // Handle image data URLs (WebGL screenshots)
     if (isImageDataUrl(value)) {
         const wrapper = document.createElement('div');
@@ -313,7 +314,13 @@ function createValueElement(value, metricName, categoryKey) {
         span.classList.add(value ? 'fp-metric-value--success' : 'fp-metric-value--danger');
     }
     
-    const fullValueStr = String(value);
+    // Prefer the collector's untruncated copy: `value` is cut for display, and a reader who clicks to copy
+    // wants the whole source, not 200 characters and an ellipsis.
+    const fullValueStr = String(
+        (metricData && typeof metricData === 'object' && metricData.fullValue != null)
+            ? metricData.fullValue
+            : value
+    );
     span.textContent = formatValue(value);
     span.title = `Click to copy: ${fullValueStr.length > 100 ? fullValueStr.substring(0, 100) + '...' : fullValueStr}`;
     span.dataset.fullValue = fullValueStr; // Store full value for copying

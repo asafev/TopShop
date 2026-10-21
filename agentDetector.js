@@ -68,7 +68,15 @@ const VENDOR_AGENT_SIGNATURES = {
     // A stealth patch that re-implements a native function leaves its own
     // source - including comments - visible to Function.prototype.toString.
     PATCHED_LISTENER_MARKER: "data-has-interactive-listener",
-    PATCHED_WEBGL_EXT_MARKER: "// Ensure WEBGL_debug_renderer_info is always included"
+    PATCHED_WEBGL_EXT_MARKER: "// Ensure WEBGL_debug_renderer_info is always included",
+    // Grok Bot (xAI). The internal names in its canvas patches are what identify it; the hashes pin the exact
+    // build we measured, and structure matching still fires when a new build rewrites the body.
+    GROK_TODATAURL_IDENTS: ["exportImage", "htmlScratch", "origToDataURL"],
+    GROK_GETIMAGEDATA_IDENTS: ["applyNoise", "tcSet", "readAccessor", "imageDataGet"],
+    GROK_TODATAURL_HASH: "e0027aaa",
+    GROK_GETIMAGEDATA_HASH: "d722d222",
+    GROK_WEBGL_IDENTS: ["UNMASKED_VENDOR", "UNMASKED_RENDERER"],
+    GROK_HARDWARE_CONCURRENCY: 8,
 };
 
 // ============================================================
@@ -354,6 +362,7 @@ class AIAgentDetector {
             { name: 'JetskiAgent', detector: this.detectJetskiAgent },
             { name: 'Thunderbit', detector: this.detectThunderbit },
             { name: 'PatchedNativeFunctions', detector: this.detectPatchedNativeFunctions },
+            { name: 'GrokBot', detector: this.detectGrokBot },
             // Add more detectors here as they're implemented
             { name: 'Selenium', detector: this.detectSelenium },
             { name: 'Puppeteer', detector: this.detectPuppeteer },
@@ -426,6 +435,9 @@ class AIAgentDetector {
                             break;
                         case 'Thunderbit':
                             confidence = 0.94; // High confidence - unique extension overlay IDs
+                            break;
+                        case 'GrokBot':
+                            confidence = 0.95; // canvas patch internals unique to Grok's browser
                             break;
                         case 'PatchedNativeFunctions':
                             confidence = 0.90; // High confidence - native function source rewritten
@@ -964,6 +976,187 @@ class AIAgentDetector {
         } catch (error) {
             console.debug('Error in patched-native-function detection:', error);
             return { detected: false, confidence: 0.0, indicators: [], error: error.message };
+        }
+    }
+
+    /**
+     * Detect Grok Bot (xAI) by the shape of its fingerprint-normalisation patches.
+     *
+     * Grok's cloud browser patches five natives to present itself as an ordinary desktop rather than a
+     * Linux VM without a GPU -- not to hide
+     * that it is an agent, so none of this overlaps the DOM-marker detectors above.
+     *
+     * Only the canvas patches identify it. toDataURL re-renders through a scratch canvas and getImageData
+     * noises a copy and writes it back through a saved TypedArray.set; the internal names those two use
+     * (exportImage, htmlScratch, origToDataURL; readAccessor, imageDataGet, applyNoise, tcSet) appear in no
+     * published library found so far. Replacing the WebGL vendor and renderer strings, the platform getter
+     * and the pinned core count are all common and only corroborate -- hardwareConcurrency especially,
+     * since its value follows VM sizing and can change on any deploy.
+     *
+     * One of the two canvas patches is required. Without it there is no detection however many of the generic
+     * signals are present, because the generic signals describe a whole industry.
+     */
+    async detectGrokBot() {
+        const indicators = [];
+        const S = VENDOR_AGENT_SIGNATURES;
+        let frame = null;
+        try {
+            const isNative = (s) => /\{\s*\[native code\]\s*\}/.test(s);
+            const norm = (s) => String(s).replace(/\s+/g, ' ').trim();
+            const fnv1a = (s) => {
+                let h = 0x811c9dc5;
+                for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+                return ('0000000' + (h >>> 0).toString(16)).slice(-8);
+            };
+
+            // A main-realm read is free. It can only lie by reporting [native code] for something patched,
+            // so that is the single case worth paying for a pristine realm to re-check.
+            const shallow = (fn) => {
+                if (typeof fn !== 'function') return '';
+                try { return Function.prototype.toString.call(fn); } catch (e) { return ''; }
+            };
+            let pristine;
+            const deep = (fn) => {
+                if (typeof fn !== 'function') return '';
+                if (pristine === undefined) {
+                    pristine = null;
+                    try {
+                        frame = document.createElement('iframe');
+                        frame.style.display = 'none';
+                        (document.body || document.documentElement).appendChild(frame);
+                        pristine = frame.contentWindow.Function.prototype.toString;
+                    } catch (e) { pristine = null; }
+                }
+                if (!pristine) return '';
+                try { return pristine.call(fn); } catch (e) { return ''; }
+            };
+            // The reading we trust: whatever is not [native code], preferring the cheap one.
+            const src = (fn) => {
+                const s = shallow(fn);
+                if (s && !isNative(s)) return s;
+                const d = deep(fn);
+                return (d && !isNative(d)) ? d : s;
+            };
+            const getterSrc = (obj, prop) => {
+                try {
+                    const d = Object.getOwnPropertyDescriptor(obj, prop);
+                    return d && d.get ? src(d.get) : '';
+                } catch (e) { return ''; }
+            };
+
+            // ---- Primary. One of these is required.
+            const primary = [];
+            const hashes = {};
+            const canvasCheck = (fn, idents, knownHash, key, label, how) => {
+                const s = src(fn);
+                if (!s || isNative(s)) return;
+                if (!idents.every((n) => s.indexOf(n) > -1)) return;
+                const h = fnv1a(norm(s));
+                primary.push(key);
+                hashes[key] = h;
+                indicators.push({
+                    name: label,
+                    description: how + ' (' + idents.join(', ') + ')',
+                    value: 'hash=' + h + (h === knownHash ? ' known build' : ' structure matched, hash drifted'),
+                    knownBuild: h === knownHash
+                });
+            };
+            canvasCheck(HTMLCanvasElement.prototype.toDataURL, S.GROK_TODATAURL_IDENTS,
+                S.GROK_TODATAURL_HASH, 'toDataURL', 'Grok_Canvas_toDataURL',
+                'toDataURL re-renders through a scratch canvas');
+            canvasCheck(CanvasRenderingContext2D.prototype.getImageData, S.GROK_GETIMAGEDATA_IDENTS,
+                S.GROK_GETIMAGEDATA_HASH, 'getImageData', 'Grok_Canvas_getImageData',
+                'getImageData noises a copy and writes it back through a saved TypedArray.set');
+
+            if (primary.length === 0) {
+                return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
+            }
+
+            // ---- Supportive. Only reached once a canvas patch has matched, so the generic work and the GL
+            // context are never paid for on an ordinary browser.
+            const supportive = [];
+
+            const hwcSrc = getterSrc(Navigator.prototype, 'hardwareConcurrency');
+            const pinned = /\{\s*return\s+(\d+)\s*;?\s*\}/.exec(hwcSrc || '');
+            if (hwcSrc && !isNative(hwcSrc) && pinned) {
+                supportive.push('hardwareConcurrency');
+                indicators.push({
+                    name: 'Grok_HardwareConcurrency_Pinned',
+                    description: 'hardwareConcurrency getter returns a hardcoded ' + pinned[1] +
+                        (Number(pinned[1]) === S.GROK_HARDWARE_CONCURRENCY ? ', the value measured on Grok Bot' : ''),
+                    value: norm(hwcSrc).substring(0, 120)
+                });
+            }
+
+            const platformSrc = getterSrc(Navigator.prototype, 'platform');
+            if (platformSrc && !isNative(platformSrc) && /return\s+[A-Z_][A-Z0-9_]{2,}\s*;?\s*\}/.test(platformSrc)) {
+                supportive.push('platform');
+                indicators.push({
+                    name: 'Grok_Platform_Substituted',
+                    description: 'navigator.platform getter returns a captured constant rather than a literal',
+                    value: norm(platformSrc).substring(0, 120)
+                });
+            }
+
+            try {
+                const c = document.createElement('canvas');
+                const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+                const glSrc = gl ? src(gl.getParameter) : '';
+                if (glSrc && !isNative(glSrc) &&
+                    S.GROK_WEBGL_IDENTS.every((n) => glSrc.indexOf(n) > -1) && glSrc.indexOf('37445') === -1) {
+                    supportive.push('webglGetParameter');
+                    indicators.push({
+                        name: 'Grok_WebGL_NamedConstants',
+                        description: 'WebGL getParameter returns vendor and renderer from named constants ' +
+                            'rather than the numeric 37445/37446 form',
+                        value: norm(glSrc).substring(0, 160)
+                    });
+                }
+            } catch (e) { /* no GL context available; supportive only */ }
+
+            // The patches stop at GPU, CPU and canvas. Broader toolkits also replace the automation
+            // surface, and Grok leaves it alone.
+            try {
+                const quiet = ['webdriver', 'plugins', 'mimeTypes'].every((p) => {
+                    const s = getterSrc(Navigator.prototype, p);
+                    return !s || isNative(s);
+                });
+                if (quiet) {
+                    supportive.push('automationSurfaceUntouched');
+                    indicators.push({
+                        name: 'Grok_Automation_Surface_Clean',
+                        description: 'webdriver, plugins and mimeTypes getters are all native: the patches are ' +
+                            'confined to GPU, CPU and canvas rather than reaching the automation surface',
+                        value: 'webdriver/plugins/mimeTypes native'
+                    });
+                }
+            } catch (e) { /* supportive only */ }
+
+            const confidence = primary.length >= 2
+                ? (supportive.length ? 0.97 : 0.95)
+                : (supportive.length >= 2 ? 0.90 : 0.80);
+
+            console.log('Grok Bot patch signature detected');
+            return {
+                detected: true,
+                confidence,
+                indicators,
+                primarySignal: indicators[0].name,
+                signature: {
+                    primary,
+                    supportive,
+                    hashes,
+                    knownBuild: primary.every((k) => hashes[k] === (k === 'toDataURL'
+                        ? S.GROK_TODATAURL_HASH : S.GROK_GETIMAGEDATA_HASH))
+                }
+            };
+        } catch (error) {
+            console.debug('Error in Grok Bot detection:', error);
+            return { detected: false, confidence: 0.0, indicators: [], error: error.message };
+        } finally {
+            if (frame && frame.parentNode) {
+                try { frame.parentNode.removeChild(frame); } catch (e) { /* ignore */ }
+            }
         }
     }
 

@@ -335,6 +335,60 @@ export class FunctionIntegrityDetector {
                 }
             },
             
+            // Read off the prototype as well as the instance above: a patch installed on one and not the
+            // other is both a bypass and a tell, and the two readings disagreeing is itself the finding.
+            webglGetParameterProto: () => typeof WebGLRenderingContext !== 'undefined'
+                ? safeToString(WebGLRenderingContext.prototype.getParameter) : 'not-supported',
+            // There is more than one WebGL context, and both prototypes can be patched independently. One
+            // that covers only WebGL1 leaves the true vendor and renderer readable through a webgl2 context.
+            webgl2GetParameter: () => typeof WebGL2RenderingContext !== 'undefined'
+                ? safeToString(WebGL2RenderingContext.prototype.getParameter) : 'not-supported',
+            // The other way pixels leave a WebGL context.
+            webglReadPixels: () => typeof WebGLRenderingContext !== 'undefined'
+                ? safeToString(WebGLRenderingContext.prototype.readPixels) : 'not-supported',
+            // toDataURL's sibling. A canvas-noise patch that forgets it hands back the un-noised image.
+            canvasToBlob: () => safeToString(HTMLCanvasElement.prototype.toBlob),
+            // The offscreen equivalents of the 2d read-back and the blob export, commonly missed.
+            offscreen2dGetImageData: () => typeof OffscreenCanvasRenderingContext2D !== 'undefined'
+                ? safeToString(OffscreenCanvasRenderingContext2D.prototype.getImageData) : 'not-supported',
+            offscreenConvertToBlob: () => typeof OffscreenCanvas !== 'undefined'
+                ? safeToString(OffscreenCanvas.prototype.convertToBlob) : 'not-supported',
+            // WebGPU reports the adapter directly, so it contradicts a replaced WebGL renderer unless both
+            // are changed in step. Nothing seen so far changes both.
+            gpuRequestAdapter: () => {
+                try {
+                    return navigator.gpu && typeof navigator.gpu.requestAdapter === 'function'
+                        ? safeToString(navigator.gpu.requestAdapter) : 'not-supported';
+                } catch {
+                    return 'not-supported';
+                }
+            },
+
+            // ===== AUTOMATION SURFACE =====
+            // The bit that says an event came from a person. Synthetic input has to defeat it.
+            eventIsTrustedGetter: () => {
+                const d = Object.getOwnPropertyDescriptor(Event.prototype, 'isTrusted');
+                return d && d.get ? safeToString(d.get) : 'not-supported';
+            },
+            // Stack-trace hooks: where a patch hides its own frames from a detector reading an error.
+            errorCaptureStackTrace: () => typeof Error.captureStackTrace === 'function'
+                ? safeToString(Error.captureStackTrace) : 'not-supported',
+            errorStackGetter: () => {
+                const d = Object.getOwnPropertyDescriptor(Error.prototype, 'stack');
+                return d && d.get ? safeToString(d.get) : 'not-supported';
+            },
+            // The plumbing a Proxy-based patch runs on. Reflect.get was watched; apply was not.
+            reflectApply: () => safeToString(Reflect.apply),
+            // The two clocks a changed locale has to keep in step with each other and with the IP.
+            dateGetTimezoneOffset: () => safeToString(Date.prototype.getTimezoneOffset),
+            intlResolvedOptions: () => {
+                try {
+                    return safeToString(Intl.DateTimeFormat.prototype.resolvedOptions);
+                } catch {
+                    return 'not-supported';
+                }
+            },
+
             // ===== NAVIGATOR GETTERS =====
             navigatorUAGetter: () => safeToString(Object.getOwnPropertyDescriptor(Navigator.prototype, 'userAgent')?.get),
             navigatorLangGetter: () => safeToString(Object.getOwnPropertyDescriptor(Navigator.prototype, 'languages')?.get),
@@ -682,6 +736,9 @@ export class FunctionIntegrityDetector {
                     !val.startsWith('error:') &&
                     val !== 'not-supported' && val !== 'not-available' && 
                     val !== 'no-webgl' && val !== 'webgl-error' &&
+                    // safeToString falls back to String(fn), so an absent function arrives as "undefined"
+                    // and would otherwise be filed as an override and inflate the count.
+                    val !== 'undefined' && val !== 'null' &&
                     val !== 'native' && val !== 'MODIFIED') {
                     overriddenFunctions[k] = val;
                 }
@@ -1187,7 +1244,7 @@ export class FunctionIntegrityDetector {
                     // Store individual overridden function details
                     Object.entries(overridden).forEach(([funcName, fullToString]) => {
                         metrics.functionIntegrity[`override_${funcName}`] = {
-                            value: fullToString.length > 200 ? fullToString.substring(0, 200) + '...[truncated]' : fullToString,
+                            value: fullToString.length > 2000 ? fullToString.substring(0, 2000) + '...[truncated]' : fullToString,
                             fullValue: fullToString, // Store full value for export/raw access
                             description: `Full toString() of overridden function: ${funcName}`,
                             risk: 'high'
@@ -1339,6 +1396,19 @@ export class FunctionIntegrityDetector {
             canvasToDataURL: 'HTMLCanvasElement.prototype.toDataURL',
             canvasGetContext: 'HTMLCanvasElement.prototype.getContext',
             webglGetParameter: 'WebGL getParameter method',
+            webglGetParameterProto: 'WebGLRenderingContext.prototype.getParameter - prototype reading, compare with the instance',
+            webgl2GetParameter: 'WebGL2RenderingContext.prototype.getParameter - the context a WebGL1-only patch misses',
+            webglReadPixels: 'WebGLRenderingContext.prototype.readPixels - WebGL pixel read-back',
+            canvasToBlob: 'HTMLCanvasElement.toBlob - read-back path a canvas-noise patch often forgets',
+            offscreen2dGetImageData: 'OffscreenCanvasRenderingContext2D.getImageData - offscreen read-back',
+            offscreenConvertToBlob: 'OffscreenCanvas.convertToBlob - offscreen blob export',
+            gpuRequestAdapter: 'navigator.gpu.requestAdapter - WebGPU adapter, contradicts a replaced WebGL renderer',
+            eventIsTrustedGetter: 'Event.isTrusted getter - the bit synthetic input has to defeat',
+            errorCaptureStackTrace: 'Error.captureStackTrace - stack-trace hook used to hide patch frames',
+            errorStackGetter: 'Error.stack getter - stack scrubbing',
+            reflectApply: 'Reflect.apply - plumbing for Proxy-based patches',
+            dateGetTimezoneOffset: 'Date.getTimezoneOffset - geography consistency',
+            intlResolvedOptions: 'Intl.DateTimeFormat.resolvedOptions - timezone substitution',
             
             // Navigator getters
             navigatorUAGetter: 'Navigator.userAgent getter',

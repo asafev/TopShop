@@ -103,12 +103,35 @@
                 const o = {};
                 for (const [key, m] of Object.entries(entries)) {
                     if (SKIP_KEYS.some((re) => re.test(key))) continue;
-                    const v = (m && typeof m === 'object' && 'value' in m) ? m.value : m;
-                    o[key] = rawValue(v === 'Not available' ? null : v);
+                    o[key] = rawValue(metricValue(m));
                 }
                 if (Object.keys(o).length) res[cat] = o;
             }
+            const integrity = overrideSources(metrics);
+            if (integrity) res.functionIntegrity = integrity;
             return res;
+        }
+
+        // A metric's raw reading. Where the collector kept an untruncated copy beside the display one, that is
+        // the reading -- the display copy is cut to fit a table cell and is not what another tool should compare.
+        function metricValue(m) {
+            if (!m || typeof m !== 'object') return m;
+            const v = 'fullValue' in m ? m.fullValue : ('value' in m ? m.value : m);
+            return v === 'Not available' ? null : v;
+        }
+
+        // functionIntegrity stays out of the sweep above: 300 targets and a native bit for each would swamp the
+        // file. What earns its place is the part that tells one browser from another -- the source of every
+        // function found overridden, whole, plus how many there were.
+        function overrideSources(metrics) {
+            const entries = (metrics || {}).functionIntegrity;
+            if (!entries || typeof entries !== 'object') return null;
+            const o = {};
+            for (const [key, m] of Object.entries(entries)) {
+                if (key !== 'overriddenFunctionsCount' && !key.startsWith('override_')) continue;
+                o[key] = metricValue(m);
+            }
+            return Object.keys(o).length ? o : null;
         }
 
         function download() {
