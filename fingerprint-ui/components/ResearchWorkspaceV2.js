@@ -28,6 +28,16 @@ function escapeHtml(str) {
 }
 
 /**
+ * The detector results of a knownAgentsDetection block: the analyzer stores the detector's whole result object under
+ * `results` (its array is `results.detectionResults`); older exports put the array there directly.
+ */
+function agentResultList(knownAgentsDetection) {
+    const r = knownAgentsDetection?.results;
+    const list = Array.isArray(r) ? r : (r?.detectionResults || knownAgentsDetection?.detectionResults || []);
+    return Array.isArray(list) ? list : [];
+}
+
+/**
  * Senior Researcher Category Structure
  * Organized by analysis domain for efficient investigation workflow
  */
@@ -40,7 +50,8 @@ const RESEARCH_CATEGORIES = {
         categories: [
             { key: 'summary', label: 'Analysis Summary', icon: 'dashboard' },
             { key: 'suspiciousIndicators', label: 'Suspicious Signals', icon: 'shieldAlert' },
-            { key: 'knownAgents', label: 'Detected Agents', icon: 'agent' }
+            { key: 'knownAgents', label: 'Detected Agents', icon: 'agent' },
+            { key: 'engineChecks', label: 'Engine Checks', icon: 'gpu' }
         ]
     },
     browser: {
@@ -144,6 +155,7 @@ const CATEGORY_CONFIG = {
     summary: { label: 'Analysis Summary', description: 'Overview of fingerprint analysis results' },
     suspiciousIndicators: { label: 'Suspicious Signals', description: 'Detected suspicious browser configurations' },
     knownAgents: { label: 'Detected Agents', description: 'Known automation tools and frameworks' },
+    engineChecks: { label: 'Engine Checks', description: 'Claimed OS and GPU against what the engine does; Browser Use build markers' },
     core: { label: 'Core Properties', description: 'Essential browser identification' },
     navigator: { label: 'Navigator API', description: 'Browser navigator object properties' },
     window: { label: 'Window Object', description: 'Window dimensions and properties' },
@@ -298,11 +310,7 @@ export function createResearchWorkspace(container, data, options = {}) {
         }
         
         if (data.knownAgentsDetection) {
-            // Handle both 'results' and 'detectionResults' property names
-            const agentResults = data.knownAgentsDetection.results 
-                || data.knownAgentsDetection.detectionResults 
-                || [];
-            const resultsArray = Array.isArray(agentResults) ? agentResults : [];
+            const resultsArray = agentResultList(data.knownAgentsDetection);
             const detected = resultsArray.filter(r => r.detected);
             result['knownAgents'] = {
                 key: 'knownAgents',
@@ -314,6 +322,25 @@ export function createResearchWorkspace(container, data, options = {}) {
             };
         }
         
+        if (data.browserUseEngine) {
+            const engine = data.browserUseEngine;
+            const checks = engine.checks || [];
+            const metrics = {};
+            for (const c of checks) {
+                metrics[`${c.group}: ${c.label}`] = { value: c.value === null ? 'Not available' : c.value, description: c.path, risk: 'N/A' };
+            }
+            const spoofed = engine.verdict === 'browser-use' || engine.verdict === 'agent-persona';
+            result['engineChecks'] = {
+                key: 'engineChecks',
+                label: 'Engine Checks',
+                description: CATEGORY_CONFIG.engineChecks.description,
+                metricCount: checks.length || 1,
+                riskSummary: { high: spoofed ? 1 : 0, medium: engine.verdict === 'suspicious' ? 1 : 0 },
+                data: engine,
+                metrics: checks.length ? metrics : undefined
+            };
+        }
+
         result['summary'] = {
             key: 'summary',
             label: 'Analysis Summary',
@@ -816,6 +843,11 @@ export function createResearchWorkspace(container, data, options = {}) {
             renderKnownAgents(category.data);
             return;
         }
+
+        if (categoryKey === 'engineChecks') {
+            renderEngineChecks(category.data);
+            return;
+        }
         
         if (category.metrics) {
             // Check if this category supports advanced rendering
@@ -898,10 +930,7 @@ export function createResearchWorkspace(container, data, options = {}) {
             ));
         }
         
-        const agentResultsRaw = data.knownAgentsDetection?.results 
-            || data.knownAgentsDetection?.detectionResults 
-            || [];
-        const agentResults = Array.isArray(agentResultsRaw) ? agentResultsRaw : [];
+        const agentResults = agentResultList(data.knownAgentsDetection);
         const detectedAgents = agentResults.filter(r => r.detected);
         if (detectedAgents.length > 0) {
             contentEl.appendChild(createAlert('danger',
@@ -1013,8 +1042,7 @@ export function createResearchWorkspace(container, data, options = {}) {
             return;
         }
         
-        const resultsRaw = agentData.results || agentData.detectionResults || [];
-        const results = Array.isArray(resultsRaw) ? resultsRaw : [];
+        const results = agentResultList(agentData);
         const detected = results.filter(r => r.detected);
         
         if (detected.length > 0) {
@@ -1072,6 +1100,113 @@ export function createResearchWorkspace(container, data, options = {}) {
         contentEl.appendChild(panel);
     }
     
+    /**
+     * Render the engine checks (detectors/browserUseEngine.js): the verdict, the rules the claimed persona runs, the
+     * Browser Use markers, the retired rules and every raw input, whatever the verdict.
+     */
+    function renderEngineChecks(engine) {
+        if (!engine || engine.pending) {
+            contentEl.appendChild(createAlert('info', 'Engine checks running',
+                'The device, capacity, platform and system stages run on the idle page after the analysis (about 5-10 s).'));
+            return;
+        }
+        if (engine.error) {
+            contentEl.appendChild(createAlert('warning', 'Engine checks failed', engine.error));
+            return;
+        }
+        const alertType = { 'browser-use': 'danger', 'agent-persona': 'danger', suspicious: 'warning', clean: 'success' }[engine.verdict] || 'info';
+        const conf = engine.confidence ? ` (${Math.round(engine.confidence * 100)}%)` : '';
+        contentEl.appendChild(createAlert(alertType, `${engine.label}${conf}`, engine.summary));
+
+        const code = (v) => v === null || v === undefined
+            ? '<span style="color: var(--rx-text-tertiary);">—</span>'
+            : `<code class="rx-table__value rx-table__value--wrap" style="white-space: pre-wrap;">${escapeHtml(typeof v === 'string' ? v : JSON.stringify(v))}</code>`;
+        const inputs = (values) => Object.entries(values || {})
+            .map(([k, v]) => `<div style="margin-bottom: 4px;"><div style="color: var(--rx-text-tertiary);">${escapeHtml(k.replace(/^device\./, ''))}</div>${code(v)}</div>`)
+            .join('');
+        const result = (r, level) => {
+            if (r.error) return '<span class="rx-risk rx-risk--none">error</span>';
+            if (r.result === null) return '<span class="rx-risk rx-risk--none">n/a</span>';
+            if (r.result === false) return '<span class="rx-risk rx-risk--safe">quiet</span>';
+            const cls = level === 'strong' || level === 'attribution' ? 'high' : level === 'supporting' ? 'medium' : 'low';
+            return `<span class="rx-risk rx-risk--${cls}">fired</span>`;
+        };
+        const table = (title, icon, badge, head, rows) => {
+            const panel = document.createElement('div');
+            panel.className = 'rx-panel rx-panel--flush';
+            panel.innerHTML = `
+                <div class="rx-panel__header">
+                    <h2 class="rx-panel__title">${getIcon(icon).replace('<svg ', '<svg width="18" height="18" ')} ${escapeHtml(title)}</h2>
+                    <span class="rx-panel__badge">${escapeHtml(badge)}</span>
+                </div>
+                <div class="rx-panel__content" style="overflow-x: auto;">
+                    <table class="rx-table">
+                        <thead><tr>${head.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+                        <tbody>${rows.join('')}</tbody>
+                    </table>
+                </div>
+            `;
+            contentEl.appendChild(panel);
+        };
+
+        const planned = engine.rules.filter(r => r.inPlan);
+        table(`Rules for the ${engine.persona.label} persona`, 'shieldAlert',
+            `${planned.filter(r => r.result !== null).length}/${planned.length} measured`,
+            ['Rule', 'Check', 'Level', 'Result', 'Inputs'],
+            planned.map(r => `<tr>
+                <td class="rx-table__name">${escapeHtml(r.id)}</td>
+                <td><div>${escapeHtml(r.name)}</div><div class="rx-table__desc">${escapeHtml(r.why)}</div></td>
+                <td>${escapeHtml(r.level)}</td>
+                <td>${result(r, r.level)}</td>
+                <td style="font-size: var(--rx-text-xs);">${inputs(r.values)}</td>
+            </tr>`));
+
+        table('Browser Use markers (every persona)', 'fingerprint',
+            `${engine.markers.filter(m => m.matched).length} matched`,
+            ['Marker', 'Kind', 'Result', 'Value read'],
+            engine.markers.map(m => `<tr>
+                <td class="rx-table__name">${escapeHtml(m.name)}</td>
+                <td>${escapeHtml(m.kind === 'attribution' ? 'Browser Use build' : 'engine (desktop claims)')}</td>
+                <td>${result({ result: m.matched }, m.kind === 'attribution' ? 'attribution' : 'supporting')}</td>
+                <td style="font-size: var(--rx-text-xs);">${code(m.value)}</td>
+            </tr>`));
+
+        const other = engine.rules.filter(r => !r.inPlan);
+        if (other.length) {
+            table('Rules of other personas (not run for this claim)', 'layers', `${other.length}`,
+                ['Rule', 'Check', 'Inputs'],
+                other.map(r => `<tr>
+                    <td class="rx-table__name">${escapeHtml(r.id)}</td>
+                    <td><div>${escapeHtml(r.name)}</div><div class="rx-table__desc">${escapeHtml(r.why)}</div></td>
+                    <td style="font-size: var(--rx-text-xs);">${inputs(r.values)}</td>
+                </tr>`));
+        }
+
+        table('Retired rules (evaluated, never counted)', 'timer',
+            `${engine.retired.filter(r => r.result === true).length} would fire`,
+            ['Rule', 'Check', 'Status', 'Result', 'Inputs'],
+            engine.retired.map(r => `<tr>
+                <td class="rx-table__name">${escapeHtml(r.id)}</td>
+                <td>${escapeHtml(r.name)}</td>
+                <td class="rx-table__desc">${escapeHtml(r.status)}</td>
+                <td>${result(r, 'context')}</td>
+                <td style="font-size: var(--rx-text-xs);">${inputs(r.values)}</td>
+            </tr>`));
+
+        let checks = engine.checks || [];
+        if (searchQuery) {
+            checks = checks.filter(c => [c.group, c.label, c.path, c.value].join(' ').toLowerCase().includes(searchQuery));
+        }
+        table('Engine checks: raw values', 'code', `${checks.length} readings`,
+            ['Group', 'Reading', 'Field', 'Value'],
+            checks.map(c => `<tr${highlightedMetrics.has(`${c.group}: ${c.label}`) ? ' class="rx-search-match"' : ''}>
+                <td>${escapeHtml(c.group)}</td>
+                <td class="rx-table__name">${escapeHtml(c.label)}</td>
+                <td style="font-family: var(--rx-font-mono); font-size: var(--rx-text-xs); color: var(--rx-text-tertiary); word-break: break-all;">${escapeHtml(c.path)}</td>
+                <td style="font-size: var(--rx-text-xs);">${code(c.value)}</td>
+            </tr>`));
+    }
+
     /**
      * Render metrics panel
      */
@@ -1331,6 +1466,7 @@ export function createResearchWorkspace(container, data, options = {}) {
     
     return {
         setActiveCategory,
+        getActiveCategory: () => activeCategory,
         toggleSidebar,
         refresh: () => renderCategoryContent(activeCategory),
         destroy: () => {

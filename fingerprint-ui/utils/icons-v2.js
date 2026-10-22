@@ -357,6 +357,7 @@ const CATEGORY_ICONS = {
     
     // Hardware Signals
     webgl: 'gpu',
+    engineChecks: 'gpu',
     audio: 'audio',
     battery: 'battery',
     display: 'display',

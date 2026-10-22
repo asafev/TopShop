@@ -244,6 +244,53 @@
             `;
         }
         
+        // Overlay entries for the detected agents of one known-agents run ({ detectionResults: [...] }).
+        function showDetections(results) {
+            const list = Array.isArray(results) ? results : (results?.detectionResults || []);
+            if (!agentOverlay) return;
+            for (const result of list) {
+                if (result.detected) agentOverlay.addDetection(result);
+            }
+        }
+
+        // Re-render the workspace on the category the reader is on.
+        function rerenderWorkspace() {
+            const appContainer = document.getElementById('rx-root');
+            if (!workspaceController || !fingerprintData || !appContainer) return;
+            const active = workspaceController.getActiveCategory?.();
+            workspaceController.destroy();
+            workspaceController = createResearchWorkspace(appContainer, fingerprintData, {
+                baselinePath: './fp_base/browser-fingerprint-chrome-trivial.json'
+            });
+            if (active) workspaceController.setActiveCategory(active);
+        }
+
+        // Engine checks (detectors/browserUseEngine.js): the browser-data record is collected once the analysis is
+        // done, on the idle page (its capacity stage times a GPU fill against a CPU loop), then the known-agents
+        // detectors run again with it, so Browser Use is judged on its engine as well as on its page traces.
+        async function runEngineChecks(analyzer) {
+            try {
+                const detector = analyzer.knownAgentsDetector;
+                if (!detector?.collectEngineRecord) throw new Error('Agent detector not loaded');
+                await detector.collectEngineRecord();
+                const update = await analyzer.runKnownAgentsDetection();
+                fingerprintData.knownAgentsDetection = {
+                    results: update.results,
+                    history: update.history,
+                    isPeriodicRunning: update.isPeriodicRunning,
+                    intervalMs: 60000
+                };
+                fingerprintData.browserUseEngine = detector.getBrowserUseEngine();
+                window._browserUseEngine = fingerprintData.browserUseEngine;
+                showDetections(update.results);
+                console.log('Engine checks:', fingerprintData.browserUseEngine);
+            } catch (error) {
+                console.warn('Engine checks failed:', error);
+                fingerprintData.browserUseEngine = { error: error.message || String(error) };
+            }
+            rerenderWorkspace();
+        }
+
         // ============================================================
         // INITIALIZATION
         // ============================================================
@@ -281,14 +328,7 @@
                         };
                     }
                     
-                    // Show overlay for detected agents
-                    if (updateData.results && agentOverlay) {
-                        for (const result of updateData.results) {
-                            if (result.detected) {
-                                agentOverlay.addDetection(result);
-                            }
-                        }
-                    }
+                    showDetections(updateData.results);
                     
                     if (updateData.newAgentsDetected?.length > 0) {
                         console.warn(`NEW AGENT(S) DETECTED: ${updateData.newAgentsDetected.join(', ')}`);
@@ -309,6 +349,7 @@
                 // Run analysis
                 await analyzer.analyzeFingerprint();
                 fingerprintData = analyzer.getAnalysisResults();
+                fingerprintData.browserUseEngine = { pending: true };
                 
                 console.log('Fingerprint analysis complete:', fingerprintData);
                 
@@ -325,7 +366,9 @@
                 workspaceController = createResearchWorkspace(appContainer, fingerprintData, {
                     baselinePath: './fp_base/browser-fingerprint-chrome-trivial.json'
                 });
-                
+
+                runEngineChecks(analyzer);
+
             } catch (error) {
                 console.error('Error during fingerprint analysis:', error);
                 showError(error);

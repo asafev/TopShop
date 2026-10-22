@@ -4,6 +4,7 @@
  */
 
 import { isNativeFunction } from './utils/functionUtils.js';
+import { evaluateBrowserUse, getEngineRecord, collectEngineRecord, provideEngineRecord } from './detectors/browserUseEngine.js';
 
 // ============================================================
 // MANUS AGENT DETECTION CONSTANTS
@@ -147,7 +148,7 @@ const VENDOR_AGENT_SIGNATURES = {
                     detected: true,
                     timestamp: Date.now(),
                     confidence: 0.95,
-                    detectionMethod: 'Console Message + Stack Classification (browser-use highlight)',
+                    detectionMethod: 'Console Message + Stack Classification (Browser Use highlight log)',
                     primarySignal: 'BrowserUse_Console_Hook',
                     indicators: [
                         {
@@ -354,6 +355,7 @@ class AIAgentDetector {
             { name: 'Fellou', detector: this.detectFellouBrowser },
             { name: 'HyperBrowser', detector: this.detectHyperBrowser },
             { name: 'BrowserUse', detector: this.detectBrowserUse },
+            { name: 'SpoofedPersona', detector: this.detectSpoofedPersona },
             { name: 'ClaudeAgent', detector: this.detectClaudeAgent },
             // Agent artefacts recovered from DataDome 5.10.8 / PerimeterX 2026
             { name: 'CodexAgent', detector: this.detectCodexAgent },
@@ -375,7 +377,7 @@ class AIAgentDetector {
                 const detectionResult = await detector.call(this);
                 
                 // Handle both old format (boolean) and new format (object with indicators)
-                let detected, indicators = [], confidence = 0.0, primarySignal = null;
+                let detected, indicators = [], confidence = 0.0, primarySignal = null, engine = null;
                 if (typeof detectionResult === 'boolean') {
                     detected = detectionResult;
                 } else if (detectionResult && typeof detectionResult === 'object') {
@@ -384,6 +386,7 @@ class AIAgentDetector {
                     // Use returned confidence if available, otherwise calculate based on agent type
                     confidence = detectionResult.confidence || 0.0;
                     primarySignal = detectionResult.primarySignal || null;
+                    engine = detectionResult.engine || null;
                 } else {
                     detected = false;
                 }
@@ -417,6 +420,9 @@ class AIAgentDetector {
                             break;
                         case 'BrowserUse':
                             confidence = 0.92; // High confidence - console message + stack analysis
+                            break;
+                        case 'SpoofedPersona':
+                            confidence = 0.85; // a strong engine contradiction of the claimed OS / GPU
                             break;
                         case 'ClaudeAgent':
                             confidence = 0.95; // Very high confidence - unique DOM element IDs
@@ -468,6 +474,7 @@ class AIAgentDetector {
                     indicators: indicators,
                     primarySignal: primarySignal
                 };
+                if (engine) result.engine = engine;
                 
                 if (detected) {
                     this.detectedAgents.add(name);
@@ -1778,24 +1785,25 @@ class AIAgentDetector {
     }
 
     /**
-     * Detect browser-use automation framework
-     * Uses early console-hook (installed at module load) + stack classification
-     * 
-     * @returns {Object} Detection result with status, confidence, and indicators
+     * Detect Browser Use: its page-side traces (console hook installed at module load, highlight attributes and DOM,
+     * window properties) and its cloud's engine (detectors/browserUseEngine.js: the persona-aware rule set, routed by
+     * the claimed platform, plus the backend build markers every persona carries).
+     *
+     * The engine part needs the browser-data record. It is read when one is ready (collectEngineRecord() or
+     * provideEngineRecord() was called); this method never waits for one, so until then the page traces decide
+     * alone. A periodic re-run picks the record up once it exists.
+     *
+     * @returns {Object} Detection result with status, confidence, indicators and the engine evaluation
      */
     async detectBrowserUse() {
         try {
-            // Check if console hook already captured browser-use
-            if (window.__botSignals?.browserUseDetection) {
-                return window.__botSignals.browserUseDetection;
-            }
-            
-            // Check for browser-use specific DOM elements
             const indicators = [];
+            const hook = window.__botSignals?.browserUseDetection;
+            if (hook?.detected) indicators.push(...(hook.indicators || []));
+
             const browserUseHighlights = document.querySelectorAll(
                 '[class*="browser-use"], [id*="browser-use"], [data-browser-use]'
             );
-            
             if (browserUseHighlights.length > 0) {
                 indicators.push({
                     name: 'BrowserUse_DOM_Elements',
@@ -1812,7 +1820,7 @@ class AIAgentDetector {
                 if (tagged.length > 0) {
                     indicators.push({
                         name: 'BrowserUse_Highlight_Attribute',
-                        description: 'browser-use highlight attribute "' + attr + '" found on page elements',
+                        description: 'Browser Use highlight attribute "' + attr + '" found on page elements',
                         value: `${tagged.length} element(s) with ${attr}`
                     });
                 }
@@ -1830,13 +1838,23 @@ class AIAgentDetector {
                     break;
                 }
             }
-            
-            const isDetected = indicators.length > 0;
+
+            const pageTraces = !!hook?.detected || indicators.length > 0;
+            const engine = this.getBrowserUseEngine();
+            const engineMatch = engine?.verdict === 'browser-use';
+            if (engineMatch) indicators.push(...this._engineIndicators(engine));
+
+            const detected = pageTraces || engineMatch;
+            let primarySignal = null;
+            if (hook?.detected) primarySignal = hook.primarySignal || 'BrowserUse_Console_Hook';
+            else if (pageTraces) primarySignal = 'BrowserUse_Detection';
+            else if (engineMatch) primarySignal = indicators[0]?.name || null;
             return {
-                detected: isDetected,
-                confidence: isDetected ? 0.85 : 0.0,
+                detected,
+                confidence: detected ? Math.max(pageTraces ? (hook?.confidence || 0.85) : 0, engineMatch ? engine.confidence : 0) : 0.0,
                 indicators,
-                primarySignal: isDetected ? 'BrowserUse_Detection' : null
+                primarySignal,
+                engine
             };
         } catch (error) {
             console.debug('Error in browser-use detection:', error);
@@ -1847,6 +1865,68 @@ class AIAgentDetector {
                 error: error.message
             };
         }
+    }
+
+    /**
+     * A claimed platform or GPU the engine contradicts, with nothing tying it to Browser Use: another agent cloud's
+     * persona (or a heavily spoofed browser). Reported on its own so it never reads as Browser Use.
+     */
+    async detectSpoofedPersona() {
+        const engine = this.getBrowserUseEngine();
+        if (!engine || engine.verdict !== 'agent-persona') {
+            return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
+        }
+        const indicators = this._engineIndicators(engine);
+        return { detected: true, confidence: engine.confidence, indicators, primarySignal: indicators[0]?.name || null, engine };
+    }
+
+    /**
+     * The engine evaluation of the browser-data record, or null while there is none. Cheap: rules on a record.
+     */
+    getBrowserUseEngine() {
+        const record = getEngineRecord();
+        return record ? evaluateBrowserUse(record) : null;
+    }
+
+    /**
+     * Collect the browser-data record the engine rules read (about 5-10 s, once per page; later calls share it).
+     * Run it on an idle page: its capacity stage times a GPU fill against a CPU loop.
+     * @returns {Promise<Object>} the record
+     */
+    collectEngineRecord(options) {
+        return collectEngineRecord(options);
+    }
+
+    /**
+     * Use a record the page already collected ({ device, page }, as fingerprint-data.json.html builds it).
+     */
+    provideEngineRecord(record) {
+        return provideEngineRecord(record);
+    }
+
+    /**
+     * Fired engine rules (BU-L3-1 and strong first) and matched markers, as detector indicators.
+     * @private
+     */
+    _engineIndicators(engine) {
+        const out = [];
+        for (const r of engine.rules) {
+            if (!r.inPlan || r.result !== true || r.level === 'context') continue;
+            out.push({
+                name: 'Engine_' + r.id,
+                description: `${r.name} (${r.level}, ${engine.persona.label} persona)`,
+                value: JSON.stringify(r.values)
+            });
+        }
+        for (const m of engine.markers) {
+            if (!m.matched) continue;
+            out.push({
+                name: (m.kind === 'attribution' ? 'BrowserUse_Marker_' : 'Engine_Marker_') + m.id,
+                description: `${m.name} (${m.kind === 'attribution' ? 'Browser Use build marker' : 'engine marker'})`,
+                value: String(m.value)
+            });
+        }
+        return out;
     }
 
     /**
@@ -2146,7 +2226,8 @@ class AIAgentDetector {
             'ChatGPTBrowser': 'Console.log Override Signature Analysis',
             'Fellou': 'Window Property Detection (__FELLOU_TAB_ID__)',
             'HyperBrowser': 'Console.log Wrapper Signature Detection (rand251plus50)',
-            'BrowserUse': 'Console Message + Stack Classification (browser-use highlight)',
+            'BrowserUse': 'Console Message + Stack Classification (Browser Use highlight log); engine rules per claimed persona + backend build markers',
+            'SpoofedPersona': 'Engine rules per claimed persona (WebGL/WebGPU limits, GPU speed, OS-built audio and text) without Browser Use markers',
             'ClaudeAgent': 'DOM Element Detection via MutationObserver (claude-agent-glow-border, claude-agent-stop-button, claude-agent-animation-styles, claude-agent-stop-container)',
             'CodexAgent': 'DOM Element Detection (codex-agent-overlay-root, codex-browser-sidebar-comments-root)',
             'SigmaAgent': 'Window Global + DOM Element Detection (__SIGMA__ AND __gradient_border_wrapper__)',
