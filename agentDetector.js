@@ -81,6 +81,79 @@ const VENDOR_AGENT_SIGNATURES = {
 };
 
 // ============================================================
+// MUSE (META) AGENT DETECTION CONSTANTS
+//
+// Every other entry in this file keys off something the agent leaves in the
+// page: a DOM id, an attribute, a global, a patched native. None of them fire
+// on Muse. Meta states the agent reads an accessibility tree and cannot run
+// JavaScript in the page, and three captured sessions agree -- the page is
+// untouched. What is identifiable is the container it runs in.
+//
+// Read-only by design: no console call, no AudioContext (which logs "The
+// AudioContext was not allowed to start"), no fetch (which logs CORS failures).
+// An operator watching the console of a page carrying this sees nothing.
+//
+// Measured 2026-10-11 to 2026-10-22 across three sessions.
+// ============================================================
+const MUSE_AGENT_SIGNATURES = {
+    // Infinity-Infinity yields the hardware's default NaN, and V8 writes its
+    // high byte differently per CPU family: 0xFF on x86, 0x7F on ARM. A user
+    // agent override cannot reach that byte, which is why it carries the most
+    // weight here. Muse reads ARM while claiming x86_64 -- a datacenter host.
+    NAN_BYTE_X86: 0xFF,
+    NAN_BYTE_ARM: 0x7F,
+
+    // The software rasteriser a container falls back to with no GPU. Muse
+    // reports it honestly instead of spoofing a GPU, and the resulting render
+    // hash was identical in every session: a fleet image, not a device.
+    SWIFTSHADER_MARKER: "SwiftShader",
+
+    // Virtual-display furniture. A real desktop reserves a strip for a taskbar
+    // (Windows: bottom), a menu bar and dock (macOS: top and bottom) or a top
+    // bar (GNOME: top). Muse reserves exactly 40px at the top and nothing on
+    // the other three edges, in 3/3 sessions. These are properties of the
+    // display, not the window, so they hold steady while the window resizes.
+    WORKAREA: { top: 40, right: 0, bottom: 0, left: 0 },
+
+    // Blink features this image launches with switched off. Two others that
+    // looked promising were measured on an ordinary browser and dropped:
+    // SharedArrayBuffer is gated on cross-origin isolation, so it reports
+    // absent on any non-isolated page, and Web Share is absent on ordinary
+    // desktop builds too. Neither was telling us anything about the container.
+    DISABLED_FEATURES: ["bluetooth", "joinAdInterestGroup", "browsingTopics"],
+
+    // Build-ID maps a bundler leaves on window. Weak on purpose: a stock
+    // browser carrying the same extension produces an identical map, measured
+    // 2026-10-22, so this corroborates and must never convict on its own.
+    DEBUG_ID_MAPS: ["_sentryDebugIds", "__sentry_debug_ids__", "_debugIds"],
+
+    // Signals that MUST fire. The score decides nothing until every name here
+    // is present, so a browser missing any of them is never reported no matter
+    // how much else lines up. This buys precision at the cost of fragility, and
+    // the fragility is not spread evenly:
+    //
+    //   museSoftwareGPU is structural. The container has no GPU, which is a
+    //   property of how the fleet is provisioned rather than of any one image.
+    //
+    //   museBuildIdMap is a third party artefact. It is present only while this
+    //   image keeps shipping that extension, and a re-cut image, an extension
+    //   update or a bundler change removes it with no warning at all.
+    //
+    // A mandatory gate that quietly stops firing is worse than no gate, because
+    // detection drops to zero and nothing says why. So a gate that fails while
+    // everything else still adds up is reported as museGateFailed rather than
+    // swallowed -- that is the difference between "this is not Muse" and "this
+    // detector has gone blind".
+    REQUIRED: ["museSoftwareGPU", "museBuildIdMap"],
+
+    // Applied on top of the gates. The two gates together are worth 19, which
+    // is under the line on purpose: at least one further signal is always
+    // needed, so the gates alone can never convict.
+    WEIGHTS: { arch: 22, swiftshader: 16, workarea: 12, brands: 6, features: 6, debugIds: 3 },
+    THRESHOLD: 28
+};
+
+// ============================================================
 // EARLY CONSOLE HOOK FOR BROWSER-USE DETECTION
 // This must run immediately at module load to capture console
 // messages before any agent detection runs.
@@ -365,6 +438,7 @@ class AIAgentDetector {
             { name: 'Thunderbit', detector: this.detectThunderbit },
             { name: 'PatchedNativeFunctions', detector: this.detectPatchedNativeFunctions },
             { name: 'GrokBot', detector: this.detectGrokBot },
+            { name: 'Muse', detector: this.detectMuse },
             // Add more detectors here as they're implemented
             { name: 'Selenium', detector: this.detectSelenium },
             { name: 'Puppeteer', detector: this.detectPuppeteer },
@@ -1883,6 +1957,158 @@ class AIAgentDetector {
     /**
      * The engine evaluation of the browser-data record, or null while there is none. Cheap: rules on a record.
      */
+    /**
+     * Muse (Meta) agent browser.
+     *
+     * Scores the container rather than the page, because Muse leaves the page
+     * alone. Requires two of the three heavy signals before it reports
+     * detected; see MUSE_AGENT_SIGNATURES.WEIGHTS for why each is weighted the
+     * way it is. Every read below is a property read or a WebGL context that is
+     * released immediately -- nothing writes to the console, nothing goes out
+     * on the network.
+     */
+    async detectMuse() {
+        const S = MUSE_AGENT_SIGNATURES;
+        const indicators = [];
+        let score = 0;
+        const add = (name, weight, description, value) => {
+            score += weight;
+            indicators.push({ name, description, value });
+        };
+
+        // --- CPU family against the architecture the user agent claims ------
+        try {
+            const f = new Float32Array(1);
+            f[0] = Infinity;
+            f[0] = f[0] - f[0];
+            const byte = new Uint8Array(f.buffer)[3];
+            const ua = navigator.userAgent || '';
+            // Chrome on Apple Silicon reports "Intel Mac OS X" by design, so an
+            // ARM Mac is not a mismatch and must not be counted as one.
+            const isMac = /Mac OS X|Macintosh/i.test(ua);
+            const claimsX86 = /x86_64|Win64|WOW64|amd64/i.test(ua);
+            if (byte === S.NAN_BYTE_ARM && claimsX86 && !isMac) {
+                add('museArchMismatch', S.WEIGHTS.arch,
+                    'CPU family reads ARM while the user agent claims x86_64 on a non-Mac platform; this byte is written by the hardware and a UA override cannot reach it',
+                    'nanByte=0x' + byte.toString(16).toUpperCase());
+            }
+        } catch (e) { /* no typed arrays: leave unscored */ }
+
+        // --- Software rasteriser --------------------------------------------
+        try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            if (gl) {
+                const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+                const renderer = dbg
+                    ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL))
+                    : String(gl.getParameter(gl.RENDERER));
+                if (renderer.indexOf(S.SWIFTSHADER_MARKER) !== -1) {
+                    add('museSoftwareGPU', S.WEIGHTS.swiftshader,
+                        'WebGL renders through SwiftShader: there is no GPU and the build does not pretend otherwise',
+                        renderer.slice(0, 120));
+                }
+                // Release it rather than leaving a live context on the page.
+                const lose = gl.getExtension('WEBGL_lose_context');
+                if (lose) lose.loseContext();
+            }
+        } catch (e) { /* context refused: leave unscored */ }
+
+        // --- Work-area insets reserved by the display -----------------------
+        try {
+            const s = window.screen || {};
+            // On more than one display the insets can fold in a monitor offset,
+            // so only a single-display reading is attributable.
+            const multiDisplay = (typeof s.isExtended === 'boolean') ? s.isExtended : false;
+            const left = (typeof s.availLeft === 'number') ? s.availLeft : null;
+            const top = (typeof s.availTop === 'number') ? s.availTop : null;
+            if (!multiDisplay && left !== null && top !== null) {
+                const right = s.width - s.availWidth - left;
+                const bottom = s.height - s.availHeight - top;
+                const W = S.WORKAREA;
+                if (top === W.top && right === W.right && bottom === W.bottom && left === W.left) {
+                    add('museWorkArea', S.WEIGHTS.workarea,
+                        'Display reserves a top-only 40px strip with nothing on the other three edges; a property of the display rather than the window, so it survives a resize',
+                        'T ' + top + ' R ' + right + ' B ' + bottom + ' L ' + left);
+                }
+            }
+        } catch (e) { /* screen metrics unavailable: leave unscored */ }
+
+        // --- Chromium brands with no Google Chrome entry --------------------
+        try {
+            const uaData = navigator.userAgentData;
+            const brands = (uaData && uaData.brands) ? uaData.brands.map(b => b.brand) : [];
+            if (brands.length && /\bChrome\/\d/.test(navigator.userAgent || '')) {
+                const hasGoogleChrome = brands.some(b => /google chrome/i.test(b));
+                const hasChromium = brands.some(b => /^chromium$/i.test(b));
+                if (hasChromium && !hasGoogleChrome) {
+                    add('museUnbrandedChromium', S.WEIGHTS.brands,
+                        'User agent says Chrome while the client hints list Chromium with no Google Chrome brand',
+                        brands.join(', '));
+                }
+            }
+        } catch (e) { /* client hints unavailable: leave unscored */ }
+
+        // --- Blink features the image launched with disabled ----------------
+        try {
+            const absent = S.DISABLED_FEATURES.filter(name => (name === 'browsingTopics')
+                ? !(name in document)
+                : !(name in navigator));
+            if (absent.length === S.DISABLED_FEATURES.length) {
+                add('museDisabledFeatures', S.WEIGHTS.features,
+                    'Web Bluetooth and both Privacy Sandbox entry points are absent together, which is a launch configuration rather than anything a user chose',
+                    absent.join(', '));
+            }
+        } catch (e) { /* leave unscored */ }
+
+        // --- Build-ID map naming an extension (corroborating only) ----------
+        try {
+            for (const key of S.DEBUG_ID_MAPS) {
+                const map = window[key];
+                if (!map || typeof map !== 'object') continue;
+                const extension = Object.keys(map).join(' ').match(/chrome-extension:\/\/([a-z]{32})/);
+                if (extension) {
+                    add('museBuildIdMap', S.WEIGHTS.debugIds,
+                        'A bundler build-ID map on window names an extension inside the image; a stock browser carrying the same extension produces this too, so it only ever corroborates',
+                        key + ' ' + extension[1]);
+                    break;
+                }
+            }
+        } catch (e) { /* leave unscored */ }
+
+        // Mandatory gates, evaluated after every signal has had its say so the
+        // report can show what did fire next to what was missing.
+        const fired = indicators.map(i => i.name);
+        const missing = S.REQUIRED.filter(name => fired.indexOf(name) === -1);
+
+        if (missing.length) {
+            // Only worth raising when everything else already crossed the line.
+            // That combination is what a re-cut image looks like from outside,
+            // and it is the signal that a gate needs revisiting.
+            if (score >= S.THRESHOLD) {
+                indicators.push({
+                    name: 'museGateFailed',
+                    description: 'Every other signal lines up but a mandatory gate did not fire; recurring, this means the image changed and the gate needs revisiting rather than that the visitor is human',
+                    value: 'missing=' + missing.join(',') + ' score=' + score + '/' + S.THRESHOLD
+                });
+            }
+            return {
+                detected: false,
+                confidence: 0.0,
+                indicators,
+                primarySignal: null
+            };
+        }
+
+        const detected = score >= S.THRESHOLD;
+        return {
+            detected,
+            confidence: detected ? Math.min(0.95, score / 50) : 0.0,
+            indicators,
+            primarySignal: indicators.length ? indicators[0].name : null
+        };
+    }
+
     getBrowserUseEngine() {
         const record = getEngineRecord();
         return record ? evaluateBrowserUse(record) : null;
