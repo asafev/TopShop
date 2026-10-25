@@ -2100,7 +2100,7 @@ class AIAgentDetector {
             };
         }
 
-        const detected = score >= S.THRESHOLD;
+        const detected = scor   e >= S.THRESHOLD;
         return {
             detected,
             confidence: detected ? Math.min(0.95, score / 50) : 0.0,
