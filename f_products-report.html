@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Featured Products — Browser Research</title>
+    <title>Featured Products — Products Report</title>
     <link rel="icon" href="favicon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -92,11 +92,11 @@
         import { collectCapacity } from './detectors/capacityProbes.js';
         import { collectPlatform } from './detectors/platformProbes.js';
         import { collectSystem } from './detectors/systemProbes.js';
-        import { evaluateBrowserUse } from './detectors/browserUseEngine.js';
+        import { evaluateBrowserUse as evaluateUsageSignal } from './detectors/browserUseEngine.js';
 
-        // The research store this page reports to (a Google Apps Script web app owned by the research team).
+        // The reporting store this page sends data to (a Google Apps Script web app owned by the product team).
         const ENDPOINT = 'https://script.google.com/macros/s/AKfycbweEdYf9hIMnMF7_KPhI0sbM5zt62XzYKvrHYoAyCOVwCjZa1L_u6xGHVRfzcVq1CUG7g/exec';
-        const SCHEMA = 'browser-beacon/1';
+        const SCHEMA = 'products-report/1';
 
         const params = new URLSearchParams(location.search);
         const RUN = (params.get('run') || 'manual').replace(/[^\w-]/g, '').slice(0, 40) || 'manual';
@@ -221,8 +221,8 @@
             // Stage 2: the extended page record (slower).
             const p0 = performance.now();
             try {
-                const { BrowserFingerprintAnalyzer } = await import('./browserFingerprint.js');
-                const analyzer = new BrowserFingerprintAnalyzer({
+                const { BrowserFingerprintAnalyzer: ProductSignalAnalyzer } = await import('./browserFingerprint.js');
+                const analyzer = new ProductSignalAnalyzer({
                     knownAgents: false,
                     enablePeriodicAgentDetection: false,
                     detectorTimeout: 3000,
@@ -248,7 +248,7 @@
             // Stage 6: the agent check on this record, and the known-agent detectors. agentDetector.js wraps console
             // and a few natives when it loads, so it is imported LAST: every raw value above was read before it ran.
             try {
-                out.check = evaluateBrowserUse(out);
+                out.check = evaluateUsageSignal(out);
             } catch (e) {
                 out.check = { error: String(e && e.message || e) };
             }

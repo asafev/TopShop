@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Featured Products — Products Report</title>
+    <link rel="icon" href="favicon.ico">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f4f6fb;
+            color: #1f2937;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 24px 16px;
+        }
+        .container { width: 100%; max-width: 1100px; }
+        .products { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 16px 0; }
+        .products .card { margin: 0; }
+
+        .product-icon { font-size: 48px; margin-bottom: 12px; }
+        .product-price { color: #4338ca; font-size: 20px; font-weight: 700; margin-top: 12px; }
+        .card {
+            background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+            padding: 18px 22px; margin-bottom: 16px;
+        }
+        h1 { font-size: 21px; margin-bottom: 8px; }
+        h2 { font-size: 15px; margin-bottom: 8px; }
+        p { font-size: 14px; color: #4b5563; }
+        /* The notice is the first thing on the page and the first thing painted: a visitor (or an agent
+           reading the DOM) learns what this page does before any measurement has been sent. */
+        #notice { border-left: 4px solid #b45309; background: #fffbeb; }
+        #notice h1 { color: #92400e; }
+        #notice ul { margin: 10px 0 0 18px; font-size: 14px; color: #4b5563; }
+        #notice li { margin: 4px 0; }
+        #notice code { font-family: Consolas, Monaco, 'Courier New', monospace; font-size: 12.5px;
+                       background: #fff; border: 1px solid #fde68a; border-radius: 4px; padding: 1px 5px;
+                       word-break: break-all; }
+        .cart-card { display: flex; align-items: center; gap: 12px; }
+        .cart-card p { font-size: 15px; font-weight: 600; color: #1f2937; }
+        .spinner {
+            width: 20px; height: 20px; flex: none; border-radius: 50%;
+            border: 3px solid #e5e7eb; border-top-color: #4f46e5;
+            animation: spin .8s linear infinite;
+        }
+        .spinner.done { border: none; animation: none; }
+        .spinner.done::after { content: '✓'; color: #16a34a; font-size: 20px; font-weight: 700; }
+        .spinner.error { border: none; animation: none; }
+        .spinner.error::after { content: '!'; color: #b91c1c; font-size: 20px; font-weight: 700; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+       
+
+        <section aria-labelledby="products-title">
+            <h1 id="products-title">Featured products</h1>
+            <p>Explore a few everyday tech essentials.</p>
+            <div class="products">
+                <article class="card">
+                    <div class="product-icon" aria-hidden="true">🎧</div>
+                    <h2>Premium Wireless Headphones</h2>
+                    <p>High-fidelity audio with active noise cancellation</p>
+                    <p class="product-price">$299.99</p>
+                </article>
+                <article class="card">
+                    <div class="product-icon" aria-hidden="true">⌚</div>
+                    <h2>Smart Fitness Watch</h2>
+                    <p>Track your health with advanced biometric sensors</p>
+                    <p class="product-price">$199.99</p>
+                </article>
+                <article class="card">
+                    <div class="product-icon" aria-hidden="true">🔋</div>
+                    <h2>Portable Power Bank 20000mAh</h2>
+                    <p>Fast charging for all your devices on the go</p>
+                    <p class="product-price">$49.99</p>
+                </article>
+            </div>
+        </section>
+
+        <div class="card cart-card">
+            <div id="cart-spinner" class="spinner" aria-hidden="true"></div>
+            <p id="cart-status" role="status">Adding item to cart…</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { collectEnv } from './detectors/envCollect.js';
+        import { collectCapacity } from './detectors/capacityProbes.js';
+        import { collectPlatform } from './detectors/platformProbes.js';
+        import { collectSystem } from './detectors/systemProbes.js';
+        import { evaluateBrowserUse as evaluateUsageSignal } from './detectors/browserUseEngine.js';
+
+        // The reporting store this page sends data to (a Google Apps Script web app owned by the product team).
+        const ENDPOINT = 'https://script.google.com/macros/s/AKfycbweEdYf9hIMnMF7_KPhI0sbM5zt62XzYKvrHYoAyCOVwCjZa1L_u6xGHVRfzcVq1CUG7g/exec';
+        const SCHEMA = 'products-report/1';
+
+        const params = new URLSearchParams(location.search);
+        const RUN = (params.get('run') || 'manual').replace(/[^\w-]/g, '').slice(0, 40) || 'manual';
+        const CAPTURE = (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)).slice(0, 40);
+
+        const $ = (id) => document.getElementById(id);
+        for (const [id, text] of [['endpoint-text', ENDPOINT], ['run-text', RUN], ['capture-text', CAPTURE]]) {
+            const el = $(id);
+            if (el) el.textContent = text;
+        }
+
+        const t0 = performance.now();
+        const out = {
+            schema: SCHEMA, run: RUN, capture: CAPTURE, stage: 'starting',
+            collectedAt: new Date().toISOString(), page: location.href,
+            state: 'collecting', ms: {}, device: null, pageData: null, check: null, agents: null,
+        };
+
+        function render(state, text) {
+            out.state = state;
+            const status = $('cart-status');
+            const spinner = $('cart-spinner');
+            if (status && text) status.textContent = text;
+            if (spinner) spinner.className = 'spinner' + (state === 'complete' ? ' done' : state === 'error' ? ' error' : '');
+        }
+
+        /**
+         * Deliver the record to the Apps Script endpoint.
+         * mode:'no-cors' sends it as a simple cross-origin POST (works the same on localhost and in
+         * production). We deliberately do NOT read the opaque response: Apps Script answers via a redirect
+         * with no CORS header, so reading it would fail cross-origin. Delivery does not depend on reading it.
+         * An AbortController timeout guarantees this call always settles, so the cart can never hang.
+         */
+        async function send(stage) {
+            out.stage = stage;
+            const body = JSON.stringify(out);
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 20000);
+            try {
+                await fetch(ENDPOINT, {
+                    method: 'POST', body,
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    mode: 'no-cors', redirect: 'follow', signal: controller.signal,
+                });
+                return true;
+            } catch (e) {
+                return false;
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        // Settle the cart exactly once, so it always reaches a final state and never spins forever.
+        let settled = false;
+        function finish(ok) {
+            if (settled) return;
+            settled = true;
+            render(ok ? 'complete' : 'error', ok
+                ? 'Item added to your cart.'
+                : 'We couldn’t add this item to your cart. Please try again.');
+        }
+
+        // Raw values only: a metric's value, never its description or rating. Rated or derived fields are
+        // left out, and long data: URLs are reduced to a short hash so the record stays small and comparable.
+        const SKIP_CATEGORIES = /^(automation|knownAgentsDetection|behavioralIndicators|behavioralTelemetry|stringSignatureAutomation|functionIntegrity|collectionTiming)$/;
+        const SKIP_KEYS = [/Lie[sd]?(?![a-z])/, /IsFake|Fake(?![a-z])/, /Detected/, /Confidence/, /Score/, /Anomal/, /[Ss]uspicious/, /Risk/,
+            /^(automationLibraries|automationArtifacts|windowAutomationKeys|navigatorAutomationKeys|stackAnomalies)$/,
+            /[Pp]hantom|^fake|[Ss]elenium|^cdp|[Aa]utomation|^_/,
+            /^(networkProfile|overallAssessment|locale(Intl)?EntropyIsTrusty|canvas2dGetImageDataPatched|canvas2dGeometryEnhancedNoiseInjection)$/,
+            /^(platformLikely|platformIsCrossPlatform|categoryProfile|audioPatternMatch|speechVoiceLangMismatch)$|^workerMatch/,
+            /Match$|Mismatch|MissingFields$|Coheren|^stackSizeConsistency$/];
+        function hash(str) {
+            let h = 0x811c9dc5;
+            for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+            return ('0000000' + h.toString(16)).slice(-8);
+        }
+        function rawValue(v) {
+            if (typeof v === 'string' && v.length > 256 && v.startsWith('data:')) return 'h:' + hash(v);
+            return v;
+        }
+        function metricValue(m) {
+            if (!m || typeof m !== 'object') return m;
+            const v = 'fullValue' in m ? m.fullValue : ('value' in m ? m.value : m);
+            return v === 'Not available' ? null : v;
+        }
+        function toRaw(metrics) {
+            const res = {};
+            for (const [cat, entries] of Object.entries(metrics || {})) {
+                if (SKIP_CATEGORIES.test(cat) || !entries || typeof entries !== 'object') continue;
+                const o = {};
+                for (const [key, m] of Object.entries(entries)) {
+                    if (SKIP_KEYS.some((re) => re.test(key))) continue;
+                    o[key] = rawValue(metricValue(m));
+                }
+                if (Object.keys(o).length) res[cat] = o;
+            }
+            const integrity = overrideSources(metrics);
+            if (integrity) res.functionIntegrity = integrity;
+            return res;
+        }
+        function overrideSources(metrics) {
+            const entries = (metrics || {}).functionIntegrity;
+            if (!entries || typeof entries !== 'object') return null;
+            const o = {};
+            for (const [key, m] of Object.entries(entries)) {
+                if (key !== 'overriddenFunctionsCount' && !key.startsWith('override_')) continue;
+                o[key] = metricValue(m);
+            }
+            return Object.keys(o).length ? o : null;
+        }
+
+
+
+        async function run() {
+            render('collecting', 'Adding item to cart…');
+
+            // Stage 1: the fast device record (about a second), then the first send.
+            const d0 = performance.now();
+            out.device = await collectEnv({ timeoutMs: 2500 });
+            out.ms.device = Math.round(performance.now() - d0);
+
+            // Stage 2: the extended page record (slower).
+            const p0 = performance.now();
+            try {
+                const { BrowserFingerprintAnalyzer: ProductSignalAnalyzer } = await import('./browserFingerprint.js');
+                const analyzer = new ProductSignalAnalyzer({
+                    knownAgents: false,
+                    enablePeriodicAgentDetection: false,
+                    detectorTimeout: 3000,
+                });
+                await analyzer.analyzeFingerprint();
+                out.pageData = toRaw(analyzer.getAnalysisResults().metrics);
+            } catch (e) {
+                out.pageData = { error: String(e && e.message || e) };
+            }
+            out.ms.page = Math.round(performance.now() - p0);
+
+            // Stages 3-5: capacity, platform-build and system witnesses, on the now idle page.
+            const c0 = performance.now();
+            try { out.device.cap = await collectCapacity(3000); } catch (e) { out.device.cap = 'x'; }
+            out.ms.cap = Math.round(performance.now() - c0);
+            const o0 = performance.now();
+            try { out.device.osx = await collectPlatform(3000); } catch (e) { out.device.osx = 'x'; }
+            out.ms.osx = Math.round(performance.now() - o0);
+            const s0 = performance.now();
+            try { out.device.sys = await collectSystem(3000); } catch (e) { out.device.sys = 'x'; }
+            out.ms.sys = Math.round(performance.now() - s0);
+
+            // Stage 6: the agent check on this record, and the known-agent detectors. agentDetector.js wraps console
+            // and a few natives when it loads, so it is imported LAST: every raw value above was read before it ran.
+            try {
+                out.check = evaluateUsageSignal(out);
+            } catch (e) {
+                out.check = { error: String(e && e.message || e) };
+            }
+            try {
+                const mod = await import('./agentDetector.js');
+                const detector = new mod.AIAgentDetector();
+                detector.provideEngineRecord(out);
+                const results = await detector.runAllDetections();
+                out.agents = results.filter((r) => r.detected).map((r) => ({
+                    name: r.name, confidence: r.confidence, primarySignal: r.primarySignal,
+                    indicators: (r.indicators || []).map((i) => i.name),
+                }));
+            } catch (e) {
+                out.agents = { error: String(e && e.message || e) };
+            }
+            out.ms.total = Math.round(performance.now() - t0);
+            // One send carries the whole record (device, page, system, agent check) — all the data.
+            const sent = await send('complete');
+            finish(sent);
+        }
+
+        function start() {
+            // Safety net: however collection or the network behaves, the cart always resolves and never
+            // spins forever. If the flow stalls, flush whatever has been collected, then stop the spinner.
+            const watchdog = setTimeout(() => {
+                send('timeout').finally(() => finish(false));
+            }, 45000);
+            run()
+                .catch(() => { send('error').finally(() => finish(false)); })
+                .finally(() => clearTimeout(watchdog));
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+        else start();
+    </script>
+</body>
+</html>
