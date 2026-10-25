@@ -187,6 +187,59 @@ const MUSE_AGENT_SIGNATURES = {
 };
 
 // ============================================================
+// DEBUG OUTPUT
+//
+// Detection is silent by default. An operator watching the console of a page
+// that carries this file sees nothing from it: no banner, no per-detector
+// line, no results object. That is the same requirement detectMuse is built
+// around -- and it was being defeated here, because a full runAllDetections
+// wrote 28 lines, 26 of them console.log, naming every detector and dumping
+// the whole result set.
+//
+// Nothing is lost by the silence: a detector that throws still returns its
+// error in the result object, which is where a caller should be reading it.
+//
+// Turn the trace back on with either of
+//
+//     window.__agentDetectorDebug = true     // before running
+//     ?agentDetectorDebug=1                  // in the URL
+//
+// The URL form matters for containers where devtools cannot be opened and the
+// page is all there is to work with.
+//
+// Writes go through the ORIGINAL console methods the hook below captures, not
+// through the live ones. That hook wraps console.log so the ChatGPT and
+// HyperBrowser detectors can read what wrapped it; sending our own output
+// through that wrapper would feed the detector its own logging. Resolution is
+// lazy, so this does not depend on being defined after the hook.
+// ============================================================
+const detectorLog = (() => {
+    let fromUrl = null;
+    const isOn = () => {
+        try {
+            if (window.__agentDetectorDebug === true) return true;
+            if (fromUrl === null) {
+                try {
+                    fromUrl = new URLSearchParams(window.location.search).get('agentDetectorDebug') === '1';
+                } catch (e) { fromUrl = false; }
+            }
+            return fromUrl;
+        } catch (e) { return false; }   // no window: stay off
+    };
+    const write = (kind) => function () {
+        if (!isOn()) return;
+        let fn;
+        try { fn = (window.__nativeConsoleMethods && window.__nativeConsoleMethods[kind]) || console[kind]; }
+        catch (e) { fn = console[kind]; }
+        try { fn.apply(console, arguments); } catch (e) { /* logging never breaks detection */ }
+    };
+    return {
+        log: write('log'), info: write('info'), warn: write('warn'),
+        error: write('error'), debug: write('debug')
+    };
+})();
+
+// ============================================================
 // EARLY CONSOLE HOOK FOR BROWSER-USE DETECTION
 // This must run immediately at module load to capture console
 // messages before any agent detection runs.
@@ -449,7 +502,7 @@ class AIAgentDetector {
         if (this.isRunning) return this.detectionResults;
         
         this.isRunning = true;
-        console.log('🕵️ Starting AI Agent Detection...');
+        detectorLog.log('🕵️ Starting AI Agent Detection...');
         
         const detectors = [
             { name: 'ManusBrowser', detector: this.detectManusBrowser },
@@ -587,7 +640,7 @@ class AIAgentDetector {
                     this.detectedAgents.add(name);
                     const indicatorNames = indicators.map(ind => ind.name).join(', ');
                     const signalInfo = primarySignal ? ` [${primarySignal}]` : '';
-                    console.log(`✅ ${name} agent detected with ${(confidence * 100).toFixed(1)}% confidence${signalInfo}${indicatorNames ? ` (indicators: ${indicatorNames})` : ''}`);
+                    detectorLog.log(`✅ ${name} agent detected with ${(confidence * 100).toFixed(1)}% confidence${signalInfo}${indicatorNames ? ` (indicators: ${indicatorNames})` : ''}`);
                     
                     // Dispatch agentDetected event for the overlay and UI updates
                     try {
@@ -598,12 +651,12 @@ class AIAgentDetector {
                         // Silent fail if event dispatch fails
                     }
                 } else {
-                    console.log(`❌ ${name} agent not detected`);
+                    detectorLog.log(`❌ ${name} agent not detected`);
                 }
                 
                 return result;
             } catch (error) {
-                console.warn(`⚠️ Error detecting ${name}:`, error);
+                detectorLog.warn(`⚠️ Error detecting ${name}:`, error);
                 return {
                     name,
                     detected: false,
@@ -619,7 +672,7 @@ class AIAgentDetector {
         this.detectionResults = await Promise.all(detectionPromises);
         this.isRunning = false;
         
-        console.log('🕵️ AI Agent Detection complete:', this.detectionResults);
+        detectorLog.log('🕵️ AI Agent Detection complete:', this.detectionResults);
         return this.detectionResults;
     }
 
@@ -654,7 +707,7 @@ class AIAgentDetector {
                     description: 'Manus Cloud helper attribute detected on document.head',
                     value: document.head.getAttribute(MANUS_AGENT_SIGNATURES.MANUS_HELPER_READY_ATTR) || 'present'
                 });
-                console.log("Manus helper detected");
+                detectorLog.log("Manus helper detected");
             }
 
             // Manus patches window.postMessage and keeps the original on a global
@@ -669,7 +722,7 @@ class AIAgentDetector {
             }
 
             if (indicators.length > 0) {
-                console.log("Manus Browser detected via DOM element/attribute");
+                detectorLog.log("Manus Browser detected via DOM element/attribute");
                 
                 return {
                     detected: true,
@@ -686,7 +739,7 @@ class AIAgentDetector {
                 primarySignal: null
             };
         } catch (error) {
-            console.debug('Error in Manus Browser detection:', error);
+            detectorLog.debug('Error in Manus Browser detection:', error);
             return {
                 detected: false,
                 confidence: 0.0,
@@ -761,7 +814,7 @@ class AIAgentDetector {
             // Only run extension check on Chrome 128
             // Other versions will show console errors when probing extensions
             if (majorVersion !== 128) {
-                console.debug(`Manus extension check skipped - Chrome ${majorVersion} (only runs on 128)`);
+                detectorLog.debug(`Manus extension check skipped - Chrome ${majorVersion} (only runs on 128)`);
                 return {
                     detected: false,
                     confidence: 0.0,
@@ -780,7 +833,7 @@ class AIAgentDetector {
                     description: 'Manus extension resource successfully fetched',
                     value: extensionUrl
                 });
-                console.log("Manus extension detected via resource fetch");
+                detectorLog.log("Manus extension detected via resource fetch");
                 return {
                     detected: true,
                     confidence: 0.95,
@@ -872,7 +925,7 @@ class AIAgentDetector {
             }
 
             if (indicators.length > 0) {
-                console.log("Claude Agent detected via DOM element(s)");
+                detectorLog.log("Claude Agent detected via DOM element(s)");
                 
                 // Mark as detected for the early observer
                 window.__claudeAgentAlreadyDetected = true;
@@ -898,7 +951,7 @@ class AIAgentDetector {
                 primarySignal: null
             };
         } catch (error) {
-            console.debug('Error in Claude Agent detection:', error);
+            detectorLog.debug('Error in Claude Agent detection:', error);
             return {
                 detected: false,
                 confidence: 0.0,
@@ -929,12 +982,12 @@ class AIAgentDetector {
                 }
             }
             if (indicators.length > 0) {
-                console.log('OpenAI Codex agent detected via DOM element(s)');
+                detectorLog.log('OpenAI Codex agent detected via DOM element(s)');
                 return { detected: true, confidence: 0.96, indicators, primarySignal: indicators[0].name };
             }
             return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
         } catch (error) {
-            console.debug('Error in Codex agent detection:', error);
+            detectorLog.debug('Error in Codex agent detection:', error);
             return { detected: false, confidence: 0.0, indicators: [], error: error.message };
         }
     }
@@ -957,12 +1010,12 @@ class AIAgentDetector {
                         ' present AND element "' + VENDOR_AGENT_SIGNATURES.SIGMA_ELEMENT_ID + '" in DOM',
                     value: el.outerHTML.substring(0, 150) + (el.outerHTML.length > 150 ? '...' : '')
                 });
-                console.log('SIGMA agent detected (global + element)');
+                detectorLog.log('SIGMA agent detected (global + element)');
                 return { detected: true, confidence: 0.96, indicators, primarySignal: indicators[0].name };
             }
             return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
         } catch (error) {
-            console.debug('Error in SIGMA agent detection:', error);
+            detectorLog.debug('Error in SIGMA agent detection:', error);
             return { detected: false, confidence: 0.0, indicators: [], error: error.message };
         }
     }
@@ -973,7 +1026,7 @@ class AIAgentDetector {
     async detectCursorAgent() {
         try {
             if (typeof window[VENDOR_AGENT_SIGNATURES.CURSOR_GLOBAL] !== 'undefined') {
-                console.log('Cursor agent detected via window property');
+                detectorLog.log('Cursor agent detected via window property');
                 return {
                     detected: true,
                     confidence: 0.93,
@@ -987,7 +1040,7 @@ class AIAgentDetector {
             }
             return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
         } catch (error) {
-            console.debug('Error in Cursor agent detection:', error);
+            detectorLog.debug('Error in Cursor agent detection:', error);
             return { detected: false, confidence: 0.0, indicators: [], error: error.message };
         }
     }
@@ -999,7 +1052,7 @@ class AIAgentDetector {
         try {
             const attr = VENDOR_AGENT_SIGNATURES.JETSKI_ATTR;
             if (document.documentElement && document.documentElement.hasAttribute(attr)) {
-                console.log('Jetski agent detected via documentElement attribute');
+                detectorLog.log('Jetski agent detected via documentElement attribute');
                 return {
                     detected: true,
                     confidence: 0.93,
@@ -1013,7 +1066,7 @@ class AIAgentDetector {
             }
             return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
         } catch (error) {
-            console.debug('Error in Jetski agent detection:', error);
+            detectorLog.debug('Error in Jetski agent detection:', error);
             return { detected: false, confidence: 0.0, indicators: [], error: error.message };
         }
     }
@@ -1035,12 +1088,12 @@ class AIAgentDetector {
                 }
             }
             if (indicators.length > 0) {
-                console.log('Thunderbit agent detected via DOM element(s)');
+                detectorLog.log('Thunderbit agent detected via DOM element(s)');
                 return { detected: true, confidence: 0.94, indicators, primarySignal: indicators[0].name };
             }
             return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
         } catch (error) {
-            console.debug('Error in Thunderbit detection:', error);
+            detectorLog.debug('Error in Thunderbit detection:', error);
             return { detected: false, confidence: 0.0, indicators: [], error: error.message };
         }
     }
@@ -1083,12 +1136,12 @@ class AIAgentDetector {
             } catch (e) { /* ignore */ }
 
             if (indicators.length > 0) {
-                console.log('Patched native function(s) detected');
+                detectorLog.log('Patched native function(s) detected');
                 return { detected: true, confidence: 0.9, indicators, primarySignal: indicators[0].name };
             }
             return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
         } catch (error) {
-            console.debug('Error in patched-native-function detection:', error);
+            detectorLog.debug('Error in patched-native-function detection:', error);
             return { detected: false, confidence: 0.0, indicators: [], error: error.message };
         }
     }
@@ -1268,7 +1321,7 @@ class AIAgentDetector {
                 ? (supportive.length ? 0.97 : 0.95)
                 : (supportive.length >= 2 ? 0.90 : 0.80);
 
-            console.log('Grok Bot patch signature detected');
+            detectorLog.log('Grok Bot patch signature detected');
             return {
                 detected: true,
                 confidence,
@@ -1283,7 +1336,7 @@ class AIAgentDetector {
                 }
             };
         } catch (error) {
-            console.debug('Error in Grok Bot detection:', error);
+            detectorLog.debug('Error in Grok Bot detection:', error);
             return { detected: false, confidence: 0.0, indicators: [], error: error.message };
         } finally {
             if (frame && frame.parentNode) {
@@ -1321,12 +1374,12 @@ class AIAgentDetector {
             }
 
             if (indicators.length > 0) {
-                console.log('Genspark AI Agent detected via DOM element(s)');
+                detectorLog.log('Genspark AI Agent detected via DOM element(s)');
                 return { detected: true, confidence: 0.95, indicators, primarySignal: indicators[0].name };
             }
             return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
         } catch (error) {
-            console.warn('Error during Genspark detection:', error);
+            detectorLog.warn('Error during Genspark detection:', error);
             return { detected: false, confidence: 0.0, indicators: [], error: error.message };
         }
     }
@@ -1353,13 +1406,13 @@ class AIAgentDetector {
             const isDetected = this._evaluateDetectionScore(detectedSentinels, DETECTION_THRESHOLD);
 
             if (isDetected) {
-                console.log('Comet AI Agent detected via CSS variable fingerprinting:', {
+                detectorLog.log('Comet AI Agent detected via CSS variable fingerprinting:', {
                     detectedSentinels: detectedSentinels.length,
                     threshold: DETECTION_THRESHOLD,
                     matches: detectedSentinels
                 });
             } else {
-                console.log('Comet AI Agent not detected - insufficient CSS sentinel matches:', {
+                detectorLog.log('Comet AI Agent not detected - insufficient CSS sentinel matches:', {
                     detectedSentinels: detectedSentinels.length,
                     required: DETECTION_THRESHOLD
                 });
@@ -1367,7 +1420,7 @@ class AIAgentDetector {
 
             return isDetected;
         } catch (error) {
-            console.warn('Error during Comet AI Agent detection:', error);
+            detectorLog.warn('Error during Comet AI Agent detection:', error);
             return false;
         }
     }
@@ -1397,7 +1450,7 @@ class AIAgentDetector {
                 }
             } catch (error) {
                 // Individual sentinel check failed, continue with others
-                console.debug(`Failed to check CSS sentinel ${sentinel}:`, error);
+                detectorLog.debug(`Failed to check CSS sentinel ${sentinel}:`, error);
             }
         }
 
@@ -1456,7 +1509,7 @@ class AIAgentDetector {
             
             return false;
         } catch (error) {
-            console.debug('Error in Selenium detection:', error);
+            detectorLog.debug('Error in Selenium detection:', error);
             return false;
         }
     }
@@ -1542,7 +1595,7 @@ class AIAgentDetector {
                 indicators: indicators
             };
         } catch (error) {
-            console.debug('Error in Puppeteer detection:', error);
+            detectorLog.debug('Error in Puppeteer detection:', error);
             return {
                 detected: false,
                 indicators: [],
@@ -1589,7 +1642,7 @@ class AIAgentDetector {
                 primarySignal: indicators.length > 0 ? 'Skyvern_Window_Property' : null
             };
         } catch (error) {
-            console.debug('Error in Skyvern detection:', error);
+            detectorLog.debug('Error in Skyvern detection:', error);
             return {
                 detected: false,
                 confidence: 0.0,
@@ -1659,7 +1712,7 @@ class AIAgentDetector {
                 primarySignal: indicators.length > 0 ? 'ChatGPT_Console_Override' : null
             };
         } catch (error) {
-            console.debug('Error in ChatGPT Browser detection:', error);
+            detectorLog.debug('Error in ChatGPT Browser detection:', error);
             return {
                 detected: false,
                 confidence: 0.0,
@@ -1696,7 +1749,7 @@ class AIAgentDetector {
                 primarySignal: indicators.length > 0 ? 'Fellou_Window_Property' : null
             };
         } catch (error) {
-            console.debug('Error in Fellou Browser detection:', error);
+            detectorLog.debug('Error in Fellou Browser detection:', error);
             return {
                 detected: false,
                 confidence: 0.0,
@@ -1881,7 +1934,7 @@ class AIAgentDetector {
                 detectedReasons // Include for debugging
             };
         } catch (error) {
-            console.debug('Error in HyperBrowser detection:', error);
+            detectorLog.debug('Error in HyperBrowser detection:', error);
             return {
                 detected: false,
                 confidence: 0.0,
@@ -1964,7 +2017,7 @@ class AIAgentDetector {
                 engine
             };
         } catch (error) {
-            console.debug('Error in browser-use detection:', error);
+            detectorLog.debug('Error in browser-use detection:', error);
             return {
                 detected: false,
                 confidence: 0.0,
@@ -2439,7 +2492,7 @@ class AIAgentDetector {
             };
             
         } catch (error) {
-            console.debug('Error in Playwright detection:', error);
+            detectorLog.debug('Error in Playwright detection:', error);
             return {
                 detected: false,
                 confidence: 0.0,
@@ -2471,7 +2524,7 @@ class AIAgentDetector {
             });
             
             // Trigger serialization only when CDP Runtime.enable is active
-            console.debug(testError);
+            detectorLog.debug(testError);
             
             if (cdpDetected) {
                 indicators.push({
@@ -2488,7 +2541,7 @@ class AIAgentDetector {
                 primarySignal: cdpDetected ? 'CDP_Runtime_Active' : null
             };
         } catch (error) {
-            console.debug('Error in DevTools detection:', error);
+            detectorLog.debug('Error in DevTools detection:', error);
             return {
                 detected: false,
                 confidence: 0.0,
