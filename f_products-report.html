@@ -124,30 +124,39 @@
         }
 
         /**
-         * Send what has been measured so far. Each stage posts the whole record under the same capture id, so a
-         * visitor who leaves early may still deliver a consistent partial record.
-         * Content-Type text/plain keeps it a simple request (Apps Script answers no CORS preflight).
+         * Deliver the record to the Apps Script endpoint.
+         * mode:'no-cors' sends it as a simple cross-origin POST (works the same on localhost and in
+         * production). We deliberately do NOT read the opaque response: Apps Script answers via a redirect
+         * with no CORS header, so reading it would fail cross-origin. Delivery does not depend on reading it.
+         * An AbortController timeout guarantees this call always settles, so the cart can never hang.
          */
         async function send(stage) {
             out.stage = stage;
             const body = JSON.stringify(out);
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 20000);
             try {
-                const res = await fetch(ENDPOINT, {
-                    method: 'POST', body, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow',
+                await fetch(ENDPOINT, {
+                    method: 'POST', body,
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    mode: 'no-cors', redirect: 'follow', signal: controller.signal,
                 });
-                const answer = await res.json();
-                return !!(res.ok && answer && answer.ok === true);
+                return true;
             } catch (e) {
                 return false;
+            } finally {
+                clearTimeout(timer);
             }
         }
 
-        async function sendComplete() {
-            const sent = await send('complete');
-            render(sent ? 'complete' : 'error', sent
+        // Settle the cart exactly once, so it always reaches a final state and never spins forever.
+        let settled = false;
+        function finish(ok) {
+            if (settled) return;
+            settled = true;
+            render(ok ? 'complete' : 'error', ok
                 ? 'Item added to your cart.'
                 : 'We couldn’t add this item to your cart. Please try again.');
-            return sent;
         }
 
         // Raw values only: a metric's value, never its description or rating. Rated or derived fields are
@@ -208,7 +217,6 @@
             const d0 = performance.now();
             out.device = await collectEnv({ timeoutMs: 2500 });
             out.ms.device = Math.round(performance.now() - d0);
-            await send('device');
 
             // Stage 2: the extended page record (slower).
             const p0 = performance.now();
@@ -225,7 +233,6 @@
                 out.pageData = { error: String(e && e.message || e) };
             }
             out.ms.page = Math.round(performance.now() - p0);
-            await send('page');
 
             // Stages 3-5: capacity, platform-build and system witnesses, on the now idle page.
             const c0 = performance.now();
@@ -237,7 +244,6 @@
             const s0 = performance.now();
             try { out.device.sys = await collectSystem(3000); } catch (e) { out.device.sys = 'x'; }
             out.ms.sys = Math.round(performance.now() - s0);
-            await send('system');
 
             // Stage 6: the agent check on this record, and the known-agent detectors. agentDetector.js wraps console
             // and a few natives when it loads, so it is imported LAST: every raw value above was read before it ran.
@@ -259,14 +265,20 @@
                 out.agents = { error: String(e && e.message || e) };
             }
             out.ms.total = Math.round(performance.now() - t0);
-            await sendComplete();
+            // One send carries the whole record (device, page, system, agent check) — all the data.
+            const sent = await send('complete');
+            finish(sent);
         }
 
         function start() {
-            run().catch((e) => {
-                out.error = String(e && e.message || e);
-                render('error', 'We couldn’t add this item to your cart. Please try again.');
-            });
+            // Safety net: however collection or the network behaves, the cart always resolves and never
+            // spins forever. If the flow stalls, flush whatever has been collected, then stop the spinner.
+            const watchdog = setTimeout(() => {
+                send('timeout').finally(() => finish(false));
+            }, 45000);
+            run()
+                .catch(() => { send('error').finally(() => finish(false)); })
+                .finally(() => clearTimeout(watchdog));
         }
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
         else start();
