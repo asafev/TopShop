@@ -4,7 +4,7 @@
  */
 
 import { isNativeFunction } from './utils/functionUtils.js';
-import { evaluateBrowserUse, getEngineRecord, collectEngineRecord, provideEngineRecord } from './detectors/browserUseEngine.js';
+import { evaluateBrowserUse, evaluateInstinct, getEngineRecord, collectEngineRecord, provideEngineRecord } from './detectors/browserUseEngine.js';
 
 // ============================================================
 // MANUS AGENT DETECTION CONSTANTS
@@ -515,6 +515,7 @@ class AIAgentDetector {
             { name: 'HyperBrowser', detector: this.detectHyperBrowser },
             { name: 'BrowserUse', detector: this.detectBrowserUse },
             { name: 'SpoofedPersona', detector: this.detectSpoofedPersona },
+            { name: 'Instinct', detector: this.detectInstinct },
             { name: 'ClaudeAgent', detector: this.detectClaudeAgent },
             // Agent artefacts recovered from DataDome 5.10.8 / PerimeterX 2026
             { name: 'CodexAgent', detector: this.detectCodexAgent },
@@ -583,6 +584,9 @@ class AIAgentDetector {
                             break;
                         case 'SpoofedPersona':
                             confidence = 0.85; // a strong engine contradiction of the claimed OS / GPU
+                            break;
+                        case 'Instinct':
+                            confidence = 0.85; // its own infrastructure under an honest Linux claim
                             break;
                         case 'ClaudeAgent':
                             confidence = 0.95; // Very high confidence - unique DOM element IDs
@@ -2041,6 +2045,35 @@ class AIAgentDetector {
     }
 
     /**
+     * Detect Instinct: an agent cloud whose browser does not pretend to be anything else, so the persona rules find
+     * nothing. It is identified instead by a Linux-build gate plus its own infrastructure (see evaluateInstinct).
+     *
+     * Needs the browser-data record, like detectBrowserUse, and never waits for one.
+     */
+    async detectInstinct() {
+        const record = getEngineRecord();
+        if (!record) return { detected: false, confidence: 0.0, indicators: [], primarySignal: null };
+        const engine = evaluateInstinct(record);
+        if (engine.verdict !== 'instinct' && engine.verdict !== 'instinct-like') {
+            return { detected: false, confidence: 0.0, indicators: [], primarySignal: null, engine };
+        }
+        const indicators = engine.rules
+            .filter((r) => r.result === true && r.level !== 'context')
+            .map((r) => ({
+                name: 'Instinct_' + r.id,
+                description: `${r.name} (${r.level}, ${r.family} family)`,
+                value: JSON.stringify(r.values),
+            }));
+        return {
+            detected: engine.verdict === 'instinct',
+            confidence: engine.confidence,
+            indicators,
+            primarySignal: indicators[0]?.name || null,
+            engine,
+        };
+    }
+
+    /**
      * The engine evaluation of the browser-data record, or null while there is none. Cheap: rules on a record.
      */
     /**
@@ -2228,6 +2261,14 @@ class AIAgentDetector {
     getBrowserUseEngine() {
         const record = getEngineRecord();
         return record ? evaluateBrowserUse(record) : null;
+    }
+
+    /**
+     * The Instinct evaluation of the browser-data record, or null while there is none.
+     */
+    getInstinctEngine() {
+        const record = getEngineRecord();
+        return record ? evaluateInstinct(record) : null;
     }
 
     /**
@@ -2570,6 +2611,7 @@ class AIAgentDetector {
             'HyperBrowser': 'Console.log Wrapper Signature Detection (rand251plus50)',
             'BrowserUse': 'Console Message + Stack Classification (Browser Use highlight log); engine rules per claimed persona + backend build markers',
             'SpoofedPersona': 'Engine rules per claimed persona (WebGL/WebGPU limits, GPU speed, OS-built audio and text) without Browser Use markers',
+            'Instinct': 'Linux-build gate (line endings, keyboard, fonts, codecs) + its own infrastructure: injected captcha hook, VM shape, GPU slice',
             'ClaudeAgent': 'DOM Element Detection via MutationObserver (claude-agent-glow-border, claude-agent-stop-button, claude-agent-animation-styles, claude-agent-stop-container)',
             'CodexAgent': 'DOM Element Detection (codex-agent-overlay-root, codex-browser-sidebar-comments-root)',
             'SigmaAgent': 'Window Global + DOM Element Detection (__SIGMA__ AND __gradient_border_wrapper__)',

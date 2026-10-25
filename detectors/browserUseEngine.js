@@ -105,7 +105,7 @@ function osx(rec) {
 }
 
 /** Chromium gate: the claimed renderer is ANGLE's and the enforced viewport is clamped (Gecko leaves 100000). */
-function chromium(rec) {
+function chromium_(rec) {
   const ren = present(get(rec, 'device.gts.r')), vp = get(rec, 'device.gle.vp');
   if (ren === null || vp === undefined || vp === null) return null;
   return ren.startsWith('ANGLE') && vp !== GECKO_UNCLAMPED;
@@ -155,7 +155,9 @@ const MARKS = {
   text: ['8f23c98e', 'ac1bfd85'],        // the worker canvas text render of a Linux text stack
   highlight: ['9268fb2f'],               // CSS Highlight colour of the Windows persona (retired: genuine Windows shares it)
 };
-const matches = (kind, value) => value !== null && MARKS[kind].indexOf(mark(kind, value)) >= 0;
+const markedIn = (table, kind, value) => value !== null && value !== undefined
+  && (table[kind] || []).indexOf(mark(kind, String(value))) >= 0;
+const matches = (kind, value) => markedIn(MARKS, kind, value);
 
 /** The GL error of the last device.gms.r row (renderbufferStorageMultisample at MAX_SAMPLES + 1). */
 function maxPlusOneError(rec) {
@@ -179,13 +181,13 @@ function audioValue(rec) {
 
 function glVp1(rec) {
   const vp = glValue(get(rec, 'device.gle.vp')), claim = glValue(get(rec, 'device.gbk.VIEWPORT'));
-  if (vp === null || claim === null || chromium(rec) !== true) return null;
+  if (vp === null || claim === null || chromium_(rec) !== true) return null;
   return vp !== claim;
 }
 
 function glUov1(rec) {
   const uov = glValue(get(rec, 'device.gle.uov'));
-  if (uov === null || chromium(rec) !== true) return null;
+  if (uov === null || chromium_(rec) !== true) return null;
   const parts = uov.split('/');
   const links = parts.filter((p) => /^[01]{3}$/.test(p)).map((p) => p[2]);
   if (links.indexOf('1') >= 0) return true;
@@ -375,7 +377,7 @@ function rBlobWin001(rec) {
 }
 
 function edWin1(rec) {
-  if (!ext1(rec) || plat(rec) !== 'Win32' || chromium(rec) !== true) return null;
+  if (!ext1(rec) || plat(rec) !== 'Win32' || chromium_(rec) !== true) return null;
   const f = present(get(rec, 'device.ed.f'));
   if (f === null) return null;
   return f.startsWith('3,') ? true : f.startsWith('4,') ? false : null;
@@ -412,7 +414,7 @@ function vmScores(o) {
 
 function vmWin1(rec) {
   const o = osx(rec);
-  if (o === null || plat(rec) !== 'Win32' || chromium(rec) !== true) return null;
+  if (o === null || plat(rec) !== 'Win32' || chromium_(rec) !== true) return null;
   const vm = o.vm;
   if (int(get(rec, 'page.jsEnvironment.architecture.nanSignByte')) !== 255 || !isDict(vm) || !isDict(vm.nan) || vm.nan.div !== X86_NAN) return null;
   const s = vmScores(o);
@@ -422,7 +424,7 @@ function vmWin1(rec) {
 
 function chr1(rec) {
   const o = osx(rec);
-  if (o === null || ['Win32', 'MacIntel'].indexOf(plat(rec)) < 0 || chromium(rec) !== true) return null;
+  if (o === null || ['Win32', 'MacIntel'].indexOf(plat(rec)) < 0 || chromium_(rec) !== true) return null;
   const u = o.uas;
   if (!isDict(u) || !['rng', 'rngI'].every((k) => typeof u[k] === 'string' && u[k].startsWith('rgb'))) return null;
   const mtp = int(get(rec, 'device.em.mtp'));
@@ -432,7 +434,7 @@ function chr1(rec) {
 
 function chr2(rec) {
   const o = osx(rec), ren = present(get(rec, 'device.gts.r'));
-  if (o === null || plat(rec) !== 'MacIntel' || chromium(rec) !== true || !ren || ren.indexOf('ANGLE Metal Renderer') < 0) return null;
+  if (o === null || plat(rec) !== 'MacIntel' || chromium_(rec) !== true || !ren || ren.indexOf('ANGLE Metal Renderer') < 0) return null;
   const e = o.edm;
   if (!isDict(e) || !sameList(e.ac1, [6, 4]) || !Array.isArray(e.wm) || !e.wm.length || [3, 4].indexOf(e.wm[0]) < 0) return null;
   if (sameList(e.gb, [4, 0]) && (sameList(e.ac, [6, 9]) || sameList(e.ac, [6, 10])) && sameList(e.nd, [4, 8])) return true;
@@ -644,7 +646,7 @@ export function evaluateBrowserUse(record) {
     label: VERDICT_LABELS[verdict],
     confidence,
     persona,
-    chromium: chromium(rec),
+    chromium: chromium_(rec),
     summary: summarize(persona, strong, supporting, attribution, l3, rules),
     fired: { strong: strong.map((r) => r.id), supporting, attribution, l3 },
     rules,
@@ -672,6 +674,203 @@ function summarize(persona, strong, supporting, attribution, l3, rules) {
   if (l3) parts.push('BU-L3-1 fired');
   if (attribution.length) parts.push('Browser Use markers: ' + attribution.join(', '));
   return parts.join('; ');
+}
+
+// ---- Instinct: an agent cloud that does NOT dress its browser as anything else ------------------------------------
+
+/**
+ * Instinct's platform, keyboard, line endings, fonts and codecs all agree with the Linux build it really runs, so the
+ * persona rules above have nothing to contradict: a honest Linux claim cannot be caught lying about itself. What
+ * identifies it is its own infrastructure (a fixed VM shape and a GPU slice) plus one injected component.
+ *
+ * The Linux gate is therefore not "it says Linux": it is "it says Linux AND the engine facts a Linux build must carry
+ * are all there". That keeps these rules off a Windows or macOS persona dressed as Linux, which belongs to the
+ * persona rules above, and off a genuine Linux desktop, which fails every evidence rule below.
+ *
+ * Rates measured 2026-10-25 against 346,646 real devices (8 customer sites, our own network left out) and the 241-capture
+ * research corpus; each rule carries its own. Only ONE Instinct session has page-side data so far, so every rule here
+ * is a candidate: the next session is its held-out test, not more evidence.
+ *
+ * Counting is by FAMILY, not by rule. The heap ceiling and the display geometry are both the VM's size; the renderer,
+ * the allocation ceiling and the multisample limit are all the same GPU slice. Three rules of one family are one fact.
+ */
+const INSTINCT_MARKS = {
+  global: ['7a5ae1a4'],   // a captcha-interception global injected into every frame: 0 of 241 corpus captures
+  heap: ['cb46df64'],     // the container's JS heap ceiling: 0 of 346,646 real devices
+  geom: ['cd483f1f'],     // screen | work area | viewport | window as one string: 0 of 346,646 real devices
+};
+const INSTINCT_GPU = /NVIDIA L40S-\d+Q\b/;   // an NVIDIA vGPU profile; the digit is the slice's frame buffer in GB
+
+/** The Linux engine facts a genuine Linux Chromium carries. A Linux claim without them is a persona, not a build. */
+const LINUX_FACTS = [
+  ['line endings', (rec) => get(rec, 'device.nos'), (v) => v === 'lf'],
+  ['102nd key', (rec) => get(sys(rec) || {}, 'kb.k'), (v) => typeof v === 'string' && / IntlBackslash=<|^IntlBackslash=</.test(' ' + v)],
+  ['range input colour', (rec) => get(osx(rec) || {}, 'uas.rng'), (v) => v === 'rgb(157, 150, 142)'],
+  ['BlinkMacSystemFont', (rec) => get(sys(rec) || {}, 'ff.bm'), (v) => typeof v === 'string' && v.startsWith('BlinkMacSystemFont')],
+  ['OS core fonts', (rec) => get(rec, 'device.ofn'), (v) => isDict(v) && v.windows === 0 && v.macos === 0 && Number(v.linux) > 0],
+  ['no AAC encoder', (rec) => get(rec, 'device.wcd.aen'), (v) => v === 0],
+];
+const LINUX_FACTS_MIN = 3;   // of the six; the stages that carry them are optional, so a few may simply be missing
+
+/** { ok, platform, facts: [{name, value, holds}], held, measured, why } */
+function linuxBuild(rec) {
+  const p = present(plat(rec)) || present(get(rec, 'page.navigator.platform'));
+  const uad = present(get(rec, 'device.em.uadPlat'));
+  const facts = LINUX_FACTS.map(([name, read, ok]) => {
+    let value = null;
+    try { value = read(rec); } catch (e) { /* stage absent */ }
+    const seen = value !== null && value !== undefined;
+    return { name, value: seen ? value : null, holds: seen ? !!ok(value) : null };
+  });
+  const measured = facts.filter((f) => f.holds !== null).length;
+  const held = facts.filter((f) => f.holds === true).length;
+  const claims = p !== null && /^Linux/i.test(p) && (uad === null || /^Linux$/i.test(uad));
+  const chromium = chromium_(rec);
+  let why = '';
+  if (!claims) why = 'not a Linux claim' + (p ? ' (' + p + ')' : '');
+  else if (chromium !== true) why = 'not a Chromium engine';
+  else if (measured < LINUX_FACTS_MIN) why = 'too few Linux engine facts measured (' + measured + ' of ' + LINUX_FACTS.length + ')';
+  else if (held < LINUX_FACTS_MIN) why = 'the Linux claim is not backed by its engine facts (' + held + '/' + measured + '): a persona, not a Linux build';
+  return { ok: claims && chromium === true && measured >= LINUX_FACTS_MIN && held >= LINUX_FACTS_MIN,
+    platform: p, uadPlatform: uad, chromium, facts, held, measured, why };
+}
+
+/** screen | work area | viewport | window, from the page record (the device record carries no geometry). */
+function geometry(rec) {
+  const d = get(rec, 'page.display'), w = get(rec, 'page.window');
+  if (!isDict(d) || !isDict(w)) return null;
+  const pairs = [[d.width, d.height], [d.availWidth, d.availHeight], [w.innerWidth, w.innerHeight], [w.outerWidth, w.outerHeight]];
+  if (pairs.some((pr) => !pr.every((x) => isInt(x) && x >= 0))) return null;
+  return pairs.map((pr) => pr[0] + 'x' + pr[1]).join('|');
+}
+
+const INSTINCT_RULES = [
+  { id: 'INS-M1', name: 'Captcha-interception global injected into every frame', family: 'injected', level: 'attribution',
+    fields: ['device.ei.extra', 'device.ei.extraCount'],
+    why: 'A fresh same-origin frame carries a global this page never defines, whose name is a reCAPTCHA interception hook. '
+      + '0 of 241 corpus captures carry it (4 carry any extra frame global at all). It most likely names a captcha-solving '
+      + 'component, which other operators could license too, so it is attribution with a caveat, not proof of Instinct.',
+    test: (rec) => {
+      const e = get(rec, 'device.ei.extra');
+      if (!Array.isArray(e)) return null;
+      return e.some((n) => markedIn(INSTINCT_MARKS, 'global', String(n)));
+    } },
+  { id: 'INS-S1', name: 'Container heap ceiling', family: 'vm-shape', level: 'strong',
+    fields: ['device.lhm.limit'],
+    why: "V8's heap limit follows the container's memory. This exact ceiling is on 0 of 346,646 real devices; real "
+      + 'Linux visitors cluster on much larger ones. Cheap for the operator to change by resizing the VM.',
+    test: (rec) => {
+      const v = get(rec, 'device.lhm.limit');
+      return isInt(v) ? markedIn(INSTINCT_MARKS, 'heap', v) : null;
+    } },
+  { id: 'INS-S2', name: 'Fixed VM display with a window of no size', family: 'vm-shape', level: 'strong',
+    fields: ['page.display', 'page.window'],
+    why: 'Screen, work area, viewport and window together. 0 of 346,646 real devices show this combination. The window '
+      + 'being 0x0 on its own is NOT rare (3.1% of real devices), so only the four together count.',
+    test: (rec) => {
+      const g = geometry(rec);
+      return g === null ? null : markedIn(INSTINCT_MARKS, 'geom', g);
+    } },
+  { id: 'INS-S3', name: 'NVIDIA data-centre vGPU slice', family: 'gpu-slice', level: 'strong',
+    fields: ['device.gts.r'],
+    why: 'The claimed renderer names an NVIDIA vGPU profile, which only exists on virtualised data-centre hardware. '
+      + '0 of 346,646 real devices. Infrastructure, not a build: it changes when the operator changes GPU fleet.',
+    test: (rec) => {
+      const r = present(get(rec, 'device.gts.r')) || present(get(rec, 'device.g1.renderer'));
+      return r === null ? null : INSTINCT_GPU.test(r);
+    } },
+  { id: 'INS-P1', name: 'Allocation fails at the GPU limit it reports', family: 'gpu-slice', level: 'supporting',
+    fields: ['device.gle.toa', 'device.gle.roa'],
+    why: 'A texture and a renderbuffer AT the reported maximum both fail with INVALID_VALUE, not just above it: the '
+      + "slice cannot allocate what the physical card's driver advertises. 0 of 95 genuine captures.",
+    test: (rec) => {
+      const toa = int(get(rec, 'device.gle.toa')), roa = int(get(rec, 'device.gle.roa'));
+      if (toa === null || roa === null) return null;
+      return toa === 1281 && roa === 1281;
+    } },
+  { id: 'INS-P2', name: 'Multisample limit it cannot use', family: 'gpu-slice', level: 'supporting',
+    fields: ['device.gbk.MAX_SAMPLES', 'device.gle.smp'],
+    why: 'MAX_SAMPLES is reported far above the sample counts that actually work, the same frame-buffer ceiling seen '
+      + 'from another side. Genuine devices report 4, 8 or 16 and can use them.',
+    test: (rec) => {
+      const claimed = int(get(rec, 'device.gbk.MAX_SAMPLES')), smp = glValue(get(rec, 'device.gle.smp'));
+      if (claimed === null || smp === null) return null;
+      const usable = smp.split(',').map((x) => parseInt(x, 10)).filter((x) => x > 0);
+      return usable.length > 0 && claimed >= 4 * Math.max.apply(null, usable);
+    } },
+  { id: 'INS-C1', name: 'Window geometry delta (outer minus inner)', family: 'vm-shape', level: 'context',
+    fields: ['page.window'],
+    why: 'Shown for the record only. It is outer minus inner, so a 0x0 window over this viewport forces it: the same '
+      + 'fact as the geometry rule, never counted twice.',
+    test: (rec) => {
+      const w = get(rec, 'page.window');
+      if (!isDict(w) || ![w.outerWidth, w.outerHeight, w.innerWidth, w.innerHeight].every(isInt)) return null;
+      return w.outerWidth - w.innerWidth < 0 && w.outerHeight - w.innerHeight < 0;
+    } },
+];
+
+export const INSTINCT_VERDICT_LABELS = {
+  instinct: 'Instinct (agent cloud)',
+  'instinct-like': 'Instinct-like infrastructure',
+  clean: 'No Instinct evidence',
+  'n/a': 'Not applicable',
+};
+
+/**
+ * The Instinct rules on one record. Never throws.
+ * @param {{device?: object, page?: object}} record
+ */
+export function evaluateInstinct(record) {
+  const rec = isDict(record) ? record : {};
+  const gate = linuxBuild(rec);
+  const rules = INSTINCT_RULES.map((r) => {
+    const o = gate.ok ? run(r, rec) : { result: null, error: null };
+    return { id: r.id, name: r.name, family: r.family, level: r.level, result: o.result, error: o.error,
+      why: r.why, values: fieldValues(rec, r.fields) };
+  });
+  const fired = rules.filter((r) => r.result === true && r.level !== 'context');
+  const families = new Set(fired.map((r) => r.family));
+  const attribution = fired.some((r) => r.level === 'attribution');
+  const corroborating = new Set([...families].filter((f) => f !== 'injected')).size;
+  const measured = rules.filter((r) => r.result !== null).length;
+
+  let verdict, confidence;
+  if (!gate.ok || measured === 0) {
+    verdict = 'n/a';
+    confidence = 0;
+  } else if (attribution && corroborating >= 1) {
+    verdict = 'instinct';
+    confidence = 0.95;
+  } else if (attribution) {
+    verdict = 'instinct';
+    confidence = 0.9;
+  } else if (corroborating >= 2) {
+    verdict = 'instinct';
+    confidence = 0.85;
+  } else if (corroborating === 1) {
+    verdict = 'instinct-like';
+    confidence = 0.5;
+  } else {
+    verdict = 'clean';
+    confidence = 0;
+  }
+  const parts = [];
+  if (!gate.ok) parts.push('gate: ' + gate.why);
+  else parts.push('Linux build confirmed (' + gate.held + '/' + gate.measured + ' engine facts), '
+    + measured + '/' + rules.length + ' rules measured');
+  if (attribution) parts.push('the injected captcha hook is present');
+  if (corroborating) parts.push(corroborating + ' corroborating famil' + (corroborating === 1 ? 'y' : 'ies')
+    + ' (' + [...families].filter((f) => f !== 'injected').join(', ') + ')');
+  return {
+    version: ENGINE_VERSION,
+    verdict,
+    label: INSTINCT_VERDICT_LABELS[verdict],
+    confidence,
+    gate,
+    summary: parts.join('; '),
+    fired: { attribution, families: [...families], ids: fired.map((r) => r.id) },
+    rules,
+  };
 }
 
 // ---- raw values for display ----------------------------------------------------------------------------------------
@@ -708,6 +907,13 @@ const CHECK_ROWS = [
   ['CPU', 'WebAssembly relaxed SIMD', 'device.sys.wa'],
   ['CPU', 'Float32 NaN sign byte', 'page.jsEnvironment.architecture.nanSignByte'],
   ['CPU', 'Float64 NaN bits', 'device.osx.vm.nan.div'],
+  ['Agent infrastructure', 'Extra globals in a fresh frame', 'device.ei.extra'],
+  ['Agent infrastructure', 'JS heap ceiling', 'device.lhm.limit'],
+  ['Agent infrastructure', 'Screen / work area', ['page.display.width', 'page.display.height', 'page.display.availWidth', 'page.display.availHeight']],
+  ['Agent infrastructure', 'Viewport / window', ['page.window.innerWidth', 'page.window.innerHeight', 'page.window.outerWidth', 'page.window.outerHeight']],
+  ['Agent infrastructure', 'Allocation at the reported max (texture / renderbuffer)', ['device.gle.toa', 'device.gle.roa']],
+  ['Agent infrastructure', 'Multisample: reported / usable', ['device.gbk.MAX_SAMPLES', 'device.gle.smp']],
+  ['Agent infrastructure', 'OS core fonts (win / mac / linux)', ['device.ofn.windows', 'device.ofn.macos', 'device.ofn.linux']],
   ['Retired inputs', 'Blob native endings (main realm)', 'device.bm.m.sn.h'],
   ['Retired inputs', 'Word-step caret offsets', 'device.ed.f'],
   ['Retired inputs', 'BlinkMacSystemFont alias', 'device.sys.ff.bm'],
