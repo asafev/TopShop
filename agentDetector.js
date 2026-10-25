@@ -96,35 +96,42 @@ const VENDOR_AGENT_SIGNATURES = {
 // Measured 2026-10-11 to 2026-10-22 across three sessions.
 // ============================================================
 const MUSE_AGENT_SIGNATURES = {
-    // Infinity-Infinity yields the hardware's default NaN, and V8 writes its
-    // high byte differently per CPU family: 0xFF on x86, 0x7F on ARM. A user
-    // agent override cannot reach that byte, which is why it carries the most
-    // weight here. Muse reads ARM while claiming x86_64 -- a datacenter host.
-    NAN_BYTE_X86: 0xFF,
-    NAN_BYTE_ARM: 0x7F,
-
     // The software rasteriser a container falls back to with no GPU. Muse
-    // reports it honestly instead of spoofing a GPU, and the resulting render
-    // hash was identical in every session: a fleet image, not a device.
+    // reports it honestly instead of spoofing a GPU. The renderer string is
+    // what gets matched: the render hash is not stable, it moved between
+    // captured sessions (8b328194 -> 81c179d8) while the string did not.
     SWIFTSHADER_MARKER: "SwiftShader",
+
+    // A second route to the same fact that never touches WebGL, so a page or a
+    // policy that blocks WebGL cannot blind the gate. decodingInfo reports
+    // powerEfficient false for all three of these when there is no hardware
+    // decoder; a control machine with an Intel iGPU answers hw to all three.
+    //
+    // The codec strings have to be fully specified. A loose "vp9" makes Chrome
+    // log 'Invalid (ambiguous) video codec string', which would break the
+    // silence this detector exists to keep. Measured 2026-10-25: the three
+    // below produce zero console writes.
+    SOFTWARE_DECODE_CODECS: [
+        'video/mp4; codecs="avc1.42E01E"',
+        'video/webm; codecs="vp09.00.10.08"',
+        'video/mp4; codecs="av01.0.05M.08"'
+    ],
 
     // Virtual-display furniture. A real desktop reserves a strip for a taskbar
     // (Windows: bottom), a menu bar and dock (macOS: top and bottom) or a top
     // bar (GNOME: top). Muse reserves exactly 40px at the top and nothing on
-    // the other three edges, in 3/3 sessions. These are properties of the
-    // display, not the window, so they hold steady while the window resizes.
+    // the other three edges, in 4/4 sessions. These are properties of the
+    // display rather than the window, so they survive a resize. A Windows
+    // control on this hardware reads T0 R0 B48 L0.
     WORKAREA: { top: 40, right: 0, bottom: 0, left: 0 },
 
-    // Blink features this image launches with switched off. Two others that
-    // looked promising were measured on an ordinary browser and dropped:
-    // SharedArrayBuffer is gated on cross-origin isolation, so it reports
-    // absent on any non-isolated page, and Web Share is absent on ordinary
-    // desktop builds too. Neither was telling us anything about the container.
+    // Blink features this image launches with switched off. Not anything a
+    // user chose: these three have no UI that turns them off together.
     DISABLED_FEATURES: ["bluetooth", "joinAdInterestGroup", "browsingTopics"],
 
-    // Build-ID maps a bundler leaves on window. Weak on purpose: a stock
+    // Build-ID maps a bundler leaves on window. Weak on its own: a stock
     // browser carrying the same extension produces an identical map, measured
-    // 2026-10-22, so this corroborates and must never convict on its own.
+    // on an ordinary Chrome 2026-10-22.
     DEBUG_ID_MAPS: ["_sentryDebugIds", "__sentry_debug_ids__", "_debugIds"],
 
     // Signals that MUST fire. The score decides nothing until every name here
@@ -133,7 +140,8 @@ const MUSE_AGENT_SIGNATURES = {
     // the fragility is not spread evenly:
     //
     //   museSoftwareGPU is structural. The container has no GPU, which is a
-    //   property of how the fleet is provisioned rather than of any one image.
+    //   property of how the fleet is provisioned rather than of any one image,
+    //   and it is now proven by either of two independent routes.
     //
     //   museBuildIdMap is a third party artefact. It is present only while this
     //   image keeps shipping that extension, and a re-cut image, an extension
@@ -146,11 +154,36 @@ const MUSE_AGENT_SIGNATURES = {
     // detector has gone blind".
     REQUIRED: ["museSoftwareGPU", "museBuildIdMap"],
 
-    // Applied on top of the gates. The two gates together are worth 19, which
-    // is under the line on purpose: at least one further signal is always
-    // needed, so the gates alone can never convict.
-    WEIGHTS: { arch: 22, swiftshader: 16, workarea: 12, brands: 6, features: 6, debugIds: 3 },
-    THRESHOLD: 28
+    // Applied on top of the gates, which are worth 19 together. The threshold
+    // sits above that on purpose, so the gates alone can never convict, and
+    // above gates plus the two weakest corroborators (28) as well: reaching 30
+    // needs the work area, or the disabled-feature set plus one other.
+    WEIGHTS: { swiftshader: 16, workarea: 14, features: 8, brands: 5, soloExtension: 4, debugIds: 3 },
+    THRESHOLD: 30
+
+    // Measured against a real Chrome and dropped rather than shipped, recorded
+    // here so they do not get proposed again:
+    //
+    //   CPU family (Infinity-Infinity, byte 3: 0xFF x86, 0x7F ARM). Muse reads
+    //   ARM under a user agent claiming x86_64 and that byte cannot be spoofed,
+    //   which made it look like the strongest signal available. It is not a
+    //   Muse signal: Chrome freezes the Linux platform token at
+    //   "X11; Linux x86_64" under UA reduction, so every genuine ARM Linux
+    //   Chrome shows the same contradiction. It identifies ARM Linux, and ARM
+    //   Linux is mostly CI runners.
+    //
+    //   Storage quota. Muse reports exactly 10 GiB, which looked like a fixed
+    //   container filesystem beside the messy 8460289901 a used profile gives.
+    //   It is not: a headed, fresh-profile Chrome on real hardware with a real
+    //   GPU returns exactly 10737418240 as well. That is simply what Chrome
+    //   hands a new profile, shared with every incognito window.
+    //
+    //   deviceMemory (a control reports 32, so there is no clamp to read),
+    //   jsHeapSizeLimit and the Intl timezone count (both identical to a
+    //   Windows control), speechSynthesis voice count (0 on the control too,
+    //   because getVoices populates asynchronously), SharedArrayBuffer (gated
+    //   on cross-origin isolation, so it measures the page and not the
+    //   browser) and Web Share (absent on ordinary desktop builds).
 };
 
 // ============================================================
@@ -1961,11 +1994,14 @@ class AIAgentDetector {
      * Muse (Meta) agent browser.
      *
      * Scores the container rather than the page, because Muse leaves the page
-     * alone. Requires two of the three heavy signals before it reports
-     * detected; see MUSE_AGENT_SIGNATURES.WEIGHTS for why each is weighted the
-     * way it is. Every read below is a property read or a WebGL context that is
-     * released immediately -- nothing writes to the console, nothing goes out
-     * on the network.
+     * alone: Meta states the agent reads an accessibility tree and cannot run
+     * JavaScript in the page, and four captured sessions agree.
+     *
+     * Two gates must fire before anything is reported; see
+     * MUSE_AGENT_SIGNATURES.REQUIRED for what each one is worth and how it can
+     * fail. Every read below is a property read, a WebGL context released
+     * immediately, or a decodingInfo query with a fully specified codec string.
+     * Nothing writes to the console and nothing goes out on the network.
      */
     async detectMuse() {
         const S = MUSE_AGENT_SIGNATURES;
@@ -1976,25 +2012,12 @@ class AIAgentDetector {
             indicators.push({ name, description, value });
         };
 
-        // --- CPU family against the architecture the user agent claims ------
-        try {
-            const f = new Float32Array(1);
-            f[0] = Infinity;
-            f[0] = f[0] - f[0];
-            const byte = new Uint8Array(f.buffer)[3];
-            const ua = navigator.userAgent || '';
-            // Chrome on Apple Silicon reports "Intel Mac OS X" by design, so an
-            // ARM Mac is not a mismatch and must not be counted as one.
-            const isMac = /Mac OS X|Macintosh/i.test(ua);
-            const claimsX86 = /x86_64|Win64|WOW64|amd64/i.test(ua);
-            if (byte === S.NAN_BYTE_ARM && claimsX86 && !isMac) {
-                add('museArchMismatch', S.WEIGHTS.arch,
-                    'CPU family reads ARM while the user agent claims x86_64 on a non-Mac platform; this byte is written by the hardware and a UA override cannot reach it',
-                    'nanByte=0x' + byte.toString(16).toUpperCase());
-            }
-        } catch (e) { /* no typed arrays: leave unscored */ }
+        // --- Gate: no GPU, proven by either of two independent routes -------
+        // WebGL first, because the renderer string says which rasteriser it is.
+        // Codec support is the fallback, so a page that blocks WebGL, or a
+        // build that stops reporting the renderer, does not blind the gate.
+        let noGpuEvidence = null;
 
-        // --- Software rasteriser --------------------------------------------
         try {
             const canvas = document.createElement('canvas');
             const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -2004,15 +2027,33 @@ class AIAgentDetector {
                     ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL))
                     : String(gl.getParameter(gl.RENDERER));
                 if (renderer.indexOf(S.SWIFTSHADER_MARKER) !== -1) {
-                    add('museSoftwareGPU', S.WEIGHTS.swiftshader,
-                        'WebGL renders through SwiftShader: there is no GPU and the build does not pretend otherwise',
-                        renderer.slice(0, 120));
+                    noGpuEvidence = renderer.slice(0, 110);
                 }
                 // Release it rather than leaving a live context on the page.
                 const lose = gl.getExtension('WEBGL_lose_context');
                 if (lose) lose.loseContext();
             }
-        } catch (e) { /* context refused: leave unscored */ }
+        } catch (e) { /* context refused: fall through to the codec route */ }
+
+        if (!noGpuEvidence && navigator.mediaCapabilities) {
+            try {
+                const decode = await Promise.all(S.SOFTWARE_DECODE_CODECS.map(contentType =>
+                    navigator.mediaCapabilities.decodingInfo({
+                        type: 'file',
+                        video: { contentType, width: 1920, height: 1080, bitrate: 3000000, framerate: 30 }
+                    })
+                ));
+                if (decode.length && decode.every(d => d.supported && !d.powerEfficient)) {
+                    noGpuEvidence = 'every codec decodes in software';
+                }
+            } catch (e) { /* leave the gate unproven */ }
+        }
+
+        if (noGpuEvidence) {
+            add('museSoftwareGPU', S.WEIGHTS.swiftshader,
+                'There is no GPU behind this browser and the build does not pretend otherwise: either the renderer is SwiftShader or every codec decodes in software',
+                noGpuEvidence);
+        }
 
         // --- Work-area insets reserved by the display -----------------------
         try {
@@ -2034,7 +2075,23 @@ class AIAgentDetector {
             }
         } catch (e) { /* screen metrics unavailable: leave unscored */ }
 
+        // --- Blink features the image launched with disabled ----------------
+        try {
+            const absent = S.DISABLED_FEATURES.filter(name => (name === 'browsingTopics')
+                ? !(name in document)
+                : !(name in navigator));
+            if (absent.length === S.DISABLED_FEATURES.length) {
+                add('museDisabledFeatures', S.WEIGHTS.features,
+                    'Web Bluetooth and both Privacy Sandbox entry points are absent together, which is a launch configuration rather than anything a user chose',
+                    absent.join(', '));
+            }
+        } catch (e) { /* leave unscored */ }
+
         // --- Chromium brands with no Google Chrome entry --------------------
+        // Deliberately light. A branded Chrome does carry a "Google Chrome"
+        // brand, so this separates Muse from Chrome, but plenty of embedded
+        // Chromium builds look the same -- the Claude desktop browser pane
+        // among them, measured 2026-10-25.
         try {
             const uaData = navigator.userAgentData;
             const brands = (uaData && uaData.brands) ? uaData.brands.map(b => b.brand) : [];
@@ -2049,30 +2106,36 @@ class AIAgentDetector {
             }
         } catch (e) { /* client hints unavailable: leave unscored */ }
 
-        // --- Blink features the image launched with disabled ----------------
-        try {
-            const absent = S.DISABLED_FEATURES.filter(name => (name === 'browsingTopics')
-                ? !(name in document)
-                : !(name in navigator));
-            if (absent.length === S.DISABLED_FEATURES.length) {
-                add('museDisabledFeatures', S.WEIGHTS.features,
-                    'Web Bluetooth and both Privacy Sandbox entry points are absent together, which is a launch configuration rather than anything a user chose',
-                    absent.join(', '));
-            }
-        } catch (e) { /* leave unscored */ }
-
-        // --- Build-ID map naming an extension (corroborating only) ----------
+        // --- Gate: a build-ID map naming an extension inside the image ------
+        // The capture that motivated the second half of this had the map as the
+        // only foreign global on the page, 1 of 1227. Testing that directly
+        // needs a baseline of known globals that drifts with every Chrome
+        // release, so the baseline stays in the research probe and what ships
+        // is the cheap half: how many distinct extensions the map names. A
+        // person accumulates extensions over time; a fleet image does not.
         try {
             for (const key of S.DEBUG_ID_MAPS) {
                 const map = window[key];
                 if (!map || typeof map !== 'object') continue;
-                const extension = Object.keys(map).join(' ').match(/chrome-extension:\/\/([a-z]{32})/);
-                if (extension) {
-                    add('museBuildIdMap', S.WEIGHTS.debugIds,
-                        'A bundler build-ID map on window names an extension inside the image; a stock browser carrying the same extension produces this too, so it only ever corroborates',
-                        key + ' ' + extension[1]);
-                    break;
+
+                const mapKeys = Object.keys(map);
+                const ids = new Set();
+                for (const stack of mapKeys) {
+                    const found = String(stack).match(/chrome-extension:\/\/([a-z]{32})/g) || [];
+                    for (const url of found) ids.add(url.slice('chrome-extension://'.length));
                 }
+                if (!ids.size) continue;
+
+                add('museBuildIdMap', S.WEIGHTS.debugIds,
+                    'A bundler build-ID map on window names an extension inside the image; a stock browser carrying the same extension produces this too, so it only ever corroborates',
+                    key + ' ' + Array.from(ids).join(' '));
+
+                if (ids.size === 1) {
+                    add('museSoloExtension', S.WEIGHTS.soloExtension,
+                        'That map names exactly one extension, which is what a fleet image looks like: it carries the extensions it was built with and no others',
+                        '1 extension across ' + mapKeys.length + ' map key(s)');
+                }
+                break;
             }
         } catch (e) { /* leave unscored */ }
 
