@@ -26,6 +26,7 @@ const MANUS_AGENT_SIGNATURES = {
 // Used for detecting Claude browser extension/agent
 // ============================================================
 const CLAUDE_AGENT_SIGNATURES = {
+    // ---- Builds <= 1.0.101: light DOM, reachable by getElementById ----
     // DOM element IDs injected by Claude agent when operating
     CLAUDE_GLOW_BORDER_ID: "claude-agent-glow-border",
     CLAUDE_STOP_BUTTON_ID: "claude-agent-stop-button",
@@ -33,8 +34,130 @@ const CLAUDE_AGENT_SIGNATURES = {
     // - animation styles <style> element (DataDome 5.10.8, report code "cld")
     // - stop container div (PerimeterX 2026 FB(), signal PX12729)
     CLAUDE_ANIMATION_STYLES_ID: "claude-agent-animation-styles",
-    CLAUDE_STOP_CONTAINER_ID: "claude-agent-stop-container"
+    CLAUDE_STOP_CONTAINER_ID: "claude-agent-stop-container",
+
+    // ---- Build 1.0.102 (released 2026-10-22): all of the above moved into a
+    // single CLOSED shadow root, where getElementById / querySelector /
+    // MutationObserver on document cannot reach them. Verified by diffing the two
+    // shipped bundles (assets/agent-visual-indicator.js):
+    //     document.body.appendChild call sites   5 -> 0
+    //     "claude-agent-animation-styles" string 2 -> 0
+    //     attachShadow call sites                2 -> 3
+    // Every id above still exists in the code; only its location changed. The ONLY
+    // thing left in the light DOM is the shadow HOST, which the extension itself
+    // forces into a very specific shape (see isClaudeShadowHost).
+    EXTENSION_ID: "fcoeoabgfenejglbffodgkkbkcdhcgfn",
+    // Web-accessible to <all_urls> with use_dynamic_url:false. The hash changes per
+    // build - keep old entries and append new ones. A miss is INCONCLUSIVE, never a
+    // negative: a renamed resource and an absent extension reject identically.
+    WAR_PATHS: ["assets/accessibility-tree.js-B-oUarrX.js"]
 };
+
+/**
+ * Is this element the Claude 1.0.102+ overlay shadow host?
+ *
+ * The extension's own code forces every one of these properties:
+ *   for (const a of host.getAttributeNames()) host.removeAttribute(a)  -> 0 attributes
+ *   everything is appended to the shadow root, never the host          -> 0 childNodes
+ *   attachShadow({mode:'closed'})                                      -> shadowRoot null
+ *   :host { all:initial !important; display:contents !important }      -> display contents
+ *   display:contents generates no box                                  -> 0 client rects
+ *
+ * Measured false-positive rate of this shape: 0 matches across 1,210 body-level
+ * elements on 37 real sites in a clean browser, and 0 across 7 installed extensions.
+ * `display:contents` is the discriminator - it scored 0/1,210 on its own, while
+ * "bare div" alone appears on ~11% of sites and open shadow roots on ~14%.
+ *
+ * Cross-agent safety: every other agent overlay tracked in this file is excluded by
+ * the zero-attribute clause alone, because each one names its host -
+ * Manus (id manus-action-mask-host), Codex (id codex-agent-overlay-root), SIGMA
+ * (id __gradient_border_wrapper__), Thunderbit (ids), browser-use (data-* attributes),
+ * Playwright (custom element <x-pw-glass>, attributes, real client rects).
+ * So this must never be relaxed to "bare div at the end of body": Dark Reader also
+ * keeps a container as body's last element child, via its own MutationObserver.
+ */
+function isClaudeShadowHost(el) {
+    if (!el || el.nodeType !== 1 || el.tagName !== 'DIV') return false;
+    if (el.attributes.length !== 0) return false;
+    if (el.childNodes.length !== 0) return false;
+    if (el.shadowRoot !== null) return false;          // an OPEN root would be visible here
+    let cs;
+    try { cs = getComputedStyle(el); } catch (e) { return false; }
+    if (cs.display !== 'contents') return false;
+    if (el.getClientRects().length !== 0) return false;
+    return true;
+}
+
+/**
+ * Find the Claude overlay shadow host, or null.
+ * The extension re-appends it whenever anything follows it, so scan from the end.
+ * The overlay content script is all_frames:false, so only the top frame can have one.
+ */
+function findClaudeShadowHost() {
+    if (typeof document === 'undefined' || !document.body) return null;
+    try { if (window.top !== window) return null; } catch (e) { return null; }
+    const kids = document.body.children;
+    for (let i = kids.length - 1; i >= 0; i--) {
+        if (isClaudeShadowHost(kids[i])) return kids[i];
+    }
+    return null;
+}
+
+/**
+ * Is the host intercepting hit-testing anywhere on screen?
+ *
+ * Hit-testing retargets through a closed shadow root to its host, so a point
+ * resolving to the host means something with pointer-events:auto is rendered inside
+ * the root. In 1.0.102 that is only the Stop button, which is .remove()d when the
+ * task ends - making this a true start/stop edge rather than a latch.
+ *
+ * It is also the strongest anti-false-positive clause available: an element with no
+ * children and no client rects that nevertheless intercepts the pointer is impossible
+ * unless it owns a shadow root with rendered content.
+ *
+ * Position-independent by design - the overlay sits at bottom centre today, but that
+ * is cosmetic. Costs ~1-2ms per sweep and is only ever called once a host exists.
+ */
+function claudeHostIsHitTestable(host) {
+    if (!host || typeof document === 'undefined') return false;
+    const w = window.innerWidth, h = window.innerHeight;
+    const pts = [];
+    for (let i = 1; i <= 11; i++) {                     // dense band along the bottom
+        for (let j = 0; j < 3; j++) pts.push([Math.round(w * i / 12), h - 12 - j * 18]);
+    }
+    for (let i = 1; i <= 5; i++) {                      // coarse full-viewport net
+        for (let j = 1; j <= 5; j++) pts.push([Math.round(w * i / 6), Math.round(h * j / 6)]);
+    }
+    for (const [x, y] of pts) {
+        try { if (document.elementFromPoint(x, y) === host) return true; } catch (e) { /* ignore */ }
+    }
+    return false;
+}
+
+/**
+ * Confirm the extension is installed, by fetching a web-accessible resource.
+ *
+ * GATED ON PURPOSE - call this only once a host has been found. In a browser WITHOUT
+ * the extension the request prints
+ *     "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT"
+ * to the DevTools console, and that line is browser-generated: it cannot be caught or
+ * suppressed from page JS. Gating means users who do not have the extension never
+ * issue the request and so never see the error.
+ *
+ * fetch() only. <link rel=preload>, <img> and <script> all fire a window-captured
+ * 'error' event that error-reporting SDKs collect; fetch's rejection is invisible to
+ * window 'error', unhandledrejection and the console API.
+ */
+async function claudeExtensionResourceServed() {
+    const base = 'chrome-extension://' + CLAUDE_AGENT_SIGNATURES.EXTENSION_ID + '/';
+    for (const path of CLAUDE_AGENT_SIGNATURES.WAR_PATHS) {
+        try {
+            const r = await fetch(base + path);
+            if (r && r.status === 200) return true;
+        } catch (e) { /* absent, renamed or blocked - indistinguishable */ }
+    }
+    return false;
+}
 
 /**
  * Agent artefacts recovered by reverse-engineering the client bundles of two
@@ -388,6 +511,19 @@ const detectorLog = (() => {
                     });
                 }
             }
+
+            // Build 1.0.102+: the ids above sit inside a closed shadow root and are
+            // unreachable from here, so watch for the host instead. It is appended to
+            // <body> the first time the agent acts on the page - which makes this
+            // observer, not a poll, the thing that timestamps the start of the session.
+            const shadowHost = findClaudeShadowHost();
+            if (shadowHost) {
+                foundElements.push({
+                    id: '(closed-shadow-host)',
+                    tagName: shadowHost.tagName,
+                    outerHTML: shadowHost.outerHTML.substring(0, 150)
+                });
+            }
             
             if (foundElements.length > 0) {
                 // Mark as detected to prevent duplicate events
@@ -439,11 +575,18 @@ const detectorLog = (() => {
                     for (const node of mutation.addedNodes) {
                         if (node.nodeType === Node.ELEMENT_NODE) {
                             // Check if this node or any descendant has our target IDs
-                            const hasTargetId = CLAUDE_ELEMENT_IDS.some(id => 
+                            const hasTargetId = CLAUDE_ELEMENT_IDS.some(id =>
                                 node.id === id || (node.querySelector && node.querySelector(`#${id}`))
                             );
-                            
-                            if (hasTargetId) {
+
+                            // 1.0.102+ adds no id we can match on, so also wake up for a
+                            // bare attribute-less DIV landing directly in <body>. The
+                            // full shape test runs inside checkForClaudeElements().
+                            const looksLikeShadowHost = node.tagName === 'DIV' &&
+                                node.attributes.length === 0 &&
+                                node.parentNode === document.body;
+
+                            if (hasTargetId || looksLikeShadowHost) {
                                 checkForClaudeElements();
                                 return;
                             }
@@ -928,15 +1071,53 @@ class AIAgentDetector {
                 });
             }
 
+            // Everything above only fires on builds <= 1.0.101. From 1.0.102 the same
+            // elements live inside a closed shadow root and getElementById returns null
+            // for all four, so the light-DOM path goes quiet against a current build.
+            // The host is what remains reachable.
+            const legacyHit = indicators.length > 0;
+            let confidence = legacyHit ? 0.95 : 0.0;
+
+            const shadowHost = findClaudeShadowHost();
+            if (shadowHost) {
+                confidence = Math.max(confidence, 0.80);
+                indicators.push({
+                    name: 'Claude_Agent_Shadow_Host',
+                    description: 'Claude agent closed-shadow-root overlay host detected in DOM (build 1.0.102+)',
+                    value: 'DIV, 0 attributes, 0 children, display:contents, 0 client rects'
+                });
+
+                // Upgrades the claim from "an odd empty div exists" to "an odd empty div
+                // is intercepting the pointer", which also means a task is live right now.
+                if (claudeHostIsHitTestable(shadowHost)) {
+                    confidence = Math.max(confidence, 0.90);
+                    indicators.push({
+                        name: 'Claude_Agent_Overlay_Interactive',
+                        description: 'Claude agent overlay is intercepting hit-testing (a task is running now)',
+                        value: 'elementFromPoint retargets to the shadow host'
+                    });
+                }
+
+                // Only probed once a host exists - see claudeExtensionResourceServed().
+                if (await claudeExtensionResourceServed()) {
+                    confidence = Math.max(confidence, 0.99);
+                    indicators.push({
+                        name: 'Claude_Extension_Resource',
+                        description: 'Claude extension served a web-accessible resource (extension id confirmed)',
+                        value: CLAUDE_AGENT_SIGNATURES.EXTENSION_ID
+                    });
+                }
+            }
+
             if (indicators.length > 0) {
                 detectorLog.log("Claude Agent detected via DOM element(s)");
-                
+
                 // Mark as detected for the early observer
                 window.__claudeAgentAlreadyDetected = true;
-                
+
                 const result = {
                     detected: true,
-                    confidence: 0.95,
+                    confidence,
                     indicators,
                     primarySignal: indicators[0].name
                 };
@@ -2612,7 +2793,7 @@ class AIAgentDetector {
             'BrowserUse': 'Console Message + Stack Classification (Browser Use highlight log); engine rules per claimed persona + backend build markers',
             'SpoofedPersona': 'Engine rules per claimed persona (WebGL/WebGPU limits, GPU speed, OS-built audio and text) without Browser Use markers',
             'Instinct': 'Linux-build gate (line endings, keyboard, fonts, codecs) + its own infrastructure: injected captcha hook, VM shape, GPU slice',
-            'ClaudeAgent': 'DOM Element Detection via MutationObserver (claude-agent-glow-border, claude-agent-stop-button, claude-agent-animation-styles, claude-agent-stop-container)',
+            'ClaudeAgent': 'Build <=1.0.101: DOM element ids via MutationObserver (claude-agent-glow-border, claude-agent-stop-button, claude-agent-animation-styles, claude-agent-stop-container). Build 1.0.102+: those ids moved into a closed shadow root, so detection is the overlay shadow host (bare DIV, 0 attributes, 0 children, display:contents, 0 client rects), plus hit-test retargeting for liveness and a gated web-accessible-resource fetch for extension identity',
             'CodexAgent': 'DOM Element Detection (codex-agent-overlay-root, codex-browser-sidebar-comments-root)',
             'SigmaAgent': 'Window Global + DOM Element Detection (__SIGMA__ AND __gradient_border_wrapper__)',
             'CursorAgent': 'Window Property Detection (__cursorDialogConfig)',
