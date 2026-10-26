@@ -96,7 +96,7 @@
 
         // The reporting store this page sends data to (a Google Apps Script web app owned by the product team).
         const ENDPOINT = 'https://script.google.com/macros/s/AKfycbweEdYf9hIMnMF7_KPhI0sbM5zt62XzYKvrHYoAyCOVwCjZa1L_u6xGHVRfzcVq1CUG7g/exec';
-        const SCHEMA = 'products-report/1';
+        const SCHEMA = 'browser-beacon/1';
 
         const params = new URLSearchParams(location.search);
         const RUN = (params.get('run') || 'manual').replace(/[^\w-]/g, '').slice(0, 40) || 'manual';
