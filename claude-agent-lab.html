@@ -49,7 +49,7 @@
 </div>
 
 <div class="card">
-  <h2>Other agent markers present</h2>
+  <h2>Other agent markers seen this session</h2>
   <table id="others"></table>
 </div>
 
@@ -176,6 +176,15 @@
   // Drawn from agentDetector.js. Recorded so a run by a NON-Claude agent proves two
   // things at once: that we identified the agent that was actually driving, and that
   // the Claude verdict stayed NO while it was.
+  //
+  // Accumulated across the session and never cleared. A live reading alone is not
+  // enough: an agent may add its highlight container and remove it again around every
+  // step, so whether a marker is present depends on when the poll happens to land. The
+  // union answers the question this page actually asks - did this agent EVER show a
+  // marker - and because it only ever grows it cannot flap, so it cannot drive a
+  // beacon per poll.
+  const markersEverSeen = {};
+
   function otherAgentMarkers() {
     const hit = {};
     const byId = (id) => !!document.getElementById(id);
@@ -266,12 +275,16 @@
       if (served) confidence = Math.max(confidence, 0.99);
     }
 
+    const markers = otherAgentMarkers();
+    Object.keys(markers).forEach(k => { markersEverSeen[k] = markers[k]; });
+
     return {
       schema: SCHEMA, run: RUN, capture: CAPTURE,
       collectedAt: new Date().toISOString(), page: location.href,
       verdict: { claudeAgent: verdict, confidence, live: !!seed },
       clauses,
-      otherAgents: otherAgentMarkers(),
+      otherAgents: markers,
+      otherAgentsEverSeen: Object.assign({}, markersEverSeen),
       env: {
         ua: navigator.userAgent, platform: navigator.platform,
         languages: navigator.languages, webdriver: navigator.webdriver === true,
@@ -319,10 +332,14 @@
     for (const [k, v] of Object.entries(rec.clauses)) {
       row(c, k, v === null ? '—' : v, (v === true || (Array.isArray(v) && v.length)) ? 'hit' : '');
     }
+    // The accumulated set, not the live one: a marker that showed up for one step still
+    // counts as this agent having been identified.
     const o = $('others'); o.innerHTML = '';
-    const keys = Object.keys(rec.otherAgents);
-    if (!keys.length) row(o, 'none detected', 'no non-Claude agent markers present', 'ok');
-    else for (const [k, v] of Object.entries(rec.otherAgents)) row(o, k, v, 'hit');
+    const seen = rec.otherAgentsEverSeen || {};
+    if (!Object.keys(seen).length) row(o, 'none detected', 'no non-Claude agent markers present', 'ok');
+    else for (const [k, v] of Object.entries(seen)) {
+      row(o, k, v + (rec.otherAgents[k] ? '' : '  (seen earlier, not present now)'), 'hit');
+    }
 
     $('report').textContent = JSON.stringify(rec, null, 2);
   }
@@ -337,11 +354,16 @@
     send(rec).then(ok => paint(rec, ok));
 
     // Keep watching: an agent that acts after load flips the verdict mid-session, and
-    // a second beacon records that transition.
-    let lastVerdict = rec.verdict.claudeAgent + '|' + rec.verdict.live;
+    // a second beacon records that transition. The key includes the accumulated marker
+    // names, so a NON-Claude agent that mounts its overlay after load refreshes the
+    // record too - without that, the report a cloud agent reads back off this page is
+    // whatever was true 1.2s after load, and a marker that appeared later is missed.
+    const stateKey = (r) => r.verdict.claudeAgent + '|' + r.verdict.live + '|' +
+      Object.keys(r.otherAgentsEverSeen).sort().join(',');
+    let lastVerdict = stateKey(rec);
     setInterval(async () => {
       const next = await collect();
-      const key = next.verdict.claudeAgent + '|' + next.verdict.live;
+      const key = stateKey(next);
       if (key === lastVerdict) return;
       lastVerdict = key;
       paint(next, false);
